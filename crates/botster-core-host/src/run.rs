@@ -316,10 +316,11 @@ impl HostEngine {
         }
     }
 
-    /// The kill of `stop_grace` (LC-5). With the link it goes to the worker, which kills the payload's group and keeps the
-    /// final model. Without it, the host sends `GroupSignal::EndPayload` to the worker alone, which it identifies by pid and
-    /// start time (AD-6). The host never signals a bare payload group and never kills the worker: the worker holds the
-    /// payload leader unreaped and ends the group itself (P3), and it keeps the final model (LC-5).
+    /// The kill of `stop_grace` (LC-5), at its due `pump`: `stop_grace` is the Core library's deadline, and the worker keeps no
+    /// timer (steward ruling R-97, follow-up). With the link it goes to the worker, which kills the payload's group and keeps
+    /// the final model. Without it, the host sends `GroupSignal::KillPayload` to the worker alone, which it identifies by pid
+    /// and start time (AD-6, the AD-7 identity). The host never signals a bare payload group and never kills the worker: the
+    /// worker holds the payload leader unreaped and ends the group itself (P3), and it keeps the final model (LC-5).
     fn kill_payload(&mut self, id: &SessionId) {
         let sent = self.send_msg(id, HostMsg::Kill);
         let gone = self.sessions.get(id).is_some_and(|s| s.worker.gone);
@@ -327,7 +328,7 @@ impl HostEngine {
             if let Some(identity) = self.identity_of(id) {
                 self.act(Action::SignalGroup {
                     identity,
-                    signal: GroupSignal::EndPayload,
+                    signal: GroupSignal::KillPayload,
                 });
             }
         }
@@ -926,8 +927,6 @@ impl HostEngine {
             notification_policy: s.request.notification_policy.clone().unwrap_or_default(),
             size_policy: s.request.size_policy.unwrap_or_default(),
             link_frame_bound: self.link_frame_bound(),
-            stop_grace_ms: u64::try_from(self.cfg.limits.stop_grace.as_millis())
-                .unwrap_or(u64::MAX),
             limits: self.cfg.limits.clone(),
         }
     }

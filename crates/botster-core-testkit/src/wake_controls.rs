@@ -24,10 +24,14 @@ fn edges_quiet(
     args: &Value,
 ) -> Result<Value, ControlError> {
     let EdgesQuiet {} = parse(args)?;
-    let table = harness
-        .processes_of(handle)
-        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
-    Ok(json!({ "quiet": harness.workers().edges_quiet(table) }))
+    let not_open = || ControlError::Bad(format!("the handle '{handle}' is not open"));
+    let (faults, _) = harness.faults_of(handle).ok_or_else(not_open)?;
+    let held = faults
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .held_workers();
+    let table = harness.processes_of(handle).ok_or_else(not_open)?;
+    Ok(json!({ "quiet": harness.workers().edges_quiet_but(table, &held) }))
 }
 
 #[derive(Debug, Deserialize)]

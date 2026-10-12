@@ -14,7 +14,9 @@ mod api;
 mod deadlines;
 mod drain;
 mod handoff;
+mod holds;
 mod observations;
+mod seeded_trace;
 mod stall;
 
 #[derive(Default)]
