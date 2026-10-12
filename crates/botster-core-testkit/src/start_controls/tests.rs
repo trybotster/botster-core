@@ -638,7 +638,8 @@ fn a_workers_deadline_during_a_host_wait_wakes_the_host_with_its_report() {
     assert!(
         events
             .iter()
-            .any(|e| matches!(e, Event::SessionState { .. }) || completes(&[e.clone()], start)),
+            .any(|e| matches!(e, Event::SessionState { .. })
+                || completes(std::slice::from_ref(e), start)),
         "the pump took the worker's exit: {events:?}"
     );
 }
