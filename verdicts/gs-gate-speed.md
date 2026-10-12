@@ -3118,3 +3118,37 @@ Sol-B reports source-only CLEAN on the same exact head and base. Both reviews cl
 Sol-B confirms the independent binary inventory, empty-binary fixture, and all three lead conditions. Both reviews retain the manual rejection rule.
 
 No finding changes. The final base review, ordinary gate, timing, required evidence, and final body remain pending. I ran no execution job.
+
+## Core #304 — train 1 delta review
+
+- Exact train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- Train tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`.
+- Current v1 base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Reviewed #304 member: `37e5ee32d326f588676b6fc727ad52c86022de61`.
+- VERDICT: CLEAN (source delta for #304 only; train gate pending).
+- Open findings in this delta: 0.
+
+The lead assigns this delta in `msg_plugin-w_1791781317_0f44c2`. The assignment requires a list review because #301 and v1 also change `core-pending.txt`.
+
+I read the complete #304 merge delta against train parent `f3b80d034acf7872fa2cc4009002a2460a5d5329`.
+
+The four-file #304 patch equals the previously reviewed patch after index lines and hunk positions are removed.
+
+The three proof entries, facade proof source, and worker proof source are byte-identical to the reviewed member.
+
+Static Git analysis independently confirms these ID changes:
+
+- The v1 import removes only `conf::tm_6_parked_work_does_not_spin` from this pending list.
+- The #301 member removes only `conf::a2_1_attach_state_rules` and adds comments.
+- The #304 member removes only `conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`.
+- The train ID set equals the current v1 set minus the two member removals. No member adds an ID.
+
+The imported comments preserve their IDs. No unrelated pending ID disappears. The DP-2 proof map remains unchanged.
+
+The v1 and #301 source changes are outside the two proof files and their test-process helper. They do not change the reviewed EOF assertion.
+
+The original composed-proof limit and local reversal provenance limit remain. This delta does not expand the original approval.
+
+Sol-B owns the combined train review. This verdict covers only #304's source delta. It does not approve #301 or accept train gate evidence.
+
+The final gate must use the frozen train head after the required delta reviews. I ran no gate or executable base-check script.

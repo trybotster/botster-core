@@ -24,6 +24,12 @@ Wait for repairs and the doorbell. I ran no execution job.
 
 ## Current Core PR #304 result
 
+Train 1 source delta CLEAN at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, current v1 base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+The #304 patch and proof sources preserve the reviewed member. The pending list retains exactly the v1, #301, and #304 removals.
+
+This verdict covers #304 only. Sol-B owns the combined train review. The frozen-head train gate remains pending. I ran no execution job.
+
 Package CLEAN at `37e5ee32d326f588676b6fc727ad52c86022de61`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open findings: 0.
 
 The three named proofs cover the approved DP-2 clause map. The new EOF assertion preserves buffered tail bytes and catches the supplied window write.
