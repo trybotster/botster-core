@@ -463,20 +463,46 @@ fn the_tracked_files_come_from_git() {
     assert!(tracked_with_submodules(not_a_repo.path()).is_err());
 }
 
-/// The packages of this workspace, from `cargo metadata`: botster-test-process with its slow feature and its slow test
-/// target.
+/// The packages of a `cargo metadata` output, with no cargo call (the slow tier runs the real one): the slow feature,
+/// the targets under the root with their kind, name, relative root and required features, and no target outside it.
 #[test]
-fn the_packages_come_from_cargo_metadata() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let packages = packages(root).unwrap();
-    let process = packages
+fn the_packages_come_from_the_cargo_metadata_output() {
+    let json = serde_json::json!({"packages": [
+        {"name": "a", "features": {"slow": []}, "targets": [
+            {"kind": ["lib"], "name": "a", "src_path": "/w/crates/a/src/lib.rs"},
+            {"kind": ["test"], "name": "slow_x", "src_path": "/w/crates/a/tests/slow_x.rs", "required-features": ["slow"]},
+            {"kind": ["lib"], "name": "dep", "src_path": "/elsewhere/src/lib.rs"}
+        ]},
+        {"name": "b", "features": {}, "targets": []}
+    ]});
+    let packages = packages_of(&json, Path::new("/w")).unwrap();
+    let names: Vec<(&str, bool)> = packages.iter().map(|p| (p.name.as_str(), p.slow)).collect();
+    assert_eq!(names, [("a", true), ("b", false)]);
+    let targets: Vec<(&str, &str, &str, Vec<String>)> = packages[0]
+        .targets
         .iter()
-        .find(|p| p.name == "botster-test-process")
-        .unwrap();
-    assert!(process.slow);
-    assert!(process.targets.iter().any(|t| t.kind == "test"
-        && t.name == "slow_process"
-        && t.root == "crates/botster-test-process/tests/slow_process.rs"));
+        .map(|t| {
+            (
+                t.kind.as_str(),
+                t.name.as_str(),
+                t.root.as_str(),
+                t.required_features.clone(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        targets,
+        [
+            ("lib", "a", "crates/a/src/lib.rs", vec![]),
+            (
+                "test",
+                "slow_x",
+                "crates/a/tests/slow_x.rs",
+                vec!["slow".to_string()]
+            ),
+        ]
+    );
+    assert!(packages_of(&serde_json::json!({}), Path::new("/w")).is_err());
 }
 
 /// #181 B6: a deleted test's name that stays in a document, a comment, a string or a test of another name does not pass;
