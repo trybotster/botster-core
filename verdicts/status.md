@@ -7,7 +7,7 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #305 | Final integration CLEAN at train-2 head `08098782`. Package and combined final receipts checked. | The lead uses train 2 as the new v1 base. No new Sol-C review is assigned. |
 | #312 | FINAL integration CLEAN at train 4b `e37b91d6`, Round 8. Package FINAL `ff3fb339` checked. Exact-head gate passes all ten steps; all 53 catches match. | Other member FINAL receipts, combined FINAL, and lead merge/tree/push verification. Old train 4 remains RED. |
 | #309 | Replacement repair source delta CLEAN at `cfcc438d`. Package `6b821a16` checked. RC-R100-6 closes through the pure-decision test. | Applicable train reviews, final train-6 gate, receipts, and merge verification. |
-| #311 | Authorized Round 4 CLEAN at `e214bbe0`. Package Round 192 `51304c53` checked. | The lead excludes #311 from train 4 after conflicts. Final import and train 5 evidence remain separate. |
+| #311 | Import source delta CLEAN at `2c5d09a0`, Round 5. Package Round 195 and body/ruling receipt `39428df3` checked. Local timeouts remain unclassified. | Budget diagnosis, train reviews, exact train gate, final receipts, and merge verification. No FINAL-READY or final evidence accepted. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
 | #318 | Round 2 NOT CLEAN at `d19cc1a6`. Package Round 194 `307ce71c` checked. F150–F152 close; F153 MEDIUM and F154 LOW remain. | Holder HUP ordering and readiness-claim repairs, then exact-head evidence. No F28 closure accepted. |
 

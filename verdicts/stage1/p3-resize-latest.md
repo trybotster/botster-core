@@ -144,3 +144,38 @@ I independently matched 92 unique mutation outcomes: 83 caught and nine unviable
 Zero integration findings remain. This CLEAN accepts the complete PR source and READY evidence at this exact head. The final import, applicable train reviews, final train gate, member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 5: post-CLEAN v1 import source delta
+
+- Head: `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d`.
+- Tree: `7c33a94223c0e88baea2701ddbac02d6f0663926`.
+- Imported base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Previous CLEAN head: `e214bbe03bfe5347879f6723f91eef7e96436fc7`.
+- Three-way base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Reviewed delta: the import's overlaps, list and session conflict resolutions, one obsolete Launch argument, and supplied local/body records.
+- Package verdict: Round 195 at `13b850a15a32b4974ee7d5b2b32b4c9d66e2f144`, with complete body/ruling receipt at `39428df35cf6c4c437bce941ad2c2aa04d44b4ca`, file `verdicts/p3-worker.md`.
+- DELTA request: `msg_plugin-w_1791829600_714507`.
+
+I read the complete package source round and its subsequent body/ruling receipt. Both accept source only at this exact head. Round 4 was CLEAN, so the lead's conditional split did not trigger. This is the required import delta, not a reopening of the earlier settled findings.
+
+### Import and interfaces
+
+Merge `e2e45f0bf7751361e187c7a743da06dd60d1413c` joins the previous CLEAN head and imported base. The pending conflict preserves both parents' removals: this package's in_1 ID and the base's two in_6 IDs remain absent. I independently checked all nine conformance set formulas and the real-proof formula. Each matches. Final pending is 387, real-pending 38, and real proofs seven. No accepted removal returns.
+
+The session conflict preserves the SZ-1 PTY-size test and the base's LC-5 comment. The following commit removes the old 5000 argument from Session::launch. That matches #305's removal of worker stop_grace: Core owns the deadline and sends Kill/KillPayload at its due pump. Both real and testkit signal mappings remain present.
+
+Sixteen of seventeen own change sets match the previous accepted package diff. The remaining difference is that Launch argument. Resize, no-op coherence, serialized resize work, result handling, restoration, and model update functions remain byte-identical. The route policy, oracle controls, capture layer, sys resize, and real result-mapping blobs remain unchanged. The overlapping testkit and worker code preserves these paths while importing the stop-grace changes. F145–F149 and R311-I1 retain their source closures. The stacked #302 source retains its accepted scope.
+
+### Body precision and evidence limits
+
+**R311-B1 — LOW — closed.** The initial body omitted this current import and still named e214 as current evidence. Its first correction also inferred no slowdown from older Linux timings. I requested current-head provenance and historical timing labels in `msg_plugin-w_1791829844_00cfac` and `msg_plugin-w_1791829961_2cda04`. Owner corrections are `msg_plugin-w_1791829888_34e756` and `msg_plugin-w_1791829977_e3264b`.
+
+I read the complete corrected current evidence section. It names this head/base, both conflicts, the Launch repair, actual local failures, and the deferred train gate. It labels the e214 gate and Linux timings as historical and draws no current-import cost conclusion. The updated package receipt confirms the same correction.
+
+The first local log records target removal on e2e45f0b and 1057 default passes. Clippy and worker slow fail to compile that head's obsolete Launch call. The current log names 2c5d09a0 and an unchanged-worktree cache claim. Fmt, CI taint, clippy, and prebuild exit zero; 141 worker slow tests pass. These records are local evidence only.
+
+The local strict results remain failed: 578 pass and two time out at the two-second budget on this head. The isolated legacy-key trial also times out. The predecessor has three timeouts, including ou_3. Older Linux times do not diagnose these current Mac results. The package reviewer forwards the lead's budget disposition in `msg_plugin-w_1791829985_58e43e`: source may be reviewed now; the Mac records remain unclassified local evidence, and the exact msa1 train gate decides. This is no timeout exception, retry authority, or current-head execution acceptance.
+
+Zero integration source or body findings remain. This CLEAN accepts the import source only. It supplies no FINAL-READY or final evidence receipt. Budget diagnosis, applicable train-head and combined reviews, the exact train gate, final member receipts, and equal-tree merge verification remain due. No future head, gate, pin, status removal, or merge is accepted. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
