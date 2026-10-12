@@ -162,3 +162,10 @@ The completed exact-head train gate, combined review, one final train receipt, a
 I ran no execution job.
 
 VERDICT: CLEAN (0 open, including LOW; #328 train-9b list delta only)
+
+
+### Matching carried-package acknowledgment
+
+Package message `msg_plugin-w_1791840496_174b44` confirms that the reviewer read complete train-9b integration Round 2 at `d76d87f3982c87a03a96bb15ace15f456532cc8a`.
+It matches carried package Round 203 and the unchanged-list proof. The reviewer claims no whole-train or gate review in that acknowledgment.
+No new review round or final train receipt follows. The exact train gate and final receipt remain due.

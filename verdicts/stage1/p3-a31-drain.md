@@ -264,3 +264,11 @@ P3's corrected member and applicable review remain due. No prepared repair, futu
 All earlier review history and the F154 SETTLE remain preserved. I ran no execution job.
 
 VERDICT: NOT CLEAN (2 open, including LOW; withdrawn train-9 #318 source fit)
+
+
+### Matching withdrawn-train package supplement
+
+I read the complete F160 supplement to package Round 204 at `0d1847317a23317f5af01acb767c782c474e54ba`.
+It retains F159 MEDIUM and F160 LOW on withdrawn train 4d7c547a. Its source premises match integration Round 5.
+Package message `msg_plugin-w_1791840496_174b44` confirms that the reviewer read complete integration Round 5 at `d76d87f3982c87a03a96bb15ace15f456532cc8a`.
+No new review round or repair acceptance follows. #318 remains outside train 9b.
