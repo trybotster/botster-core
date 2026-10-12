@@ -36,7 +36,12 @@ fn writes(actions: &[Action]) -> Vec<Vec<u8>> {
 /// A route whose baseline is written, then PTY output of `len` bytes whose first write is out and not answered: the route
 /// waits. Returns the world, the client, the write that is out, and the mark of the waiting report.
 fn waiting_route(len: usize) -> (World, Client, Vec<u8>, u64) {
-    let (mut w, client, _) = attached(limits());
+    waiting_route_with(limits(), len)
+}
+
+/// [`waiting_route`] with these route limits.
+fn waiting_route_with(limits: AppliedRouteLimits, len: usize) -> (World, Client, Vec<u8>, u64) {
+    let (mut w, client, _) = attached(limits);
     let actions = w.feed(Input::PtyOutput(vec![b'x'; len]));
     let write = writes(&actions).pop().expect("a write of the output");
     let reports = w.reports(&actions);
@@ -45,6 +50,27 @@ fn waiting_route(len: usize) -> (World, Client, Vec<u8>, u64) {
     };
     (w, client, write, mark)
 }
+
+/// The kinds of `frames`, by name.
+fn kinds(frames: &[ToClient]) -> Vec<&'static str> {
+    frames
+        .iter()
+        .map(|f| match f {
+            ToClient::Attached(_) => "attached",
+            ToClient::Output { .. } => "output",
+            ToClient::Resync(r) if r.reason == ResyncReason::Stalled => "resync",
+            ToClient::BaselineBegin(_) => "baseline_begin",
+            ToClient::Screen { .. } => "screen",
+            ToClient::BaselineEnd(_) => "baseline_end",
+            ToClient::Live => "live",
+            ToClient::InputRefused(_) => "input_refused",
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// The resync and the new baseline of a resume.
+const RESUMED: [&str; 5] = ["resync", "baseline_begin", "screen", "baseline_end", "live"];
 
 /// OU-3a: a route reports `waiting` when it holds bytes that the transport has not accepted, and stops when the transport
 /// took them. The mark counts the writes that the transport accepted bytes of.
@@ -269,6 +295,194 @@ fn a_stall_close_of_a_detached_route_keeps_the_first_reason() {
             route: RouteId(1),
             reason: RouteCloseReason::Detached,
             route_tag: None,
+        }]
+    );
+}
+
+/// OU-3b, OU-9, DP-5: a route that stalls before its transport took a byte keeps `attached` first, since it opens the
+/// stream, and drops the baseline behind it. The resync follows `attached`, and the resume sends a new baseline. Input
+/// before the new `live` is written is refused `not_ready`; after it, input is taken, and nothing waits.
+#[test]
+fn a_stall_before_the_first_accepted_byte_keeps_attached_first() {
+    let mut w = World::running();
+    let mut actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
+    actions.extend(w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    }));
+    assert_eq!(progress(&w.reports(&actions)), [(0, true)]);
+    let mut actions = w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark: 0,
+    });
+    assert!(w.reports(&actions).contains(&WorkerMsg::RouteStalled {
+        route: RouteId(1),
+        mark: 0
+    }));
+    let early = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(5, b"x")),
+    });
+    assert!(pty_writes(&early).is_empty());
+    actions.extend(early);
+    let mut client = Client::default();
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let mut expected = vec!["attached"];
+    expected.extend(RESUMED);
+    expected.push("input_refused");
+    assert_eq!(kinds(&client.frames), expected);
+    assert_eq!(
+        refusals(&client),
+        vec![(Some(Op(5)), RefusalReason::NotReady)]
+    );
+    assert_eq!(
+        progress(&w.reports(&all)).last().map(|p| p.1),
+        Some(false),
+        "every queued byte is written"
+    );
+    let late = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(6, b"y")),
+    });
+    assert_eq!(pty_writes(&late), b"y", "the new baseline is written");
+}
+
+/// OU-3b, OU-4: a frame with no byte written and no write out is not started: a stall drops it. Here the transport took no
+/// byte of the output (`Ok(0)`), so the client reads only the resync and the new baseline.
+#[test]
+fn a_stall_drops_an_output_frame_that_the_transport_took_nothing_of() {
+    let (mut w, mut client, _write, mark) = waiting_route(10);
+    let before = client.frames.len();
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    });
+    let actions = w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(kinds(&client.frames[before..]), RESUMED);
+}
+
+/// OU-4: a frame that the transport took a part of is started, with no write out: a stall completes it before the resync.
+#[test]
+fn a_stall_completes_a_partly_written_frame() {
+    let (mut w, mut client, write, mark) = waiting_route(10);
+    let before = client.frames.len();
+    client.reader.push(&write[..1]);
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    // The write of the rest takes nothing: no write is out.
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    });
+    let actions = w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark: mark + 1,
+    });
+    assert!(w.reports(&actions).contains(&WorkerMsg::RouteStalled {
+        route: RouteId(1),
+        mark: mark + 1
+    }));
+    client.take_all(&mut w, RouteId(1), actions);
+    let mut expected = vec!["output"];
+    expected.extend(RESUMED);
+    assert_eq!(kinds(&client.frames[before..]), expected);
+}
+
+/// OU-3a: more bytes queued at the same mark change neither the mark nor `waiting`: no new report.
+#[test]
+fn more_output_at_the_same_mark_is_no_new_report() {
+    let (mut w, _client, _write, _mark) = waiting_route(10);
+    let actions = w.feed(Input::PtyOutput(b"y".to_vec()));
+    assert!(progress(&w.reports(&actions)).is_empty());
+}
+
+/// OU-2: a resume whose new baseline is over the route's bound closes the route `SnapshotTooLarge`, with no resume.
+#[test]
+fn a_resume_whose_baseline_is_over_the_bound_closes_the_route() {
+    let (_, client, _) = attached(limits());
+    let screen = client
+        .frames
+        .iter()
+        .find(|f| matches!(f, ToClient::Screen { .. }))
+        .expect("the screen of the baseline")
+        .encode()
+        .len();
+    let mut tight = limits();
+    tight.max_screen_frame_bytes = screen.try_into().unwrap();
+    let (mut w, mut client, write, mark) = waiting_route_with(tight, 10);
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    // The screen now holds the output, so its frame is over the bound. The healthy close delivers its `route_closed`
+    // frame, then the host is told.
+    client.reader.push(&write);
+    let actions = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(write.len()),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let reports = w.reports(&all);
+    assert!(
+        reports.contains(&WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::SnapshotTooLarge,
+            route_tag: None,
+        }),
+        "{reports:?}"
+    );
+    assert!(!reports
+        .iter()
+        .any(|r| matches!(r, WorkerMsg::RouteResumed { .. })));
+}
+
+/// The bound: a link write that does not reach the route's last progress report sends no newer one; the write that reaches
+/// it does.
+#[test]
+fn a_newer_report_waits_until_the_link_wrote_the_last_one() {
+    let (mut w, _client, _write, mark) = waiting_route(3 * FRAME as usize);
+    w.instant_link = false;
+    let first = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    assert_eq!(progress(&w.reports(&first)), [(mark + 1, true)]);
+    let sent = w.sent;
+    w.feed(Input::RouteWritable { route: RouteId(1) });
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    let short = w.feed(Input::LinkWritten { total: sent - 1 });
+    assert!(progress(&w.reports(&short)).is_empty(), "{short:?}");
+    let reached = w.feed(Input::LinkWritten { total: sent });
+    assert_eq!(progress(&w.reports(&reached)), [(mark + 2, true)]);
+}
+
+/// R-90 Q3: a new host has none of the old link's reports. After `Adopted`, a waiting route reports its state again on the
+/// new link.
+#[test]
+fn an_adoption_reports_a_waiting_route_again_after_adopted() {
+    let (mut w, _client, _write, mark) = waiting_route(10);
+    let actions = adopt(&mut w, EPOCH + 3);
+    let (_, frames) = after_fence(&mut w, &actions);
+    let msgs: Vec<WorkerMsg> = frames[1..]
+        .iter()
+        .map(|f| WorkerMsg::decode(&f.payload).unwrap())
+        .collect();
+    assert!(matches!(msgs[0], WorkerMsg::Adopted { .. }), "{msgs:?}");
+    assert_eq!(
+        msgs[1..],
+        [WorkerMsg::RouteProgress {
+            route: RouteId(1),
+            mark,
+            waiting: true
         }]
     );
 }
