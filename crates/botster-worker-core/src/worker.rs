@@ -134,6 +134,10 @@ pub enum Input {
     PtyDrained,
     /// The payload's leader ended. It is not reaped: the driver reaps it only on [`Action::ReapPayload`].
     PayloadExited(ExitStatus),
+    /// The exit watch cannot observe the leader's exit: a wait failed with `errno`, which is not `EINTR` (steward ruling
+    /// R-106). It is not an exit: the worker kills the payload's group while it holds the leader, sends no end message, and
+    /// ends with [`Action::ExitFailure`].
+    ExitWatchFailed { errno: i32 },
     /// The worker-control signal `GroupSignal::EndPayload` (`SIGUSR1`): ask the payload to stop, without the control link
     /// (LC-5). The worker keeps no grace timer: Core sends `KillPayload` at the end of `stop_grace`.
     EndPayload,
@@ -193,6 +197,10 @@ pub enum Action {
     ReapPayload,
     /// End the worker process (LC-7 step 3 is done).
     Exit,
+    /// End the worker process with a failure, and write `errno` to the worker's own log, never to a `detail` (R-106 (c)).
+    /// The exit status is non-zero. Nothing was sent about it: the host sees the link's end and the worker's exit, and the
+    /// session ends `Lost(WorkerGone)`.
+    ExitFailure { errno: i32 },
     /// Close this candidate's connection. Nothing was sent on it.
     CandidateClose(CandidateId),
     /// The fence (DP-8): close the control link and drop every byte that is still unwritten on it, then make this
@@ -357,6 +365,7 @@ enum NextResize {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Early {
     exit: Option<ExitStatus>,
+    watch_failed: Option<i32>,
     stop: bool,
     kill: bool,
     end_payload: bool,
@@ -714,6 +723,10 @@ impl Worker {
                 if let Some(status) = early.exit {
                     self.on_exited(status);
                 }
+                if let Some(errno) = early.watch_failed {
+                    self.on_exit_watch_failed(errno);
+                    return;
+                }
                 self.try_start();
             }
             Err(failure) => {
@@ -1027,6 +1040,23 @@ impl Worker {
         self.input_payload_ended();
     }
 
+    /// R-106: the leader's exit cannot be observed. The group is killed only while the worker holds the leader unreaped (an
+    /// unreaped leader keeps its pid, so the group id cannot name another group), no other group is signalled, nothing is
+    /// sent, and the worker ends with a failure. A watch reports once, so after an observed exit this cannot come.
+    fn on_exit_watch_failed(&mut self, errno: i32) {
+        if self.payload == PayloadState::Spawning {
+            self.early.watch_failed = Some(errno);
+            return;
+        }
+        if self.ended || self.exit.is_some() {
+            return;
+        }
+        if !self.killed {
+            self.signal(SIGKILL);
+        }
+        self.end_with(Action::ExitFailure { errno });
+    }
+
     /// The first drain after the exit reports the exit, once, after the output written before it was read.
     fn on_drained(&mut self) {
         if let (Some(status), false) = (self.exit, self.exit_drained) {
@@ -1092,12 +1122,17 @@ impl Worker {
 
     /// The worker ends: a pending candidate is closed, and nothing more is accepted.
     fn end(&mut self) {
+        self.end_with(Action::Exit);
+    }
+
+    /// The worker ends with `exit` ([`Action::Exit`] or [`Action::ExitFailure`]).
+    fn end_with(&mut self, exit: Action) {
         if let Some(candidate) = self.candidate.take() {
             self.actions.push_back(Action::CandidateClose(candidate.id));
         }
         self.orphan = None;
         self.ended = true;
-        self.actions.push_back(Action::Exit);
+        self.actions.push_back(exit);
     }
 
     /// LC-5 without the link: the graceful request. The worker keeps no grace timer: `stop_grace` is the Core library's
@@ -1343,6 +1378,7 @@ impl Machine for Worker {
             Input::PtyResized(result) => self.on_pty_resized(result),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
+            Input::ExitWatchFailed { errno } => self.on_exit_watch_failed(errno),
             Input::EndPayload => self.on_end_payload(),
             Input::KillPayload => self.on_kill_payload(),
             Input::Terminate => self.on_terminate(),

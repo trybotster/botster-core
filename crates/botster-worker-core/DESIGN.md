@@ -4,6 +4,13 @@ Package P3 (session worker, PTY and terminal) of Stage 1. Plan pin `c43693ff` (a
 note covers milestone M1 (plan 6.2): the hello, the payload launch after the durable identity, and the exit with code and signal.
 It is stacked on P1's head `2016886` (the control-link messages of `botster-core-link`).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/read-reply-order.md`](design/read-reply-order.md): A read's reply follows the observations of the output
+  before it (R-114).
+
 ## Shape
 
 - `Worker` (`src/worker.rs`) is a sans-IO machine (plan 2.1): `handle(now, Input)`, `poll_action()`, `next_deadline()`. It reads
