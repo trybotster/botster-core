@@ -5,12 +5,14 @@
 //! - Every crate has the unit test `this_test_binary_was_built_in_this_worktree` at the root of its library, or of its binary
 //!   when it has no library: a `#[test]` function that the default tier runs on Linux and on macOS (the test index and tier
 //!   rules of `mutants-cited`, so an `#[ignore]`, a `cfg` that never holds, a missing `#[test]` or a commented-out function
-//!   is no test), and whose body calls `built_in::assert_built_here` (parsed, so a call in a comment is no call).
+//!   is no test), and whose body is one call of `built_in::assert_built_here` with the compile-time package name and root
+//!   (parsed and compared token for token with the supported forms, so a call in a comment or a run-time root is no call).
 //! - The `LINKED` list of `tests/suite/mod.rs` (the conformance binaries) names the binary itself and each workspace library
 //!   that `botster-core` links into them: its dependencies and dev-dependencies, and their dependencies, transitively.
 
 use crate::mutants_cited::{self, Filter};
 use anyhow::{bail, Context, Result};
+use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
@@ -138,37 +140,70 @@ pub fn verdict(packages: &BTreeMap<String, Package>, suite: &str) -> Vec<String>
     problems
 }
 
-/// Whether the root function `TEST_NAME` of `text` has the one supported form: its body is exactly one statement, a call
-/// of a path that ends in `built_in::assert_built_here`. Every other body is refused, so a reference to the function, a
-/// call inside a nested function or closure, or a call after an early return is no call. A file that does not parse has
-/// no such function.
-fn root_test_calls(text: &str) -> bool {
+/// The token text of each supported body statement of the root function `TEST_NAME` of `package`. `lib`: the root file is
+/// `src/lib.rs`, which has `BUILT_IN` (`CONST_LINE`); a binary root passes `env!("CARGO_MANIFEST_DIR")` itself.
+///
+/// - The path is the full path of the function: through `botster_test_process` or the testkit re-export, or, in
+///   `botster-test-process` itself, through its own module. A function of another crate whose path ends in the same
+///   names is not the call.
+/// - The first argument is the compile-time package name, and the second is the compile-time root of this crate, so a
+///   test that passes the run-time root (which equals the run-time root it is compared with) is refused (017c).
+/// - The forms differ only in the `;` and in the comma that rustfmt adds when it wraps the arguments.
+fn supported_calls(package: &str, lib: bool) -> BTreeSet<String> {
+    let mut paths = vec![
+        "botster_test_process::built_in::assert_built_here",
+        "botster_core_testkit::built_in::assert_built_here",
+    ];
+    if package == "botster-test-process" {
+        paths.extend([
+            "built_in::assert_built_here",
+            "crate::built_in::assert_built_here",
+        ]);
+    }
+    let mut roots = vec!["env!(\"CARGO_MANIFEST_DIR\")"];
+    if lib {
+        roots.push("BUILT_IN");
+    }
+    let mut calls = BTreeSet::new();
+    for path in &paths {
+        for root in &roots {
+            for comma in ["", ","] {
+                for semi in ["", ";"] {
+                    // A body, as the root function has it: a call without `;` is the tail expression of a block.
+                    let text =
+                        format!("{{ {path}(env!(\"CARGO_PKG_NAME\"), {root}{comma}){semi} }}");
+                    let block: syn::Block = syn::parse_str(&text).expect("a supported call parses");
+                    calls.extend(
+                        block
+                            .stmts
+                            .iter()
+                            .map(|stmt| stmt.to_token_stream().to_string()),
+                    );
+                }
+            }
+        }
+    }
+    calls
+}
+
+/// Whether the root function `TEST_NAME` of `text` has a supported form: its body is exactly one statement, and that
+/// statement is, token for token, one of [`supported_calls`]. Every other body is refused: a reference to the function, a
+/// call inside a nested function or closure, a call after an early return, an attribute on the call (`#[cfg(any())]` can
+/// remove it, Sol-B), or another argument. An inner attribute of the body applies to the function, so the body has none.
+/// A file that does not parse has no such function.
+fn root_test_calls(text: &str, package: &str, lib: bool) -> bool {
     let Ok(file) = syn::parse_file(text) else {
         return false;
     };
+    let supported = supported_calls(package, lib);
     file.items.iter().any(|item| match item {
-        // An attribute on the call (`#[cfg(any())]`) can remove it, so the call has none (Sol-B, round 3).
-        // An inner attribute of the body applies to the function, so the body has none.
         syn::Item::Fn(function) if function.sig.ident == TEST_NAME => {
             let inner = function
                 .attrs
                 .iter()
                 .any(|attr| matches!(attr.style, syn::AttrStyle::Inner(_)));
             match function.block.stmts.as_slice() {
-                [syn::Stmt::Expr(syn::Expr::Call(call), _)] if !inner && call.attrs.is_empty() => {
-                    match call.func.as_ref() {
-                        syn::Expr::Path(path) if path.attrs.is_empty() => {
-                            let names: Vec<String> = path
-                                .path
-                                .segments
-                                .iter()
-                                .map(|s| s.ident.to_string())
-                                .collect();
-                            names.ends_with(&TEST_CALL.map(str::to_string))
-                        }
-                        _ => false,
-                    }
-                }
+                [stmt] if !inner => supported.contains(&stmt.to_token_stream().to_string()),
                 _ => false,
             }
         }
@@ -242,10 +277,11 @@ fn package(dir: &Path) -> Result<Package> {
     let read = |file: &str| std::fs::read_to_string(dir.join(file)).ok();
     let lib = read("src/lib.rs");
     let main = read("src/main.rs");
-    let test_calls = lib
-        .as_ref()
-        .or(main.as_ref())
-        .is_some_and(|text| root_test_calls(text));
+    let test_calls = match (&lib, &main) {
+        (Some(text), _) => root_test_calls(text, &name, true),
+        (None, Some(text)) => root_test_calls(text, &name, false),
+        (None, None) => false,
+    };
     Ok(Package {
         name,
         lib,
@@ -455,15 +491,33 @@ mod tests {
 
     #[test]
     fn only_a_parsed_call_in_the_root_function_counts() {
-        let call = "botster_test_process::built_in::assert_built_here(\"x\", BUILT_IN);";
-        assert!(root_test_calls(&format!(
-            "#[test]\nfn {TEST_NAME}() {{\n    {call}\n}}\n"
-        )));
+        let call = "botster_test_process::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), BUILT_IN);";
+        let body = |stmt: &str| format!("#[test]\nfn {TEST_NAME}() {{\n    {stmt}\n}}\n");
+        // A library root, with `BUILT_IN` or with the macro, and wrapped by rustfmt.
+        assert!(root_test_calls(&body(call), "kit", true));
+        let wrapped = "botster_test_process::built_in::assert_built_here(\n        env!(\"CARGO_PKG_NAME\"),\n        env!(\"CARGO_MANIFEST_DIR\"),\n    );";
+        assert!(root_test_calls(&body(wrapped), "kit", true));
+        // A binary root has no `BUILT_IN`, so it passes the macro.
+        assert!(root_test_calls(&body(wrapped), "worker", false));
+        assert!(!root_test_calls(&body(call), "worker", false));
         // The re-export path of the testkit.
-        assert!(root_test_calls(&format!(
-            "#[test]\nfn {TEST_NAME}() {{\n    botster_core_testkit::built_in::assert_built_here(\"x\", BUILT_IN);\n}}\n"
-        )));
+        let testkit = "botster_core_testkit::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), BUILT_IN);";
+        assert!(root_test_calls(&body(testkit), "kit", true));
+        // Its own module, only in `botster-test-process`: elsewhere it is another function with the same names.
+        let own = "built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), BUILT_IN);";
+        assert!(root_test_calls(&body(own), "botster-test-process", true));
+        assert!(!root_test_calls(&body(own), "kit", true));
         for negative in [
+            // The run-time root equals the run-time root that it is compared with, so a stale binary passes (017c,
+            // Sol-B, round 4). Also a literal root, a literal package name, and an early return in an argument.
+            body("botster_test_process::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), &std::env::var(\"CARGO_MANIFEST_DIR\").unwrap());"),
+            body("botster_test_process::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), \"/root\");"),
+            body("botster_test_process::built_in::assert_built_here(\"x\", BUILT_IN);"),
+            body("botster_test_process::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), return);"),
+            body("botster_test_process::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"));"),
+            // Another function whose path ends in the same names.
+            body("other::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), BUILT_IN);"),
+            body("crate::built_in::assert_built_here(env!(\"CARGO_PKG_NAME\"), BUILT_IN);"),
             format!("#[test]\nfn {TEST_NAME}() {{\n    // {call}\n}}\n"),
             format!("#[test]\nfn {TEST_NAME}() {{}}\nfn other() {{\n    {call}\n}}\n"),
             format!("#[test]\nfn {TEST_NAME}() {{\n    botster_test_process::built_in::check_here(&[]).unwrap();\n}}\n"),
@@ -483,7 +537,7 @@ mod tests {
             // A method or macro of that name is not the call.
             format!("#[test]\nfn {TEST_NAME}() {{\n    x.assert_built_here(\"x\", BUILT_IN);\n}}\n"),
         ] {
-            assert!(!root_test_calls(&negative), "{negative}");
+            assert!(!root_test_calls(&negative, "kit", true), "{negative}");
         }
     }
 
