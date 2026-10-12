@@ -106,6 +106,7 @@ botster-core-host = { path = "crates/botster-core-host" }
 botster-core-link = { path = "crates/botster-core-link" }
 botster-core-sys = { path = "crates/botster-core-sys" }
 botster-core-testkit = { path = "crates/botster-core-testkit" }
+botster-gate-kit = { path = "crates/botster-gate-kit" }
 botster-test-process = { path = "crates/botster-test-process" }
 botster-worker-core = { path = "crates/botster-worker-core" }
 botster-terminal-ghostty = { path = "crates/botster-terminal-ghostty" }

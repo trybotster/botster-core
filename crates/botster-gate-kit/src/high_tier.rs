@@ -4,7 +4,7 @@
 //! HIGH. So every entry must match at least one tracked file, and it must give its reason (`# <area>: ...`). An entry is a
 //! path, or a directory followed by `/**` (every file under it). Other glob forms are refused, so that a match is exact.
 
-use crate::fsutil::tracked_files;
+use crate::files::tracked_files;
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 
@@ -176,12 +176,16 @@ mod tests {
     /// The repository's own list has no problem. The tree is walked, not read through git: the mutants copy has no `.git`.
     #[test]
     fn the_repository_list_has_no_problem() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
         let text = std::fs::read_to_string(root.join(LIST)).unwrap();
         // The walk skips dot directories, and `.cargo` holds a listed file (`.cargo/mutants.toml`).
-        let mut files = crate::fsutil::walk_files(root);
+        let mut files = crate::files::walk_files(root);
         files.extend(
-            crate::fsutil::walk_files(&root.join(".cargo"))
+            crate::files::walk_files(&root.join(".cargo"))
                 .into_iter()
                 .map(|file| format!(".cargo/{file}")),
         );
