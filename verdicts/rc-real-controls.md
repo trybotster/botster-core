@@ -2955,3 +2955,55 @@ The lead reports that a permission denial blocks its inbox. The lead can read ve
 The lead instructs reviewers to continue queued work and record verdicts in files.
 No approval is inferred from the blocked inbox. Important messages will be sent again after the lead reports recovery.
 The current #312 source CLEAN and #309 evidence condition remain as recorded above.
+
+
+### Core #309 — completed exact-head source verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/309`.
+Exact head: `b920da760a8a643b199765d0a69f78533a9b3e45`.
+Imported source base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Gate-time reference: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The gate reference is not the branch's imported base. The body keeps that distinction explicit.
+Source tree: `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+Completion message: `msg_plugin-w_1791787830_7b2ed1`.
+Open package findings: 0, including LOW findings.
+RC-R100-1 through RC-R100-5 remain closed. Sol-C's source/body closures for RC-R100-I1 and RC-R100-I2 are recorded above.
+The completed exact-head evidence closes package acceptance condition R100-E1.
+
+Completed source gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-r100-frame-check-b920da76-pool-20261011-234339-83894.log`.
+Log SHA256: `6a0d7ecba84efe5ddc47efad54e7cb3bd989e3f2d3b857977aca13a25df8ab87`.
+The reviewer reads the exact header, suites, static checks, mutation outcomes, citations, normal passes, held-full report, fuzz results, summary, and final exits.
+All ten steps pass in 385.4 seconds. Jobq and the wrapper each exit zero after 394 seconds on msa1.
+The default suite reports 1934 passes. The slow suite reports 616 passes.
+The modifier-vector regression, public refusal tests, queued-setter decoder regression, and tightness test have normal PASS records.
+The gate checks 1080 slow-only tests and all four named real-process proofs.
+Held-full runs three budget IDs at 32 seeds. Strict conformance retains 259 passes and no failure.
+No status list, pin, control definition, or real-process behavior changes in this PR.
+The new boundary proof uses the shared decoder in-process. No extra real-process test or model is needed for that deterministic decoder bound.
+
+The mutation run tests 73 mutants: 65 caught, eight unviable, no miss, and no timeout.
+The reviewer independently matches all 65 raw catches to 65 unique citations. Every cited test has a normal PASS.
+The eight unviable identities are the previously reviewed Default replacements for types without Default.
+No uncaught executable mutant is classified as unviable. Stage 2 is unnecessary because stage 1 misses none.
+No FLAKY token exists. The earlier multiplication survivors remain caught by the added tightness proof.
+The mutation configuration and every exclusion retain the previously reviewed text.
+No exclusion covers the new frame-fit functions, counter, Launch construction, or changed admission decisions.
+The existing test-file exclusion does not remove their production behavior mutations.
+Both link_decoder and msg_decoder fuzz harnesses run for their sixty-second bounds and pass.
+The gate is Linux evidence. No Mac gate is claimed for this sans-IO change.
+
+The reviewer reads the complete current body and compares it with the previously reviewed complete body.
+Only the final gate line changes. GitHub names this exact head.
+The line matches the completed log and retains the imported-base versus gate-reference distinction.
+The body retains the initial red mutation gate, the repair gate, the stopped documentation gate, and the corrected allocation/refusal scopes.
+It retains the dropped cache measurements and separate product-cost follow-up without claiming a cache implementation.
+The old bounded-encoding prior art supplies the refusal principle; the Core implementation uses the shared serializer and no copied old test.
+The local clean-proof limit remains as recorded. The exact-head pool gate supplies acceptance.
+
+This CLEAN covers this exact source head, body, and completed source evidence.
+Sol-C's matching completed source verdict remains due. Applicable train delta reviews and final train evidence remain due before merge.
+The R-91 queue term grows with the six-times link bound; this verdict accepts no future #307 composition without its required review.
+This verdict accepts no later head, different tree, or assumed lead approval while the lead's inbox is blocked.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
