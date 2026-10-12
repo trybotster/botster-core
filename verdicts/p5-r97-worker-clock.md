@@ -340,3 +340,79 @@ The lead owns train 6 and its gate. This verdict accepts no future head, gate, o
 I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-12 — train-6 source composition
+
+- Train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+- Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Frozen #303 member: `df461c83ffa8761c691e5ee07cf50f20784029f7`.
+- Lead request: `msg_plugin-w_1791832618_934448`.
+- Lead receipt correction: `msg_plugin-w_1791832646_e967a2`.
+- Sol assignment: `msg_plugin-w_1791832789_5cae4e`.
+- Package slot CLEAN: `db300e73e38b623bc1177fe5174b12a3e626cfaf`.
+- Matching integration slot CLEAN: `5554417547c27aadeefebecd99ae2189c680831d`.
+
+This round reviews only #303's fit on this train head. Sol owns the combined review.
+I read the changed train rule at contracts commit `132d0ee5a75994729553096d97bf385896b21683` and the new pair-common rules.
+The integration reviewer sends one final train receipt after the gate. An unchanged member gets no separate package final receipt.
+The lead explicitly applies that rule to this review. I will send only this source delta verdict.
+
+### Ordered composition and own patch preservation
+
+The first merge is `3837b2c72f7eb4c961afa1cdc5ee3078f2dafe9f`, with the train base and frozen #303 member as parents.
+Its tree is `743ac82069441093ce8faddf0b75228afd2b61c0`.
+The later merge commits retain this order:
+
+1. #309 `cfcc438d8eac85108d64237bdc11fa215dc85104`, merged at `d5a59447fbd942c788a08c660cfaa07bf3dfcdf4`.
+2. #308 `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`, merged at `b40b5235a00fc3be951282f181bdb2cffc12ae44`.
+3. #311 `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d`, merged at the train head above.
+
+The complete train diff has 36 paths, 4095 additions, and 169 deletions.
+Its full-index SHA256 is `9d37bc58e641962e6b917c2c8c7c90bbdef52d8ec8b8164fcfb69ab3238de24b`.
+The first merge changes exactly #303's seven own paths, with the same 450 additions and 68 deletions.
+Its full-index SHA256 is `f3eda3111e2da5abcda38ab38a006d21643da765f0b0761d1c91ee5967109981`.
+Every added and removed line of each own patch exactly matches the accepted slot patch, excluding indices and hunk locations.
+The Git whitespace check reports no error.
+
+### Train-5 imports and shared worker changes
+
+I read the complete train-5 deltas to core/tests.rs and harness.rs and their affected final contexts.
+The core test constructor retains the new report-hold field and scheduler argument alongside the accepted clock adaptations.
+The harness retains its per-host report_holds object, accessor, Opened binding, and HandleEdges field.
+The WorkerClock import and real-clock constructor remain unchanged from #303's accepted patch.
+The host wake, process table, and workers still refer to the same host and shared worker run.
+
+The later members leave core tests, harness, route client, and start-control tests exactly equal to the first merge.
+Only #311 changes the two shared worker files and the pending list after #303's merge.
+I read that complete shared-file delta and the relevant final worker contexts.
+#311 adds the pending ResizePty result, its ready input, and the edge resize action.
+It adds pty_resized: None to the existing worker test fixture.
+It also observes Core events in the capture layer during poll_events.
+These additions replace no #303 clock function, manual-clock regression, deadline query, wake wrapper, or exit-wake behavior.
+The resize result reaches the shared worker machine through the existing simulation and worker clock.
+Capture observation remains in host event polling. It does not move the worker clock or add a worker deadline to the host query.
+The imported Reader node and #303's repaired run_ready remain intact.
+
+The production worker, host admission, resize, codec, and known-flaky changes retain their own reviewers' scope.
+This member review does not accept their separate conformance removals or replace Sol's combined review.
+
+### Lists and disposition
+
+I independently check all nine conformance text sets after each of the four ordered merges.
+Each set equals the previous train state plus that member's additions, minus its removals, using the member's merge base.
+All 36 set comparisons pass. No base removal returns.
+#303 changes no identifier. Its startup-clock comment remains present, and a2_1_no_deadline_code_exists remains pending.
+The final pending set has 387 identifiers, sixteen removals from the train base, and no added identifier.
+Those removals belong to the other member reviews.
+
+Zero #303 source-composition findings remain on this exact train head.
+R303-F2 and earlier findings retain their closures and evidence limits.
+The lead reports successful compilation and 281 strict seed 0–31 passes. I treat those as lead pre-check reports, not gate evidence.
+The new pair-common rule gives strict, slow, and timing acceptance to pool evidence. I ran no local checks or pool job.
+The matching member delta reviews, Sol's combined review, and the completed exact-train-head gate remain required.
+Under the updated Green rule, Sol sends the single final receipt if this frozen member stays unchanged.
+This source verdict accepts no gate result, future head, or merge.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
+VERDICT: CLEAN
