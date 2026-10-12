@@ -432,3 +432,20 @@ No reviewer build, test, gate, mutation, reproduction, or executable base-check 
 Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; #320 source, body, and approved current-base import on 48ff7a03).
+
+## Matching complete Round 5 integration receipt
+
+Receipt: `msg_plugin-w_1791845513_130162`.
+Integration verdict: `eadea000c4c0494d44c5a9963a2c9ff36c5f945d`, `verdicts/stage1/p5-read-facts.md`, complete Round 5.
+The reviewer reads the complete applicable verdict and verifies publication on the remote integration branch.
+It matches package `39bbf0f9d277673587c40d6047f696ff3112aa91` on exact 48ff7a03, tree 5b0908bf, and imported base 644f632f.
+Both reviews preserve all six closures, LOW included, and accept only the two additive merge resolutions.
+The own-path comparisons, unchanged facts interfaces, .46 transcript scope, status formulas, body, and local evidence limits agree.
+Both records retain the aeff gate at its actual .44 head and require the later exact merging train gate.
+Both records keep A26 separate and on hold, with the explicit R320-Q4 exception unchanged.
+No source, import, or body finding remains in the reviewed package scope.
+Train 11 composition review, its exact gate, the single final receipt, and lead Q7 remain due.
+No later source, amendment, pin, extra pending removal, retry, or completed merge is accepted.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; matching complete import reviews recorded, train acceptance remains due).

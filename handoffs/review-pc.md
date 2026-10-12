@@ -2444,3 +2444,18 @@ The body retains parent-gate/RED/local scopes, import facts, protected overflow,
 Formal package Round 5 is CLEAN on exact 48ff7a03, with zero open findings. Matching integration delta remains due.
 Train 11 composition/deltas, exact merging train gate, final receipts, and lead Q7 remain due. No reviewer execution job runs.
 Wait for the doorbell. Never poll.
+
+Publication: #320 package import Round 5 is pushed at 39bbf0f9d277673587c40d6047f696ff3112aa91.
+P5 and Sol receive VERDICT: CLEAN; the lead receives CLEAN on exact 48ff7a03. The worktree is clean.
+Matching integration delta, train composition review, exact train gate, final receipts, and lead Q7 remain due.
+Wait for the doorbell. Never poll.
+
+## #320 matching complete import delta receipt
+
+Sol receipt msg_plugin-w_1791845513_130162 supplies integration Round 5 at eadea000c4c0494d44c5a9963a2c9ff36c5f945d.
+The reviewer reads the complete applicable verdict and verifies its remote publication.
+It matches package 39bbf0f9 on exact 48ff7a03, tree 5b0908bf, and imported base 644f632f.
+All six closures, additive resolutions, own-source preservation, status formulas, body, and evidence limits agree.
+Both complete import reviews are CLEAN. The old gate stays scoped to aeff and .44. A26 stays separate and on hold.
+Train 11 composition review, exact gate, single final receipt, and lead Q7 remain due.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
