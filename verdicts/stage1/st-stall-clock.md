@@ -59,3 +59,21 @@ The A3-1 output_dropped and EV-8 query exclusions remain explicit and pending. T
 Sol-B ran no local build, test, gate, mutation job, reversal, or reproduction campaign.
 
 VERDICT: NOT CLEAN (5 open)
+
+## Diagnostic receipt — one re-gate attribution
+
+Exact head: `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6`. This receipt addresses plan 23al condition 2. It is not a round-2 source verdict or CLEAN.
+
+The red gate `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-195551-10795.log` fails slow on `conf::in_9_modes_read_at_write_start`, seed 0, step 8, `limit=step_timeout`. The job and wrapper exit 1.
+
+PC's retained reproduction is `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/pc-r78/in9-repro-f6025aed.log`. It starts from v1 `f6025aed4cdf7da836e835e0040fc128b7e8f32f` and applies a scratch delay of 300 ms to mode output. It reproduces the exact ID, seed, step, and symptom. The change moves timing only, adds no product behavior, and changes no expected result. This is controlled reproduction evidence, not an unmodified-v1 run. The wrapper's exit 0 does not make its failed test green.
+
+Sol-B read both logs, the pinned .41 transcript, the R-88 diagnosis, and the source delta. The transcript attaches no route. It starts a focus write under pty_blocked without the required held-write precondition. Its ModesChanged wait can discard an earlier completion before the later completion wait.
+
+The host input transaction, worker input/model, real program control, and PTY backend paths are unchanged. The new progress flush has no route to report. The changed code supplies no missing held-write fence and does not change the diagnosed cause. Sol-B confirms non-interference for this exact failure.
+
+Package attribution receipt: `d0e5f664dfaabd195534b06d1612c33173963bff`. Sol-B read it. The lead explicitly accepts this controlled reproduction under 23bl(A) and authorizes ONE re-gate in `msg_plugin-w_1791774104_a9ca69`. The repair owner is PC; the fence is assigned to contracts #79 and its next pin.
+
+The one re-gate must pass every step on this exact head. This receipt authorizes no further retry or pending-list change. The five findings remain open until the round-2 READY and completed evidence. Sol-B ran no local build, test, or diagnostic job.
+
+VERDICT: NOT CLEAN (5 open)
