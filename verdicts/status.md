@@ -19,3 +19,7 @@ The lead assigns Sol and Sol-C to #317. Both reviews now accept its exact READY 
 R107-SI-2 replaces R107-SI-1's EV-2 removal condition. The .45 title fence already fixes EV-2. The entry leaves with #316's .46 pin, The final #316 list contains the separate R-111 IN-8 entry, owned by PC and removed by draft #321. A31 no longer gates EV-2 removal.
 
 I ran no build, test, gate, or pool job. I read new messages only after a doorbell.
+
+Train 7b combined source is CLEAN at `007efbde`, with all member reviews checked and all 45 list formulas verified.
+Sol-C owns the one final train receipt. The exact-head gate and lead merge verification remain due.
+#328 and its local-evidence finding remain outside this frozen train review.

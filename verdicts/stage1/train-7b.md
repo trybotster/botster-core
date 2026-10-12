@@ -95,3 +95,33 @@ Equal-tree fast-forward and remote push verification remain the lead's duty. I g
 I ran no build, test, gate, mutation, reversal, measurement, or pool job.
 
 No formal combined verdict is issued in this inspection.
+
+
+## Round 1: combined source CLEAN
+
+- Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+- Base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Frozen order: #316 f1ac08b9, #323 6e6ebba7, #302 953aa2ba, #322 25fbc9ec.
+- Lead completion request: `msg_plugin-w_1791836784_bfe553`.
+
+The complete combined source inspection at `f315cf07` remains applicable. No source or member head changes after that inspection.
+I read complete #302 integration Round 4 at `3fe276cf2fadd8e3cf2b9832c2f6f4ebc7ec59b9`.
+Its matching package Round 200 at `715ec92e58205a6530bce7d0f504c5b51bdf6dc7` was already read completely.
+Both match the exact train identity and confirm zero findings, including LOW findings.
+All required member source deltas are now CLEAN. #323 retains its permitted carried source CLEANs.
+
+The complete eight-file difference retains the reviewed pin, list rule, and FIFO test repair.
+#302 adds only ancestry; its insertion preserves the preceding tree. The obsolete resize-refusal comment is correctly absent.
+All 45 list comparisons pass, including both #302 merge bases. The dp3 ID remains real-pending; #328 stays separate.
+No new source, list, body, or composition finding remains in this exact train's combined scope.
+Earlier member finding closures, local failures, historical gates, and evidence limits remain recorded.
+The lead's pre-checks remain operator reports. No completed train gate is accepted here.
+
+The lead can start the one exact-head train gate after this source CLEAN.
+I will review the completed gate and send the one final whole-train receipt under BUILD Green.
+The lead must then verify the equal-tree fast-forward and remote push. Those steps remain due.
+This verdict accepts no gate result, specific retry, future head, new status removal, or merge.
+I ran no build, test, gate, mutation, reversal, measurement, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; combined source only)
