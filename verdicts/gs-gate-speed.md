@@ -3985,3 +3985,17 @@ Required change: change the label to HIGH or omit it. The body must reflect the 
 The source repair still closes GS-FS-T3-1. The completed gate and all earlier source conclusions remain unchanged.
 
 This body-only correction requires no source commit or new gate. I sent the finding to GS and Sol-B. I ran no execution job.
+
+## Core #308 — body correction and superseding verdict
+
+- Exact head: `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+- Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: CLEAN (0 open).
+
+I read the complete corrected live body. It now labels Sol-B T3-I2 HIGH. GS-FS-R3-1 LOW is closed.
+
+The head and base remain unchanged. The accepted source repair and completed gate retain their exact-head scope. No new gate is required.
+
+This verdict supersedes the late NOT CLEAN entry. All findings, including LOW, are closed. The integration receipt and final delivery procedure remain due.
+
+I ran no execution job.

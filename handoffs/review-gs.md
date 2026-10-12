@@ -86,6 +86,10 @@ The exact-head gate, mutation evidence, final body, and integration verdict rema
 
 ## Current Core PR #308 result
 
+Superseding CLEAN at unchanged `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`. GS-FS-R3-1 LOW is closed after a complete live-body read.
+
+The body now records T3-I2 HIGH. Open findings: 0. Source and gate acceptance retain their earlier scope. Integration and final delivery remain due.
+
 NOT CLEAN at unchanged `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`: GS-FS-R3-1 LOW is open after Sol-B's body review.
 
 The body labels T3-I2 MEDIUM; its final severity is HIGH. Correct or omit that label. Source and gate conclusions remain unchanged. No new gate is required.
