@@ -645,8 +645,8 @@ fn a_failed_resume_with_blocked_writes_is_closed_by_the_close_step() {
     );
 }
 
-/// OU-2 (0181's ST298-R2): the same with a healthy close that began while the route was `Stalled`. The failed resume keeps it, and the
-/// close step ends the route with that first reason.
+/// OU-2 (0181's ST298-R2): the same with a healthy close that began while the route was `Stalled`. The failed resume keeps
+/// it, and the close step ends the route with that first reason.
 #[test]
 fn a_failed_resume_of_a_closing_route_is_closed_by_the_close_step_with_its_first_reason() {
     let (mut w, mut client, write, mark) = stalled_with_a_resume_over_the_bound();
