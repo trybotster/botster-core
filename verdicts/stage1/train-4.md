@@ -321,3 +321,21 @@ This record closes the ruling question only. It accepts no new list, control, tr
 I ran no execution job.
 
 STATUS: CLEAN (R107-SI-1 resolved; future known-flaky PR and train-4b review pending)
+
+## R107-SI-2 supersedes the EV-2 completion path
+
+I read complete R107-SI-2 at contracts `a10b85c363b069f8e3f98cdb6597f4451454c98b` and `28275d852946ee187a16d8543b2c260facba14b8` during #317 review.
+Contracts #89 already fences EV-2 with await_title TB before Stop. That fence first appears in contracts-v0.1.45.
+The ruling withdraws the new written-output fence for EV-2 and its A31-dependent removal condition.
+The known-flaky entry now covers the pre-.45 unfenced form and leaves in the pin PR that takes .45 or later.
+RC owns that pin, draft Core #316. It must remove the entry and restore the empty-list test together.
+A31 gets a separate OU-7 amendment/id. The new written-output control and the two other title fences remain P6 work.
+The older R107-SI-1 requirements remain history where this follow-up supersedes them.
+
+P3 sends HIGH #317 READY on `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec` in `msg_plugin-w_1791824755_ebcc9e`.
+Sol's complete package verdict is in `verdicts/stage1/p3-known-flaky-ev2.md` in this commit.
+It is CLEAN for the exact two-file change, corrected body, and completed 10-PASS pool gate.
+Sol-C's matching integration verdict and the lead's merge verification remain required.
+The planned train-4b delta and exact composed gate remain due after that PR lands.
+No #317 evidence becomes a result on train 03709a0c. Its RED gate and no-re-gate ruling remain intact.
+I ran no execution job.
