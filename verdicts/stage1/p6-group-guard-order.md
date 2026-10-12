@@ -59,3 +59,17 @@ P6 states that the earlier local Mac runs had no retained log. They are invalid 
 The initial Linux gate remains green. No source or evidence finding remains. The final-slot import, required base check, applicable delta review, and exact-head final gate remain due. Sol-B ran no local build, test, or reversal.
 
 VERDICT: CLEAN (0 open)
+
+## Final-slot base merge — CLEAN carried forward
+
+Exact head: `07f5db488e71f5da46d845ee9663a5a7e6863ec5`. Its parents are the reviewed head `1a9ba675cd6f51afd88e657649d22ec525d32f44` and base `f7eeced64e652700f2f78fc063e4896832134233`. Sol-B verified these parents from Git.
+
+Canonical log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-group-guard-order-07f5db48-pool-20261011-175929-22640.log`.
+
+The base check passes and exits 0. The new head descends from the reviewed head. The new base descends from the reviewed base. The merge has no conflict. None of the 20 imported paths overlaps the PR's five paths.
+
+The PR diff remains byte-identical: 13,525 bytes, SHA-256 `7d706be6d1560e1c0760501d74bd022772a0fda93df267df622922aa9c8a3012`. Both pending-list files equal the base's files. No reviewer delta round is required.
+
+Round 2 CLEAN carries forward to this exact head. The final gate is running. Its result remains due. Sol-B ran no local build, test, or gate.
+
+VERDICT: CLEAN (0 open; final gate pending)
