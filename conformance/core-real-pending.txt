@@ -46,6 +46,7 @@ conf::ad_2_lost_row_keeps_id_and_allows_retry
 # fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward and lead, 2026-10-10: a Linux-only form behind a platform check is allowed at low priority, after the minimum ids, P3 (P4a routes).
 conf::a2_3_close_first_reason_wins_with_new_reasons
 conf::a2_3_write_failed_closes_with_write_failed
+conf::ou_2b_failed_reasons_are_reported_to_the_host_and_route_ended
 
 # R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6.
 # #287 gives the real route_fill; the id stays: the pinned core-fence-exceptions.txt lists step 19 as unfenced (no await_title,
@@ -136,3 +137,18 @@ conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_kitty_modifier_keys_need_flag_8
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
+
+# The stall clock (R-90, ST): the host arms a route's stall step at the pump that consumes the worker's waiting report. On the
+# real tier, await_quiet does not prove that report consumed before advance_clock (R-88; R-90 follow-up Q2), so the deadline is
+# armed after the clock step: INCONCLUSIVE step_timeout at the RouteStalled wait, or the e3_1 due pump finds no step due
+# (gate evidence on 8100b364, Linux, seeds 0-31; ou_3_other_readers_continue passed there through the same unfenced
+# step, which is not evidence). The fences (R-57 title sentinel; route_reports progressed) are ST's
+# contracts transcript PR; the e3_1 ones are R-88 (A).
+conf::e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room
+conf::e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room
+conf::ou_2_route_state_machine
+conf::ou_2_stall_and_close_are_reported_to_the_host
+conf::ou_2_stall_close_after
+conf::ou_3_other_readers_continue
+conf::ou_3_progress_is_bytes_accepted_by_the_kernel
+conf::ou_3_stalled_reader_resyncs
