@@ -926,7 +926,7 @@ mod tests {
                 "--features",
                 "a/slow,b/slow",
                 "-E",
-                "binary(/^slow/) | test(/(^|::)slow_/)"
+                "binary(/^slow/) | test(/(^|::)slow_/) | test(/^this_test_binary_was_built_in_this_worktree$/)"
             ]
         );
     }

@@ -2787,7 +2787,8 @@ mod tests {
             "1:immediate",
             "--no-tests=pass",
             "-E",
-            "binary(/^slow/) | test(/(^|::)slow_/)",
+            // The slow tier's filter (`test_budget::SLOW_FILTER`; its text is pinned in `test_budget`'s own test).
+            test_budget::SLOW_FILTER,
         ]
         .iter()
         .map(|s| s.to_string())
@@ -2809,7 +2810,8 @@ mod tests {
             "0",
             "--no-tests=pass",
             "-E",
-            "binary(/^slow/) | test(/(^|::)slow_/)",
+            // The slow tier's filter (`test_budget::SLOW_FILTER`; its text is pinned in `test_budget`'s own test).
+            test_budget::SLOW_FILTER,
         ]
         .iter()
         .map(|s| s.to_string())
