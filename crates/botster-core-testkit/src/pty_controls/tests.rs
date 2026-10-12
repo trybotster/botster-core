@@ -161,6 +161,57 @@ fn pty_output_bytes_are_read_by_the_worker() {
     }
 }
 
+/// The visible text of `s1`'s model, through Core's `ReadScreen`.
+fn screen_text(core: &mut dyn CoreApi, mut at: Instant) -> String {
+    let read = core
+        .begin(Op::ReadScreen {
+            session: sid("s1"),
+            history: false,
+        })
+        .unwrap();
+    match complete(core, &mut at, read) {
+        OpResult::Ok(OpOutput::Screen(screen)) => screen.text,
+        other => panic!("ReadScreen: {other:?}"),
+    }
+}
+
+/// Steward ruling R-76: `pty_output` ignores `scripted`, the fake's mode script, as Core ignores a `Create` request's `fake`.
+/// The bytes are written, and the modes come from the bytes alone: a script that claims bracketed paste changes no mode. Any
+/// other unknown field is still `Bad`, with zero effect: no byte reaches the program's output.
+#[test]
+fn pty_output_ignores_scripted_and_refuses_any_other_unknown_field() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    let modes = core.terminal_state(&sid("s1")).unwrap().modes;
+    assert!(!modes.bracketed_paste);
+    let scripted = json!({"modes": {"bracketed_paste": true}});
+    assert!(bad(harness.control(
+        "a",
+        "pty_output",
+        &json!({"session": "s1", "bytes_hex": "78", "script": scripted})
+    )));
+    settle(core.as_mut(), at);
+    assert!(
+        !screen_text(core.as_mut(), at).contains('x'),
+        "a refused control writes nothing"
+    );
+    assert_eq!(
+        harness.control(
+            "a",
+            "pty_output",
+            &json!({"session": "s1", "bytes_hex": "78", "scripted": scripted})
+        ),
+        Ok(Value::Null)
+    );
+    settle(core.as_mut(), at);
+    assert!(
+        screen_text(core.as_mut(), at).contains('x'),
+        "the accepted byte reaches the session's model"
+    );
+    assert_eq!(core.terminal_state(&sid("s1")).unwrap().modes, modes);
+}
+
 /// Core TM-6: the output is an edge event, so it wakes the idle host that owns the worker, as a real PTY's readiness does.
 #[test]
 fn pty_output_wakes_the_idle_host() {
@@ -923,4 +974,75 @@ fn a_route_reads_past_its_first_allowance_while_its_frames_are_refused() {
         (1..=FRAMES).collect::<Vec<_>>(),
         "every frame is refused"
     );
+}
+
+/// `input_blocked` (Core DP-5, docs/core-testkit-controls.md): after the workers' ready work, it reports whether the route's
+/// stream takes no more bytes from the client. With the PTY blocked, the worker stops reading the route at its input bound
+/// (a small `route_input_queue_bytes`), and the stream fills: blocked. Released, the worker writes every byte, reads the rest,
+/// and the stream takes bytes again: not blocked. No byte is lost.
+#[test]
+fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
+    use botster_route_codec::prelude::{stream_wrap, Op as WireOp, ToWorker};
+    const QUEUE: u64 = 2048;
+    const PAYLOAD: usize = 200;
+    const FRAMES: usize = 400;
+    let mut harness = TestkitHarness::new(0);
+    let spec = spec_with("a", json!({"route_input_queue_bytes": QUEUE}));
+    let (mut core, at) = session_in(&mut harness, &spec, true, &json!([{"hold": {}}]));
+    let options: AttachOptions = serde_json::from_value(json!({
+        "file_directory": "/tmp",
+        "answers_queries": false,
+        "input": true,
+        "route_limits": {"max_frame_bytes": 1024},
+    }))
+    .unwrap();
+    let (_, mut route) = harness
+        .attach_stream(
+            "a",
+            core.as_mut(),
+            ClientId("c".into()),
+            &sid("s1"),
+            options,
+        )
+        .expect("attached");
+    settle(core.as_mut(), at);
+    let blocked = |route: &mut Box<dyn botster_core_conformance::RouteClient>| {
+        route.control("input_blocked", &json!({}))
+    };
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": true})),
+        Ok(Value::Null)
+    );
+    let frame = |k: usize| {
+        stream_wrap(
+            &ToWorker::Bytes {
+                op: WireOp(k as u64),
+                bytes: vec![b'a' + (k % 26) as u8; PAYLOAD].into(),
+            }
+            .encode(),
+        )
+    };
+    assert!(FRAMES * frame(1).len() > crate::route_client::ROUTE_STREAM_BYTES + 2 * QUEUE as usize);
+    for k in 1..=FRAMES {
+        route.write(&frame(k));
+    }
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": true})));
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": false})),
+        Ok(Value::Null)
+    );
+    for _ in 0..PUMPS {
+        settle(core.as_mut(), at);
+        if blocked(&mut route) == Ok(json!({"blocked": false}))
+            && input(&mut harness).as_str().map_or(0, str::len) == 2 * FRAMES * PAYLOAD
+        {
+            break;
+        }
+    }
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+    let expected: String = (1..=FRAMES)
+        .map(|k| botster_route_codec::prelude::hex_encode(&[b'a' + (k % 26) as u8; PAYLOAD]))
+        .collect();
+    assert_eq!(input(&mut harness), json!(expected), "every byte, in order");
 }

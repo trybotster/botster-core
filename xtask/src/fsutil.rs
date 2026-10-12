@@ -101,6 +101,40 @@ pub fn base(root: &Path) -> Result<String> {
     BASE.get(root, &base_ref())
 }
 
+/// The merge base of `HEAD` and the base commit of the run, resolved once.
+///
+/// A rule that compares the tree with the base counts only the changes of this branch when it reads the base's files here:
+/// a change that the base made after the branch point is not a change of this branch. When the head contains the base (the
+/// final gate of a merged head), the merge base is the base itself.
+pub fn merge_base(root: &Path) -> Result<String> {
+    static MERGE_BASE: OnceLock<String> = OnceLock::new();
+    if let Some(commit) = MERGE_BASE.get() {
+        return Ok(commit.clone());
+    }
+    let commit = merge_base_of(root, "HEAD", &base(root)?)?;
+    Ok(MERGE_BASE.get_or_init(|| commit).clone())
+}
+
+/// The merge base of two commits. With no merge base (a shallow snapshot, or unrelated histories) it is an error that names
+/// both commits, so a step that needs it fails closed.
+pub fn merge_base_of(root: &Path, head: &str, base: &str) -> Result<String> {
+    let head = commit_of(root, head)?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["merge-base", &head, base])
+        .output()
+        .context("run git merge-base")?;
+    if !output.status.success() {
+        bail!(
+            "{head} and {base} have no merge base (a shallow snapshot or unrelated histories), so the changes of this \
+             branch are not known: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
 /// A commit that is resolved once.
 struct BaseCommit(OnceLock<String>);
 
@@ -327,5 +361,70 @@ mod tests {
         let commit = commit_of(root, "gate-base").unwrap();
         assert_eq!(base(root).unwrap(), commit);
         assert_eq!(base(root).unwrap(), commit);
+    }
+
+    /// A repository whose `main` and `side` part at the commit `fork`: `main` then has `later`, `side` has `own`.
+    fn forked() -> (tempfile::TempDir, String, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q", "-b", "main"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "fork"]);
+        let fork = commit_of(root, "HEAD").unwrap();
+        git(root, &["branch", "side"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "later"]);
+        let later = commit_of(root, "HEAD").unwrap();
+        git(root, &["checkout", "-q", "side"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "own"]);
+        (dir, fork, later)
+    }
+
+    #[test]
+    fn the_merge_base_is_the_branch_point_or_the_base_that_the_head_contains() {
+        let (dir, fork, later) = forked();
+        let root = dir.path();
+        assert_eq!(merge_base_of(root, "HEAD", &later).unwrap(), fork);
+        git(root, &["merge", "-q", "--no-edit", "main"]);
+        assert_eq!(
+            merge_base_of(root, "HEAD", &later).unwrap(),
+            later,
+            "a merged head contains the base"
+        );
+    }
+
+    #[test]
+    fn unrelated_histories_have_no_merge_base_and_the_error_names_both_commits() {
+        let (dir, _, later) = forked();
+        let root = dir.path();
+        git(root, &["checkout", "-q", "--orphan", "alone"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "alone"]);
+        let alone = commit_of(root, "HEAD").unwrap();
+        let error = merge_base_of(root, "HEAD", &later).unwrap_err().to_string();
+        assert!(
+            error.contains(&alone) && error.contains(&later) && error.contains("no merge base"),
+            "{error}"
+        );
+        assert!(merge_base_of(root, "no-such-ref", &later).is_err());
+    }
+
+    /// `merge_base` is the merge base of `HEAD` and the base of the run (`BOTSTER_CI_BASE_REF`), resolved once. As in
+    /// `base_resolves_the_variable_to_a_commit`, the test runs alone in a new process that has the variable.
+    #[test]
+    fn merge_base_is_of_the_head_and_the_base_of_the_run() {
+        const NAME: &str = "fsutil::tests::merge_base_is_of_the_head_and_the_base_of_the_run";
+        if !botster_test_process::alone::is_alone(NAME) {
+            return botster_test_process::alone::run_alone(
+                NAME,
+                &[("BOTSTER_CI_BASE_REF", "main")],
+            );
+        }
+        let (dir, fork, _) = forked();
+        let root = dir.path();
+        assert_eq!(merge_base(root).unwrap(), fork);
+        git(root, &["merge", "-q", "--no-edit", "main"]);
+        assert_eq!(
+            merge_base(root).unwrap(),
+            fork,
+            "the run keeps its merge base"
+        );
     }
 }
