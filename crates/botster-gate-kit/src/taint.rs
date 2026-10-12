@@ -17,24 +17,24 @@ pub fn parse_denylist(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// The tokens that occur in `line` as whole words.
+/// The tokens that occur in `line` as whole words. Each char boundary of `line` is a candidate start, so overlapping
+/// occurrences are read too; no cursor moves, so the scan always ends.
 pub fn hits_in_line<'a>(line: &str, tokens: &'a [String]) -> Vec<&'a str> {
-    let mut found = Vec::new();
-    for token in tokens {
-        let mut from = 0;
-        while let Some(at) = line[from..].find(token.as_str()) {
-            let start = from + at;
-            let end = start + token.len();
-            let before_ok = !line[..start].chars().next_back().is_some_and(is_word);
-            let after_ok = !line[end..].chars().next().is_some_and(is_word);
-            if before_ok && after_ok {
-                found.push(token.as_str());
-                break;
-            }
-            from = start + line[start..].chars().next().map_or(1, char::len_utf8);
-        }
-    }
-    found
+    tokens
+        .iter()
+        .filter(|token| {
+            line.char_indices().any(|(start, _)| {
+                if !line[start..].starts_with(token.as_str()) {
+                    return false;
+                }
+                let end = start + token.len();
+                let before_ok = !line[..start].chars().next_back().is_some_and(is_word);
+                let after_ok = !line[end..].chars().next().is_some_and(is_word);
+                before_ok && after_ok
+            })
+        })
+        .map(String::as_str)
+        .collect()
 }
 
 /// A banned name in a file: `(file, 1-based line, token)`.
@@ -78,6 +78,64 @@ mod tests {
     #[test]
     fn a_later_whole_word_after_a_partial_one_is_found() {
         assert_eq!(hits_in_line("something thing", &tokens()), vec!["thing"]);
+    }
+
+    /// An occurrence that starts inside a partial one is read: in `ba-a-a`, `a-a` at 1 follows a word character, and the
+    /// whole-word `a-a` at 3 overlaps it.
+    #[test]
+    fn an_overlapping_whole_word_after_a_partial_one_is_found() {
+        let tokens = vec!["a-a".to_string()];
+        assert_eq!(hits_in_line("ba-a-a", &tokens), vec!["a-a"]);
+        assert!(hits_in_line("ba-a-ab", &tokens).is_empty());
+    }
+
+    /// `hits_in_line` before the char-boundary scan (Core xtask at v1 644f632f): a cursor that moves past each partial
+    /// occurrence. Kept only as the reference of the equivalence test.
+    fn hits_in_line_with_a_cursor<'a>(line: &str, tokens: &'a [String]) -> Vec<&'a str> {
+        let mut found = Vec::new();
+        for token in tokens {
+            let mut from = 0;
+            while let Some(at) = line[from..].find(token.as_str()) {
+                let start = from + at;
+                let end = start + token.len();
+                let before_ok = !line[..start].chars().next_back().is_some_and(is_word);
+                let after_ok = !line[end..].chars().next().is_some_and(is_word);
+                if before_ok && after_ok {
+                    found.push(token.as_str());
+                    break;
+                }
+                from = start + line[start..].chars().next().map_or(1, char::len_utf8);
+            }
+        }
+        found
+    }
+
+    /// The scan gives the cursor's result for every line of up to five characters over `a b - é space` (3906 lines), with
+    /// tokens that overlap themselves, start or end with a non-word character, or hold a multi-byte character: so a token
+    /// at the start, at the end, after a partial match and inside an overlap.
+    #[test]
+    fn the_scan_is_the_cursor_for_every_short_line() {
+        let tokens: Vec<String> = ["a", "a-a", "-a", "a-", "é", "aé", "b é", "ab"]
+            .map(String::from)
+            .to_vec();
+        let alphabet = ['a', 'b', '-', 'é', ' '];
+        let mut lines = vec![String::new()];
+        let mut last = vec![String::new()];
+        for _ in 0..5 {
+            last = last
+                .iter()
+                .flat_map(|line| alphabet.map(|c| format!("{line}{c}")))
+                .collect();
+            lines.extend(last.iter().cloned());
+        }
+        assert_eq!(lines.len(), 3906);
+        let mut hits = 0;
+        for line in &lines {
+            let found = hits_in_line(line, &tokens);
+            assert_eq!(found, hits_in_line_with_a_cursor(line, &tokens), "{line:?}");
+            hits += found.len();
+        }
+        assert!(hits > 1000, "{hits}");
     }
 
     #[test]
