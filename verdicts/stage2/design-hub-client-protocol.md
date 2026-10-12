@@ -87,3 +87,68 @@ This review retains that required implementation prerequisite and does not count
 
 VERDICT: NOT CLEAN (three open MEDIUM design findings; reservation-time limits also await the steward ruling).
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 2
+
+Artifact SHA256: `010423079237d76789b92a4fd41868f58c131f2d6f7dd053e46f0c9bc7044e10`.
+PC supplies revision 2 in msg_plugin-w_1791848120_a1e7c8.
+Sol-B reads the complete revision and steward R-119.
+Sol-B also checks the relevant Core source at v1 644f632f and the frozen Hub close types.
+
+S2-PC-D1: CLOSED for design.
+Reserved and Consumed entries share the finite max_route_reservations capacity.
+A full table refuses attach before minting. The owner expires both states at the original connect deadline.
+Reserved expiry emits not_connected; Consumed expiry removes the used-token record silently.
+Shutdown drops these in-memory records. Live routes remain bounded by Core and end at RouteClosed.
+
+S2-PC-D3: CLOSED for design.
+The revised design uses botster_core_link::route::route_ended_cause, including asynchronous HandoffFailed.
+It separates synchronous AttachRefused, reservation expiry, and Core-reported failure.
+Each path has one removal or final disposition and one failed-end event.
+The implementation review must check those transitions and event counts.
+
+R-119 closes Q1 for design.
+The reservation stores all three explicit OU-1 RouteLimitChoices fields and uses the same values at attach.
+The remaining TS-1 fields come from Core limits(), not copied default rules.
+The worker's attached.limits remains authoritative for an adopted older worker.
+Q2, Q3, and Q4 now record the lead's rulings, including CLI-AT4's ten attempts one second apart.
+The revised prior-art table records both surveys and requires each code PR to re-read its cited source.
+
+### S2-PC-D2 — MEDIUM — The reserved close-frame bytes do not cover every response
+
+The owner-only state machine resolves the previous ownership and transition gaps.
+A refused bridge submit returns the request and stream without consuming the token.
+The owner checks expiry after queue delay, consumes once, and calls Core attach in the same step.
+PC records the required P5 signature change, Err((Refused, Request)), as an explicit implementation dependency.
+
+The outgoing byte rule still needs correction.
+Section 2.3 reserves the bytes of the purported largest reply, close{route_token_used}.
+The same accepted request can return close{route_token_invalid}, whose reason string is three bytes longer.
+Those two unit reasons use the same frozen ServerFrame::Close envelope.
+A queue with exactly the reserved space can therefore lack room for the required invalid-proof close.
+
+Required change: reserve the actual maximum encoded reply length for every reply possible after admission.
+Include framing bytes and each permitted close payload.
+Check capacity before submit. Keep the reply-slot reservation and nonblocking writes.
+This remaining defect concerns the byte bound only; the earlier token and stream transition gaps are resolved.
+
+### S2-PC-D4 — HIGH — The new create sequence answers before Core proves a durable row
+
+Evidence: revision 2 section 7; Core v1 644f632f, admit.rs commit(Create), flow.rs CreateFlow, and tests/lifecycle.rs.
+Section 7 says begin(Create) writes the registry row, then the Hub answers accepted, then it begins Start.
+Core begin(Create) admits the operation in memory and queues CreatePhase::WriteRow. It does not write the row.
+Only pump advances that flow through WriteRow, PostCreated, and Finish.
+The existing begin_and_poll_make_no_progress proof explicitly requires no registry write before a pump.
+
+A Hub that follows the written sequence can answer accepted before any durable session row exists.
+A crash at that point can lose the promised session. Core's later AD-7 writes do not protect that earlier answer.
+This finding concerns session admission durability, not the deferred durable-operation identifiers.
+
+Required change: wait for the successful Create completion that follows its durable row write before answering accepted.
+Specify the typed failure when Create fails. Do not begin Start for a failed Create.
+Then begin Start through the same owner and map its outcome to the promised session operation.
+Retain Core as the only durable store. No new Hub registry or contract control is requested.
+Define the shutdown or connection-loss disposition while Create is pending through P5's existing waiter path.
+
+VERDICT: NOT CLEAN (S2-PC-D2 remains MEDIUM; new S2-PC-D4 is HIGH; D1 and D3 are closed; Q1 is ruled).
+This is a design review only. Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
