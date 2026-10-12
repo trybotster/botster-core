@@ -543,7 +543,7 @@ mod slow_tests {
     /// lost stream discards did not move.
     #[test]
     fn progress_is_true_only_when_a_kept_byte_moves() {
-        // Everything that the worker's end can read now.
+        // Everything that the worker's end can read now: its count, after a check that each byte is the sent byte `x`.
         let read_all = |worker: &mut UnixStream| {
             let mut buf = vec![0u8; 1 << 20];
             let mut n = 0;
@@ -551,6 +551,10 @@ mod slow_tests {
                 if got == 0 {
                     break;
                 }
+                assert!(
+                    buf[..got].iter().all(|&b| b == b'x'),
+                    "only the sent bytes arrive"
+                );
                 n += got;
             }
             n
