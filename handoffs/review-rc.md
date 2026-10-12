@@ -1448,3 +1448,47 @@ It preserves the refused prebuild invocation and requests later strict-command p
 The reviewer sent RC's received worker-provenance clarification and the independent no-crate-change comparison to the integration reviewer.
 Final acceptance still requires the completed exact-head gate, final body, and completed package verdict.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — final-slot package verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/288`.
+Exact source head: `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+Reviewed base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Gated tree: `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+Gate message: `msg_plugin-w_1791763700_2fc725`.
+Open package findings: 0, including LOW findings. The earlier source and body corrections remain closed.
+
+The source delta and pending moves remain as reviewed in `668b82aeb5364db5afd21fac477dce04cc7a2fdc`.
+The later import has the canonical Q7 PASS reviewed in `5c4048614f24c313c8e5edd06e17ca50cdb19d76`.
+The matching integration source-carry receipt is `b477466bae49d7439698ea42510170649ae272a0`.
+The controlled ST-6 acceptance is package `843604d707cfb4a6a9049e54da46fba2ff4a001d` and integration `5fa42e4aa2dbf186fdf7ad9a7c4308af4ca2210f`.
+The lead accepts that exact case in `msg_plugin-w_1791762655_ac8cbb` and directs the new-head slot sequence.
+The accepted unchanged-cause disposition applies under plan 23an(a); no .42 repair import is claimed.
+
+Final gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-09e9fbc8-pool-20261011-165511-49979.log`.
+The reviewer read the exact header, strict summaries, suite summaries, mutation results, catches and citations, relevant PASS records, and final exits.
+The header names the exact source head and reviewed base above.
+All ten steps pass. The step total is 667.8 seconds; the job and wrapper exit 0 after 755 seconds on msa1.
+Both retained conformance summaries report 245 passes and zero failures.
+The default suite reports 1828 passes. Both unmutated slow runs report 599 passes.
+The ST-6 ID passes on the testkit, earlier slow step, and unmutated stage-2 baseline.
+All four new testkit removals have normal conformance PASS records in this exact-head gate.
+They retain their real-pending fence gaps and P3 owner; no extra real-tier acceptance is granted.
+The gate reports 32 mutants: 29 caught, eleven in stage 2; three unviable; no miss or timeout.
+All 29 raw catch identities equal 29 unique citation identities. Each cited test has a normal PASS. No FLAKY token exists.
+The three unviable replacements are the generic input parser and the two raw-terminal construction functions.
+The mutation exclusions remain unchanged. Fuzz passes with no changed decoder crate selected; no fuzz execution is claimed.
+
+The live PR head matches this verdict. The final body names this head, base, passing canonical check, and completed gate.
+It preserves the red gate, exact failure, controlled diagnostic, test-exit and wrapper-zero distinction, both acceptances, and lead case decision.
+It retains the refused local prebuild separately from the successful strict run and states the unchanged candidate-worker source.
+The trace has no ReadScreen-answer timestamp; the answer ordering remains an inference from the result and source, as recorded in both acceptance receipts.
+The final green gate does not prove that the unfenced window is fixed. The R-80 fence still awaits the .42 pin.
+F-283-1 remains the separate imported-code follow-up under the lead's scope ruling.
+
+The integration reviewer must publish the completed matching final verdict.
+The merge must preserve the gated tree above. This verdict accepts no later head, base, or different tree.
+The reviewer ran no test, build, gate, or diagnostic.
