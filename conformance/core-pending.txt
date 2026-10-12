@@ -63,9 +63,10 @@ conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
-# conf::a2_1_no_deadline_code_exists: steward ruling R-97 (b): the testkit worker's own deadlines (AD-7 self-exit, worker-core
-# worker.rs:940/:921) run on the injected host clock, so the step 6 advance ends the held worker. Fails at seed 0 step 7.
-# Owner: P5, the R-97 fix PR after the hold_start PR.
+# conf::a2_1_no_deadline_code_exists: since the R-97 worker clock, steps 0-23 pass on the testkit (the start ends
+# StartupTimeout). It fails at seed 0 step 24: the payload's DA1 query (`pty_output 1b5b63`) never reaches r1 as a
+# `terminal_query` frame (EV-8, DP-3); the real tier stops INCONCLUSIVE at step 23. The same query path as
+# conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open. Owner: RC.
 conf::a2_1_no_deadline_code_exists
 conf::a2_1_not_admitted_state_is_wrong_state_sync_for_every_row
 conf::a2_1_read_screen_history_flag_and_text
