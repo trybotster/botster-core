@@ -6,12 +6,22 @@
 # binary      the nextest binary id
 # test        the exact test name
 # diagnosis   the diagnosed cause
+# signature   the recorded failure signature, with named fields (Core lead, 2026-10-12), which a re-gate must match
+#             (BUILD.md Testing rule 9, second exception):
+#             { step = "<gate step>", symptom = "<symptom>", seed = "any" | <n>, text = "<literal>" }
+#             step: a step name of `cargo xtask ci --list`; symptom: step_timeout, test_timeout, assertion, signal or
+#             exit_code; seed: "any" or a seed number; text (optional, not empty): a literal substring of the failing
+#             test's output.
 # owner       the owner of the fix
-# removed_by  the pull request that removes the cause and this entry
+# removed_by  what removes the cause and this entry: a Core pull request "#<number>", or the pin of the contracts tag
+#             that carries the fix, "contracts-v<major>.<minor>.<patch> pin"
 
+# #317 (lead, 2026-10-12). Its signature table comes from the signature that its diagnosis records (#308's required
+# field).
 [[flaky]]
 binary = "botster-core::slow_conformance"
 test = "conf::ev_2_mandatory_and_keyed_never_dropped"
 diagnosis = "R-107/R107-SI-2: .44 ev_2 has no fence between the s67 title write and the s70 Stop (the probe Ack means queued; await_quiet sees only link bytes). Fixed by contracts #89 (d764f47, contracts-v0.1.45). Signature: INCONCLUSIVE seed=<any> step=71 limit=step_timeout."
+signature = { step = "slow", symptom = "step_timeout", seed = "any", text = "step=71 limit=step_timeout" }
 owner = "RC"
 removed_by = "#316"

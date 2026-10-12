@@ -67,6 +67,11 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
 ];
 
+/// The names of the gate's steps, in order (`cargo xtask ci --list`).
+pub fn step_names() -> impl Iterator<Item = &'static str> {
+    JOBS.iter().map(|(name, _, _)| *name)
+}
+
 /// The bolero harnesses of the repo: `(crate, harness name)`. Every byte decoder of the repo has one (plan section 8,
 /// step 9). A package that adds a decoder adds its harness here, and the fuzz step runs it when the diff changes its crate.
 const HARNESSES: &[(&str, &str)] = &[
@@ -3306,6 +3311,12 @@ mod slow_tests {
             binary: guarded.0.clone(),
             test: guarded.1.clone(),
             diagnosis: "d".into(),
+            signature: known_flaky::Signature {
+                step: "mutants".into(),
+                symptom: "assertion".into(),
+                seed: known_flaky::Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         };

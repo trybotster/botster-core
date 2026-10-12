@@ -2,10 +2,19 @@
 //! with a diagnosed cause and an open fix. The mutation stages do not run a listed test, so the test cannot catch a mutant
 //! by its flake. The slow step and the stage-2 baseline still run it: the list hides no failure of an unmutated run.
 //!
-//! Each entry names the test (`binary`, the nextest binary id, and `test`, its exact name), the `diagnosis`, the `owner` of
-//! the fix, and the pull request that removes the entry (`removed_by`, `#<number>`). The `lists` step refuses an entry with
-//! a missing, empty or unknown field, a duplicate, and a name with a character outside `[A-Za-z0-9_:/-]`, which a filterset
-//! needs no escape for. The Stage 1 exit needs the list empty (plan 23ap, done item 7).
+//! Each entry names the test (`binary`, the nextest binary id, and `test`, its exact name), the `diagnosis`, the recorded
+//! failure `signature`, the `owner` of the fix, and what removes the entry (`removed_by`): a Core pull request
+//! `#<number>`, or the pin of a contracts tag that carries the fix, `contracts-v<major>.<minor>.<patch> pin` (Core lead,
+//! 2026-10-12: the in_8 fix is contracts #79, which the contracts-v0.1.44 pin brings).
+//! The `lists` step refuses an entry with a missing, empty or unknown field, a duplicate, and a name with a character
+//! outside `[A-Za-z0-9_:/-]`, which a filterset needs no escape for. The Stage 1 exit needs the list empty (plan 23ap, done
+//! item 7).
+//!
+//! The `signature` is what a failure must match before a red gate may run once more (BUILD.md Testing rule 9, second
+//! exception, contracts main b6c7ea9d). It has named fields, so a match can be checked mechanically (Core lead,
+//! 2026-10-12): `signature = { step = "<gate step>", symptom = "<symptom>", seed = "any" | <n>, text = "<literal>" }`.
+//! `step` is one of the gate's step names (`cargo xtask ci --list`); `symptom` is one of [`SYMPTOMS`]; `seed` is `"any"`
+//! or a seed number; `text`, optional, is a literal substring of the failing test's output and is not empty.
 //!
 //! A test can run in both stages (a library's unit test is in both builds), or in stage 2 only (a test that only the slow
 //! features build, also in a binary that both builds have). So each stage lists its own tests (`cargo nextest list` with
@@ -28,11 +37,137 @@ pub struct Entry {
     pub binary: String,
     pub test: String,
     pub diagnosis: String,
+    pub signature: Signature,
     pub owner: String,
     pub removed_by: String,
 }
 
-const FIELDS: [&str; 5] = ["binary", "test", "diagnosis", "owner", "removed_by"];
+const FIELDS: [&str; 6] = [
+    "binary",
+    "test",
+    "diagnosis",
+    "signature",
+    "owner",
+    "removed_by",
+];
+
+/// The symptoms of a failure signature.
+pub const SYMPTOMS: [&str; 5] = [
+    "step_timeout",
+    "test_timeout",
+    "assertion",
+    "signal",
+    "exit_code",
+];
+
+/// The seed of a failure signature: any seed, or one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seed {
+    Any,
+    Number(u64),
+}
+
+/// The recorded failure signature of a known-flaky test (module documentation).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    /// A step name of the gate.
+    pub step: String,
+    /// One of [`SYMPTOMS`].
+    pub symptom: String,
+    pub seed: Seed,
+    /// A literal substring of the failing test's output.
+    pub text: Option<String>,
+}
+
+impl std::fmt::Display for Signature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "step {}, {}, seed ", self.step, self.symptom)?;
+        match self.seed {
+            Seed::Any => write!(f, "any")?,
+            Seed::Number(seed) => write!(f, "{seed}")?,
+        }
+        match &self.text {
+            Some(text) => write!(f, ", text {text:?}"),
+            None => Ok(()),
+        }
+    }
+}
+
+const SIGNATURE_FIELDS: [&str; 4] = ["step", "symptom", "seed", "text"];
+
+/// The signature of an entry from its `signature` value; `at` names the entry in an error.
+fn signature(value: Option<&toml::Value>, at: &str) -> Result<Signature, String> {
+    let table = value
+        .ok_or_else(|| format!("{at}: no `signature` table"))?
+        .as_table()
+        .ok_or_else(|| format!("{at}: `signature` is not a table"))?;
+    if let Some(key) = table
+        .keys()
+        .find(|key| !SIGNATURE_FIELDS.contains(&key.as_str()))
+    {
+        return Err(format!("{at}: unknown `signature` field `{key}`"));
+    }
+    let string = |name: &str| -> Result<Option<String>, String> {
+        table
+            .get(name)
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{at}: `signature.{name}` is not a string"))
+            })
+            .transpose()
+    };
+    let step = string("step")?.ok_or_else(|| format!("{at}: no `signature.step`"))?;
+    if !crate::ci::step_names().any(|name| name == step) {
+        return Err(format!(
+            "{at}: `signature.step` {step:?} is not a gate step ({})",
+            crate::ci::step_names().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    let symptom = string("symptom")?.ok_or_else(|| format!("{at}: no `signature.symptom`"))?;
+    if !SYMPTOMS.contains(&symptom.as_str()) {
+        return Err(format!(
+            "{at}: `signature.symptom` {symptom:?} is not one of {}",
+            SYMPTOMS.join(", ")
+        ));
+    }
+    let seed = match table.get("seed") {
+        None => return Err(format!("{at}: no `signature.seed`")),
+        Some(toml::Value::String(any)) if any == "any" => Seed::Any,
+        Some(toml::Value::Integer(seed)) if *seed >= 0 => Seed::Number(*seed as u64),
+        Some(other) => {
+            return Err(format!(
+                "{at}: `signature.seed` {other} is not \"any\" or a seed number"
+            ))
+        }
+    };
+    let text = string("text")?;
+    if text.as_deref().is_some_and(|text| text.trim().is_empty()) {
+        return Err(format!("{at}: `signature.text` is empty"));
+    }
+    Ok(Signature {
+        step,
+        symptom,
+        seed,
+        text,
+    })
+}
+
+/// Whether `removed_by` names what removes an entry: `#<number>`, or `contracts-v<major>.<minor>.<patch> pin`.
+fn removal(removed_by: &str) -> bool {
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
+    if let Some(number) = removed_by.strip_prefix('#') {
+        return digits(number);
+    }
+    removed_by
+        .strip_prefix("contracts-v")
+        .and_then(|rest| rest.strip_suffix(" pin"))
+        .is_some_and(|version| {
+            let parts: Vec<&str> = version.split('.').collect();
+            parts.len() == 3 && parts.iter().all(|part| digits(part))
+        })
+}
 
 /// A name that a filterset `=` matcher takes as it is: not empty, only `[A-Za-z0-9_:/-]`.
 fn plain_name(name: &str) -> bool {
@@ -90,12 +225,13 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
             }
         }
         let removed_by = field("removed_by")?;
-        let number = removed_by.strip_prefix('#').unwrap_or_default();
-        if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        if !removal(&removed_by) {
             return Err(format!(
-                "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>`"
+                "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>` or a pin \
+                 `contracts-v<major>.<minor>.<patch> pin`"
             ));
         }
+        let signature = signature(entry.get("signature"), &at)?;
         if !seen.insert((binary.clone(), test.clone())) {
             return Err(format!("{at}: {binary} {test} is listed twice"));
         }
@@ -103,6 +239,7 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
             binary,
             test,
             diagnosis: field("diagnosis")?,
+            signature,
             owner: field("owner")?,
             removed_by,
         });
@@ -134,13 +271,18 @@ pub fn stage_filter(entries: &[Entry], tests: &Tests, filter: Option<&str>) -> O
 }
 
 /// The lines that a mutation stage whose list is `tests` prints for the listed tests that it does not run: each one with
-/// its diagnosis, owner and removing pull request.
+/// its diagnosis, failure signature, owner and removing pull request.
 pub fn report(entries: &[Entry], tests: &Tests) -> Vec<String> {
     in_stage(entries, tests)
         .map(|entry| {
             format!(
-                "known flaky, not run: {} {} ({}; owner {}; removed by {})",
-                entry.binary, entry.test, entry.diagnosis, entry.owner, entry.removed_by
+                "known flaky, not run: {} {} ({}; signature {}; owner {}; removed by {})",
+                entry.binary,
+                entry.test,
+                entry.diagnosis,
+                entry.signature,
+                entry.owner,
+                entry.removed_by
             )
         })
         .collect()
@@ -168,11 +310,15 @@ pub fn absent(entries: &[Entry], default: &Tests, slow: &Tests) -> Vec<String> {
 mod tests {
     use super::*;
 
+    const SIGNATURE: &str =
+        r#"signature = { step = "slow", symptom = "test_timeout", seed = "any" }"#;
+
     const ENTRY: &str = r##"
 [[flaky]]
 binary = "botster-core::slow_conformance"
 test = "conf::ev_5_x"
 diagnosis = "R-63"
+signature = { step = "slow", symptom = "test_timeout", seed = "any" }
 owner = "P3"
 removed_by = "#243"
 "##;
@@ -182,6 +328,12 @@ removed_by = "#243"
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
+            signature: Signature {
+                step: "slow".into(),
+                symptom: "assertion".into(),
+                seed: Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         }
@@ -201,18 +353,43 @@ removed_by = "#243"
                 binary: "botster-core::slow_conformance".into(),
                 test: "conf::ev_5_x".into(),
                 diagnosis: "R-63".into(),
+                signature: Signature {
+                    step: "slow".into(),
+                    symptom: "test_timeout".into(),
+                    seed: Seed::Any,
+                    text: None,
+                },
                 owner: "P3".into(),
                 removed_by: "#243".into(),
             }])
         );
         assert_eq!(parse("# none\n"), Ok(vec![]));
+        let pinned = ENTRY.replace("\"#243\"", "\"contracts-v0.1.44 pin\"");
+        assert_eq!(
+            parse(&pinned).unwrap()[0].removed_by,
+            "contracts-v0.1.44 pin"
+        );
+        // A seed number and a text.
+        let one = ENTRY.replace(
+            "seed = \"any\" }",
+            "seed = 10, text = \"step 8: step_timeout\" }",
+        );
+        let signature = &parse(&one).unwrap()[0].signature;
+        assert_eq!(
+            (signature.seed, signature.text.as_deref()),
+            (Seed::Number(10), Some("step 8: step_timeout"))
+        );
+        assert_eq!(
+            signature.to_string(),
+            "step slow, test_timeout, seed 10, text \"step 8: step_timeout\""
+        );
     }
 
     /// Each field must be there and not empty; each rule of the module documentation refuses its entry. A `tier` field
     /// (the first form of this list) is an unknown field.
     #[test]
     fn an_entry_that_breaks_a_rule_is_refused() {
-        for field in FIELDS {
+        for field in FIELDS.into_iter().filter(|field| *field != "signature") {
             let without: String = ENTRY
                 .lines()
                 .filter(|line| !line.starts_with(&format!("{field} =")))
@@ -240,8 +417,67 @@ removed_by = "#243"
                 "unknown field `fixed_by`",
             ),
             (format!("{ENTRY}tier = \"slow\"\n"), "unknown field `tier`"),
+            // The failure signature (BUILD.md Testing rule 9, second exception; Core lead, 2026-10-12): named fields that a
+            // match can check.
+            (ENTRY.replace(SIGNATURE, ""), "no `signature` table"),
+            (
+                ENTRY.replace(SIGNATURE, "signature = \"slow, test_timeout\""),
+                "`signature` is not a table",
+            ),
+            (
+                ENTRY.replace("step = \"slow\"", "step = \"slowest\""),
+                "`signature.step` \"slowest\" is not a gate step (fmt, clippy,",
+            ),
+            (
+                ENTRY.replace("step = \"slow\", ", ""),
+                "no `signature.step`",
+            ),
+            (
+                ENTRY.replace("step = \"slow\"", "step = 8"),
+                "`signature.step` is not a string",
+            ),
+            (
+                ENTRY.replace("\"test_timeout\"", "\"hang\""),
+                "`signature.symptom` \"hang\" is not one of step_timeout, test_timeout, assertion, signal, exit_code",
+            ),
+            (
+                ENTRY.replace("symptom = \"test_timeout\", ", ""),
+                "no `signature.symptom`",
+            ),
+            (
+                ENTRY.replace(", seed = \"any\"", ""),
+                "no `signature.seed`",
+            ),
+            (
+                ENTRY.replace("seed = \"any\"", "seed = \"10\""),
+                "`signature.seed` \"10\" is not \"any\" or a seed number",
+            ),
+            (
+                ENTRY.replace("seed = \"any\"", "seed = -1"),
+                "`signature.seed` -1 is not \"any\" or a seed number",
+            ),
+            (
+                ENTRY.replace("seed = \"any\" }", "seed = \"any\", text = \" \" }"),
+                "`signature.text` is empty",
+            ),
+            (
+                ENTRY.replace("seed = \"any\" }", "seed = \"any\", limit = \"2 s\" }"),
+                "unknown `signature` field `limit`",
+            ),
             (format!("{ENTRY}\n[other]\n"), "unknown key `other`"),
             (ENTRY.replace("\"#243\"", "\"243\""), "`removed_by` \"243\""),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts .44 pin\""),
+                "`removed_by` \"contracts .44 pin\"",
+            ),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts-v0.1 pin\""),
+                "`removed_by` \"contracts-v0.1 pin\"",
+            ),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts-v0.1.44\""),
+                "`removed_by` \"contracts-v0.1.44\"",
+            ),
             (ENTRY.replace("\"#243\"", "\"#\""), "`removed_by` \"#\""),
             (
                 ENTRY.replace("\"#243\"", "\"#24a\""),
@@ -315,7 +551,7 @@ removed_by = "#243"
         assert_eq!(stage_filter(&[], &stage2, Some("f")), Some("f".to_string()));
         assert_eq!(
             report(&entries, &stage1),
-            ["known flaky, not run: lib slow_both (d; owner o; removed by #1)"]
+            ["known flaky, not run: lib slow_both (d; signature step slow, assertion, seed any; owner o; removed by #1)"]
         );
         assert_eq!(report(&entries, &stage2).len(), 3);
     }
@@ -340,23 +576,25 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds only the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12). #243
-    /// removed the ev_5 flake's cause and entry. The Stage 1 exit needs the list empty.
+    /// The repository's list parses, and it holds only the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12), which
+    /// #316 removes. #243 removed the ev_5 flake's cause and entry. The contracts-v0.1.44 pin (#312) brought the in_8 fix,
+    /// contracts #79, so it removed the in_8 entry. The Stage 1 exit needs the list empty.
     #[test]
     fn the_repository_list_holds_only_the_ev_2_flake() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
         let entries = parse(&std::fs::read_to_string(root.join(FILE)).unwrap()).unwrap();
-        let names: Vec<(&str, &str)> = entries
+        let names: Vec<(&str, &str, &str)> = entries
             .iter()
-            .map(|e| (e.binary.as_str(), e.test.as_str()))
+            .map(|e| (e.binary.as_str(), e.test.as_str(), e.removed_by.as_str()))
             .collect();
         assert_eq!(
             names,
             [(
                 "botster-core::slow_conformance",
-                "conf::ev_2_mandatory_and_keyed_never_dropped"
+                "conf::ev_2_mandatory_and_keyed_never_dropped",
+                "#316"
             )]
         );
     }
@@ -410,6 +648,12 @@ mod slow_tests {
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
+            signature: Signature {
+                step: "slow".into(),
+                symptom: "assertion".into(),
+                seed: Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         };
