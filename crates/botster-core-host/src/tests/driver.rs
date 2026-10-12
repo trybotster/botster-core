@@ -14,6 +14,7 @@ mod api;
 mod deadlines;
 mod handoff;
 mod observations;
+mod stall;
 
 #[derive(Default)]
 struct TestWake {
