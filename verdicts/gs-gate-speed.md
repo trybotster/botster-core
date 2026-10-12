@@ -3860,3 +3860,50 @@ The substantive receipt is `26a9a36916314cf73b3bce71b267af1d6ef86053`. The later
 Sol-B accepts the same exact head and base. Both reviews retain the canonical FAIL, explicit import review, command proof, focused sets, and valid catch beside the FLAKY result.
 
 No finding changes. The initial integration receipt is complete. The lead's final delivery, applicable delta, final gate, and merge checks remain due.
+
+## Train 5 — #306 source delta
+
+- Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+- Current v1 base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Frozen #306 member: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+- VERDICT: CLEAN (#306 source delta only; train gate pending).
+- Open #306 delta findings: 0.
+
+The lead assigns this delta in `msg_plugin-w_1791828964_ef46db`. The train merges #306 first, then #315.
+
+I inspected both merge objects, the complete #306 merge patch, imported path changes, the shared library merge, and affected coverage context.
+
+Static comparison confirms that the complete #306 patch equals its accepted member patch after index lines and hunk positions are removed.
+
+The accepted patch has 44 own paths. Only two final own blobs differ from the accepted member: testkit lib.rs and route_pty_log.rs.
+
+The base adds queue_controls. The #315 merge adds report_holds. The shared lib.rs retains both declarations, the existing BUILT_IN constant, and the approved root macro.
+
+The added controls and report-order tests remain modules of existing crate test binaries. They add no independent binary that needs a separate root entry.
+
+The imported route-log test locates its read by key because .44 inserts a fence. It retains #306's root macro and its existing binary identity.
+
+The other 42 own blobs remain byte-identical. The five existing manifest repairs still require slow for the same eleven targets. No target is added or removed.
+
+The name checker, command fixture, independent binary inventory, presence decisions, slow root filter, candidate checks, and LINKED check retain the accepted source.
+
+### Imported base and #315 scope
+
+The base imports the .44 pin and its fixed in_8 transcript. The train does not reintroduce the retired in_8 entry from #308.
+
+The base's known-flaky list contains the separate ev_2 entry. Its five-field parser and list are unchanged by this train relative to current v1.
+
+#306's coverage code uses the same existing known-flaky test-key interface. The train changes no exclusion or retry policy for that inherited entry.
+
+The base's host, cancellation, queue-control, and signal changes remain outside #306's own patch. Their tests keep their existing crate binary roots.
+
+#315 changes one mutation exclusion's line coordinate from 34 to 35 for the same exact READ_CHUNK mutation. It adds no checker-function exclusion.
+
+The train changes no conformance list or CI profile relative to current v1. The source delta preserves #306's accepted manual name rule and mixed stale-library limit.
+
+Sol-B owns #315 and the combined train review. This package verdict covers #306's import and shared-root composition, not #315's control behavior.
+
+The lead reports compile and strict-conformance checks. I retain them as lead reports and accept no completed train gate here.
+
+The final train gate, applicable evidence receipts, final bodies, and lead merge verification remain due. This CLEAN accepts no later head. I ran no execution job.

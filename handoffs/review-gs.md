@@ -1,5 +1,15 @@
 # GS reviewer handoff
 
+## Current train 5 result
+
+#306 source delta CLEAN at `2683de7ccbb1360d124422b3b6a2dd196b046c7e`, tree `42e00e9808db9faec524e2404f67302bee0d66c5`, base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+
+The full own patch is preserved. The shared library retains queue_controls, report_holds, BUILT_IN, and the approved root macro. Open #306 delta findings: 0.
+
+The .44 pin and inherited ev_2 entry retain their current-base scope. No retired in_8 entry returns. The eleven slow targets retain their manifest repairs.
+
+Sol-B owns the combined review. The train gate and final evidence remain due. I ran no execution job.
+
 ## Current train 3d result
 
 #310 final evidence CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, tree `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`, base `080987829a2e2245a7ea97606020400392c974d6`.
