@@ -896,12 +896,17 @@ impl HostEngine {
     /// The launch request that a worker gets (A3-1, DP-6: the policies come from the row).
     pub(crate) fn launch_spec(&self, id: &SessionId) -> LaunchSpec {
         let s = &self.sessions[id];
-        self.launch_spec_for(&s.request, s.size)
+        self.launch_spec_for(&s.request, s.size, s.ordinal)
     }
 
-    /// The launch request of `request` at `size`: the one source of the `Launch` message, for the send and for `begin`'s
-    /// frame check (steward ruling R-100).
-    pub(crate) fn launch_spec_for(&self, request: &SpawnRequest, size: Size) -> LaunchSpec {
+    /// The launch request of `request` at `size` with the cursor ordinal `cursor_ordinal` (ST-7): the one source of the
+    /// `Launch` message, for the send and for `begin`'s frame check (steward ruling R-100).
+    pub(crate) fn launch_spec_for(
+        &self,
+        request: &SpawnRequest,
+        size: Size,
+        cursor_ordinal: u64,
+    ) -> LaunchSpec {
         LaunchSpec {
             argv: request.argv.clone(),
             env: request.env.clone(),
@@ -912,7 +917,7 @@ impl HostEngine {
             size_policy: request.size_policy.unwrap_or_default(),
             link_frame_bound: self.link_frame_bound(),
             limits: self.cfg.limits.clone(),
-            cursor_ordinal: s.ordinal,
+            cursor_ordinal,
         }
     }
 }
