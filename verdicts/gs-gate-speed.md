@@ -3419,3 +3419,13 @@ Sol-B accepts the combined train and #304's final evidence on the same exact tra
 Sol-B records all member receipts and verifies the mutation catches against their citations and normal PASS results. No #304 or combined finding remains.
 
 The lead's base update, gated-tree verification, and verified push remain due. This receipt claims no completed merge. I ran no execution job.
+
+### Sol-B slow-target delta receipt
+
+I read the complete integration verdict at `7dcc38b443612f26eec1baa0a15dc9e5a37cbcc0`, file `verdicts/stage1/gs-built-in-coverage.md`.
+
+Sol-B reports source delta CLEAN at `2fa58b79291f44023778a8a53f8bd05387e93cfb`, with base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+Both reviews confirm that no executable default-tier test is removed. The slow tier retains the eleven targets and their approved root macros.
+
+No finding changes. The failed gate remains failed. Completed new-head evidence, timing, and the final body remain pending. I ran no execution job.
