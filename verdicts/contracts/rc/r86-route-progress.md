@@ -138,3 +138,12 @@ The final CLEAN needs one green gate on `63f4f5c8`, with 679:53 caught.
 I confirm it. BUILD.md Testing rule 4: a default-tier test over 2 s fails CI (`.config/nextest.toml`: `slow-timeout = { period = "2s", terminate-after = 1 }`). `a_step_deadline_ends_a_wait_whose_core_or_client_always_reports_progress` runs its cases one after another, and each case waits for its 200 ms `Deadline` to expire. On `21f9406f` the gate measured 1.608 s for eight cases (about 201 ms each). With `core_posted`, ten cases take at least 2.0 s, plus setup. So the default tier fails the test.
 
 Fix (RC's choice): a shorter step deadline with margin, or a split into two tests. `core_posted` stays, so that `driver.rs:679:53` stays caught. My earlier "no finding" on this delta is withdrawn; this finding is open.
+
+### 4a8c917e5d52d6a116e502dec3a6359ea0ceaf4f: the budget MEDIUM is closed (final CLEAN waits for a green gate)
+
+One commit on `63f4f5c8`, test-only (`tests/driver_steps.rs`, +41 -37). RC did not split the test. All ten cases now start on their own threads (`collect()` spawns every thread before the first `recv_timeout`), and then the test reads each result with the same 10 s watchdog. So the test takes about one step deadline, not one per case, and it does not grow when a source is added. This is better than the split that I recommended.
+- The 200 ms step deadline and the 10 s watchdog are unchanged. Each `timer:` marker is directly above its call.
+- Each case builds its own `Harness`. `driver_steps.rs` has no static, thread-local, environment write or shared file, so the parallel cases are independent.
+- `core_posted` stays. RC reports the reversal on the committed test: `driver.rs:679` `> 0` → `< 0` fails `core_posted pump_until` ("the Core is idle"). Locally the test takes 0.20 s.
+
+No open finding. The final CLEAN needs one green gate on `4a8c917e`, whose mutants step shows `driver.rs:679:53` caught and whose per-test time for this test is under 2 s.
