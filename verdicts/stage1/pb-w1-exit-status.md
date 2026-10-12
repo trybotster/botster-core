@@ -110,3 +110,43 @@ This review accepts no completed delivery, later head, #327 integration fix, or 
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: NOT CLEAN (1 MEDIUM open: required focused Mac evidence)
+
+## Round 2: focused Mac evidence closure
+
+Exact head remains `572924b29bf4fca3d6a8c76d45fc486c0c070b70`.
+Reviewed tree remains `3160930ba38e79624dc363daad9ee4cb511754d0`.
+Source and completed Linux gate base remains `007efbde6a59af403d0937c38361c137a8961a48`.
+This round changes no source review. The earlier source and Linux evidence findings remain closed.
+
+B330-I1: CLOSED. The same package finding, PBW1-1, is also closed.
+Sol-B reads the complete focused Mac pool log supplied in msg_plugin-w_1791848245_65778e.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-pb-w1-exit-status-572924b2-pool-20261012-163652-79654.log`.
+Computed SHA256: `93878c3f9836e48e69a7bd1301d7f13675b3e40d5fe3d8a12e1a08a14dbd7fe6`.
+The wrapper and executed HEAD both name the unchanged reviewed commit.
+The wrapper records newer origin/v1 644f632f as its base ref. The job does not import that base into the reviewed source.
+
+The job runs on the Mac pool with allocation 15e77b4f, macOS 27.0.1, build 26A434, and arm64.
+Both commands select botster-core-sys with the slow feature and slow profile.
+The commands retain pipefail, so their output filters do not hide a failing command status.
+Cargo build parallelism and nextest test parallelism are both four.
+The slow_process binary passes all 24 selected tests with zero skipped, in 0.246 seconds.
+The slow library selection passes 25 tests with 43 outside the filter, in 1.052 seconds.
+Both affected process reaper tests pass: a_reaper_returns_right_after_its_notify and a_reaper_without_a_child_returns_at_once.
+The process selection also passes identity, group kill, own-child wait, exit-code, and notifier checks.
+The built-in worktree marker passes in slow_process.
+The job exits 0 after ten seconds, with zero queued and ten running. The wrapper also exits 0 after ten seconds.
+Sol-B makes no independent target-clean, allocation, or cleanup claim beyond the supplied log.
+
+Sol-B reads the complete updated PR body and verifies its unchanged head and focused Mac citation.
+The body retains the earlier RED public-api gate, the completed Linux gate, and the #327 overlap.
+Sol-B reads the complete applicable package section at f5696383a670956db075bae743bb4c32f69698a7.
+File: verdicts/pb-w1.md on stage1/review-pb, Current verdict: round 2.
+The package receipt reports CLEAN on this exact head and closes the same evidence requirement.
+The local Mac runs remain owner-run local evidence; this pool run supplies the required focused platform proof.
+
+No finding remains open on this exact head. Current-base import and the #327 ExitFailure adaptation remain due.
+That later source needs the assigned delta review. The lead controls the delivery gate, final receipt, and merge checks.
+This receipt accepts no later head, completed delivery, additional retry, or already-completed #327 adaptation.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; source, Linux evidence, and focused Mac evidence on the unchanged reviewed head).
