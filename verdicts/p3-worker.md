@@ -14242,3 +14242,93 @@ This receipt adds no source review round. Source acceptance remains the exact-he
 Integration acceptance, applicable train reviews, exact train gate, final receipts, and merge verification remain due.
 
 VERDICT: CLEAN
+
+
+## Round 196 — #318 second repair, 2026-10-12
+
+Exact submitted head: `b050342648e764b12b5cc24695d6e8aad2673ae5`.
+Previous reviewed head: `d19cc1a6203e15f2e861c21cbbce0720a204db6d`.
+Source base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Gate reference: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, not imported.
+READY receipt: `msg_plugin-w_1791830581_8d7772`. Tier: HIGH, unchanged.
+Previous package verdict: `307ce71c188cb1c2dc128ce4ca924868a1607ced`, Round 194 NOT CLEAN.
+This is package round three on #318; Round 195 reviewed #311, not #318.
+The reviewer reads the complete two-file delta: six additions and four deletions, and the affected whole tests.
+No production behavior changes. The earlier whole-drain source review remains applicable.
+
+### F153 — MEDIUM — CLOSED
+
+The leader now installs ignored HUP before it forks the holder. The child inherits that disposition from its start.
+The leader's exit cannot precede protection inside the child. No timing assumption orders the trap anymore.
+The holder sends its own readiness marker and waits for a byte sent only after Exited.
+Its response after that release proves survival through Exited. Linux's tty result proves the live PTY holder and quiet-read case.
+The Mac none result retains process survival only. The code and body preserve that limit.
+The test retains both group guards, bounded marker reads, nonblocking release, and cleanup on every path.
+Both forms pass in the exact-head Linux gate and the exact-head Mac local log.
+F150/F151/F152, including R318-I1, retain their earlier closures.
+
+### F154 — LOW — Event meaning repaired; the private-state assertion remains OPEN
+
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:612-649` at this exact head.
+The test clears the readable flag that spawn assumed. A subsequent PTY event is now necessary to set it again.
+This fixes the vacuous condition and makes the timing claim meaningful.
+However, the touched assertion still reads h.driver.pty_readable, a private field of the driver under test.
+That checks subject state rather than an independently observed edge event. The private-state testing rule still applies to this touched proof.
+Sol-C identifies this remaining condition in `msg_plugin-w_1791830649_8c855d`.
+Required change: record the PTY event in a local test flag from the poll result and assert that observed event, or remove the redundant assertion/claim.
+The test may still update the driver's readiness as setup for its reads. The assertion must observe the edge, not that private representation.
+Retain the initial-count gap and complete-output assertions. Add no production hook or helper-internal test.
+Authority: BUILD.md testing rule 3 and the lead's established rejection of private driver-state assertions.
+
+### Supplied body and local evidence
+
+Complete body: `/private/tmp/review-p3-pr318-b0503426.json`.
+The new section accurately names the two repairs and the current gate. The private-state condition above remains.
+The Mac log records the exact head and target cleanup at 2026-10-12T18:26:59Z after a worktree switch from core-p3-resize.
+Format, actual CI taint, the named checks, lists, clippy, and prebuild exit zero.
+The new holder forms and real driver tail proof pass on Mac at this exact head.
+The full local test record remains failed: 1005 default passes/two timeouts, 142 worker slow passes/one failure, and 579 strict passes/one timeout.
+Default timeouts: many_small_frames_are_read_without_recursion at 2.032 seconds and the_worker_keeps_complete_operations_at_each_buffer_bound at 2.072 seconds.
+Strict timeout: in_9_legacy_keys_table at 2.008 seconds. These remain unclassified local evidence under the lead's Mac budget rule.
+
+The worker slow failure is in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write at 20.316 seconds.
+It fails at session.rs:178 waiting for a frame, with WouldBlock/errno 35. One isolated run passes both forms.
+That isolated pass does not diagnose or close the failed local observation.
+The reviewer sends QUESTION `msg_plugin-w_1791830694_56a282` for the classification owner.
+Lead reply `msg_plugin-w_1791830721_088a93` says this failure does not block #318: it is outside the diff, and the exact-head msa1 gate is green.
+The lead assigns classification to P3, the #198 test author, after this verdict and before A24 code.
+P3 must use source and the retained log only. It must examine frame handling, possible missed/partial frames, and host load without a reproduction campaign.
+The lead records an open merge-queue item. No classification, root-cause closure, timeout exception, or rerun is granted here.
+The body retains the local failures and its reported load of 160-187. The reviewer runs no load measurement.
+
+### Completed exact-head gate
+
+Gate: `gates/botster-core-stage1-p3-a31-drain-b0503426-pool-20261012-113057-69885.log`.
+SHA256: `573898c3205bc8b04392a553985d6782ee4e7e121494c9ce3acde4cf12ffea2a`.
+The headers name the exact submitted head and the distinct gate reference above. All ten steps PASS.
+Default: 1939 passed/431 skipped/14.969 seconds. Slow: 626 passed/2070 skipped/42.032 seconds.
+Both holder forms, both twenty-run session mirrors, the driver tail proof, and both IN-6 forms have normal PASS.
+Stage 1: 25 outcomes, 16 caught/five missed/four unviable/zero timeout, 15.2 seconds.
+Stage 2 catches all five in 233.8 seconds. The baseline passes 626 tests in 39.968 seconds; its full step takes 47.8 seconds.
+Final: 21 unique caught/four unviable/zero miss or timeout. All raw catches match citations and normal catcher PASS.
+The four unviable outcomes retain their unsupported Default/non-exhaustive match reasons.
+The gate refuses a FLAKY ev_2 trial under main.rs:550:12. An independent adoption test catches that mutant.
+The branch predates #317's entry. The known fence/pin structural fix retains its separate scope; this gate closes no historical flake.
+Fuzz selects no changed decoder harness. Total steps: 457.7 seconds.
+Job exits zero after 613 seconds on msa1: 146 queued and 467 running. Wrapper exits zero after 614 seconds.
+No new production hook, timeout, pin, pending list, process allowance, or mutation exclusion changes.
+
+### Verdict and round limit
+
+F153 is CLOSED. F154 LOW remains OPEN for the touched private-state assertion. No other #318 package finding remains.
+The supplied gate passes and the production drain retains its reviewed behavior.
+P3 reports an unsubmitted repair at c707c4d6 in `msg_plugin-w_1791830726_b3f56d`. No source or gate acceptance is granted for it.
+This is the third package NOT CLEAN round on #318: Rounds 193, 194, and 196.
+BUILD.md line 119 requires the lead to split the PR, settle the point, or replan before package round four.
+The reviewer must receive that decision before reviewing the next submitted head. A prepared repair supplies no exception.
+Final import, applicable train reviews, exact-final-head gate, receipts, and merge verification remain due.
+F28/F33/F39 and other Part B duties retain their separate scopes. #163 remains open.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier history remains preserved. Next package round: 197, after the required lead decision for #318.
+
+VERDICT: NOT CLEAN
