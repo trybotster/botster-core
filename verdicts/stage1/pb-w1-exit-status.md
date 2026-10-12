@@ -150,3 +150,56 @@ This receipt accepts no later head, completed delivery, additional retry, or alr
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; source, Linux evidence, and focused Mac evidence on the unchanged reviewed head).
+
+## Round 3: current-base source delta
+
+Exact head: `99209ea598aec0c182f35a1645b2a938d2f7d8cc`.
+Exact tree: `1ab9f5a0d3a6a0dfb040ea06b385078bea778495`.
+Previously reviewed head: `572924b29bf4fca3d6a8c76d45fc486c0c070b70`.
+Imported v1: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Actual merge base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Merge befb21878c974c974b579e2e11b54d83b179eb34 has the previous head and imported v1 as its parents.
+Commit 99209ea5 follows that merge and changes only the ExitFailure arm and its comment.
+
+Sol-B checks the source through Git objects. The imported base is an ancestor of this head.
+The PR retains exactly the original 24 changed paths relative to the imported base.
+Added-line and deleted-line multisets match the original reviewed delta in 23 paths.
+The worker.rs difference is exactly the required #327 adaptation, with no other new PR edit.
+Sol-B reads the imported changes in all five overlapping paths.
+They retain the held-full comments, zero-start-time proof, kill-tail proof, and exit-watch injection and drain proofs.
+The conformance directory equals the imported base; no identifier is restored, added, or removed by this PR.
+The mutation configuration retains the reviewed removal of the two obsolete literal exclusions and adds no exclusion.
+
+The ExitFailure arm calls Processes::end(self.id) and then self.ended(true).
+Processes::end queues the worker identity once and wakes its host.
+ended(true) closes the link, removes the endpoint, closes candidates and route streams, and drops the payload.
+The imported exit-watch proof still requires Lost(WorkerGone), no Exited event, completed Stop, and an ended payload.
+The adaptation removes the unused worker status; it does not change the payload's exit status or R-106's production failure path.
+The real worker's failed run still returns an error. This PR does not change that real driver.
+The reaper changes and affected platform assertions retain their previously reviewed behavior.
+The imported process.rs change adds the zero-start-time test and changes no reaper statement.
+
+Sol-B reads the local script and retained result summaries supplied with the updated body.
+Log: `/Users/jasonconigliari/botster-sessions/gates/pb-w1-merge-local-99209ea5-20261012-234925.log`.
+Computed SHA256: `10c8bc76280bf827b1a829f51b3ee3c22ffc7fbea0010a8b44fb2a6fc3a774c6`.
+The log names this head, a clean worktree, and a target clean at 2026-10-12T23:49:31Z.
+The script records workspace test compilation, slow-feature clippy, public-api, taint, worker prebuild, and strict default tests.
+Public-api matches; taint passes; the strict run reports 1748 passed and 114 skipped in 28.302 seconds.
+The script reports exit 0 and no Code(-1) match in crates.
+Its retained PASS lines are partial. Sol-B claims the aggregate result, not an independently visible PASS for each selected test.
+These remain owner-run local results, not pool evidence or independent target-clean or cleanup proof.
+
+Sol-B reads the complete updated body at this exact head.
+The requested body correction is complete: #327's adaptation is resolved, and the new head, base, local record, and gate order are explicit.
+The previous Linux and focused Mac logs retain their original head and base scope.
+Sol-B reads the complete matching package source section at 0d2a145da0e7c28b81dfaeb502db1b0284d450c8.
+File: verdicts/pb-w1.md on stage1/review-pb, Current-base source delta: round 3.
+The package reviewer reports CLEAN on this exact head, tree, and imported base.
+
+All earlier findings remain closed. No source, body, or supplied-record finding remains open.
+The owner and package reviewer report the lead's order: no separate member gate; the delivery gate covers the combined source.
+This receipt claims source CLEAN only. It does not reuse the previous head's gate as a gate on 99209ea5.
+The lead controls the train, any later delta review, delivery gate, final receipt, and merge checks.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (source delta only; 0 open; the delivery gate and applicable final review remain due).
