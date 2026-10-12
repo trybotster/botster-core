@@ -1,6 +1,13 @@
 use super::*;
 use std::time::Duration;
 
+/// The real instant that a test gives the log as the worker's start: the one read of the real clock in these tests (the
+/// machine crates read no clock: plan 2.3c).
+#[allow(clippy::disallowed_methods)]
+fn start() -> Instant {
+    Instant::now()
+}
+
 fn limits(kept: u32, bytes: u64) -> CoreLimits {
     CoreLimits {
         input_events_kept: kept,
@@ -41,7 +48,7 @@ fn cursor_of(entry: &InputRecordEntry) -> u64 {
 /// that names the record. The record itself is not edited.
 #[test]
 fn a_record_is_pending_at_receipt_and_its_end_is_an_appended_update() {
-    let t0 = Instant::now();
+    let t0 = start();
     let mut facts = Facts::new(7, &CoreLimits::default(), t0);
     let id = facts
         .received(
@@ -82,7 +89,7 @@ fn a_record_is_pending_at_receipt_and_its_end_is_an_appended_update() {
 /// a kept one does not.
 #[test]
 fn retention_by_count_drops_the_oldest_and_reports_the_gap() {
-    let t0 = Instant::now();
+    let t0 = start();
     let mut facts = Facts::new(1, &limits(3, u64::MAX), t0);
     let mut cursors = Vec::new();
     for b in [b"a", b"b", b"c", b"d"] {
@@ -107,7 +114,7 @@ fn retention_by_count_drops_the_oldest_and_reports_the_gap() {
 /// never dropped.
 #[test]
 fn retention_by_bytes_keeps_the_list_within_its_bound_and_the_newest_pair() {
-    let t0 = Instant::now();
+    let t0 = start();
     let bound = 1200;
     let mut facts = Facts::new(1, &limits(1000, bound), t0);
     for i in 0..40u8 {
@@ -139,7 +146,7 @@ fn retention_by_bytes_keeps_the_list_within_its_bound_and_the_newest_pair() {
 /// `payload_truncated`; with no room for any payload, to its minimal form.
 #[test]
 fn an_oversize_newest_record_is_truncated_then_minimal() {
-    let t0 = Instant::now();
+    let t0 = start();
     let probe = Facts::new(1, &CoreLimits::default(), t0);
     // The shortest record with a payload: an empty one, cut.
     let mut cut = record_of(
@@ -181,7 +188,7 @@ fn an_oversize_newest_record_is_truncated_then_minimal() {
 /// ST-7: a cursor of another ordinal (another instance) is a gap, and the reader gets every kept entry.
 #[test]
 fn a_cursor_of_another_ordinal_is_a_gap() {
-    let t0 = Instant::now();
+    let t0 = start();
     let mut facts = Facts::new(2, &CoreLimits::default(), t0);
     facts
         .received(t0, InputSource::Host, Content::Payload(&bytes(b"x")))
@@ -195,7 +202,7 @@ fn a_cursor_of_another_ordinal_is_a_gap() {
 /// no record can be made, `received` is `Exhausted`, every open record can still end, and a read still answers.
 #[test]
 fn sequence_exhaustion_refuses_a_record_and_every_open_record_still_ends() {
-    let t0 = Instant::now();
+    let t0 = start();
     let mut facts = Facts::new(3, &CoreLimits::default(), t0);
     facts.last_seq = MAX_SEQ - 5;
     let a = facts
@@ -222,7 +229,7 @@ fn sequence_exhaustion_refuses_a_record_and_every_open_record_still_ends() {
 /// ST-7: `age_ms` counts from the last client input, or from the worker's start before any; host input does not move it.
 #[test]
 fn age_counts_from_the_last_client_input_on_the_workers_clock() {
-    let t0 = Instant::now();
+    let t0 = start();
     let ms = Duration::from_millis;
     let mut facts = Facts::new(1, &CoreLimits::default(), t0);
     assert_eq!(facts.read(t0 + ms(30), None).age_ms, 30);
@@ -242,7 +249,7 @@ fn age_counts_from_the_last_client_input_on_the_workers_clock() {
 /// ST-7: the client tail keeps the last `input_tail_bytes` bytes exactly; `tail_complete` turns false at the first drop.
 #[test]
 fn the_client_tail_keeps_its_last_bytes_and_marks_a_drop() {
-    let t0 = Instant::now();
+    let t0 = start();
     let mut facts = Facts::new(
         1,
         &CoreLimits {
