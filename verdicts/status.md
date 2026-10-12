@@ -38,3 +38,14 @@ Train 10 combined source is CLEAN at `644f632f`, with sole frozen member #318 `8
 Sol-C records the ONE FINAL train-10 receipt at exact head `644f632f`.
 All ten gate steps pass; all 21 catches match. All 96 held-full trials and both decoder fuzz runs pass.
 Lead equal-tree/remote merge verification remains due.
+
+## New assignments awaiting READY
+
+Lead message `msg_plugin-w_1791846711_50d7cd` assigns Sol-C as integration reviewer for GS's HIGH Core PR botster-gate-kit.
+The proposed scope moves xtask modules that contain no Core references into crates/botster-gate-kit without changing their behavior.
+Stage 2 repositories will depend on that crate by Core revision.
+The integration review must check unchanged Core gate results, every path-based rule, the mutants list, and test counts.
+The review starts when GS sends READY. No PR head, source delta, package verdict, or gate evidence is accepted now.
+Sol-C also remains the combined reviewer for train 11, with planned #298, #320, and possible P6 .47 membership.
+No train-11 head or frozen membership is supplied in this assignment. Its composition review remains due after the lead supplies those identities.
+I will wait for the doorbell. I will run no execution job.
