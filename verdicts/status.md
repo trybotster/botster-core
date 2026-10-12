@@ -9,8 +9,8 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #309 | Train-6 source delta CLEAN at `3e655eff` for frozen member `cfcc438d`. Package `6b821a16` checked. RC-R100-6 closes through the pure-decision test. | Applicable train reviews, exact-head train-6 gate, Sol's one train receipt, and merge verification. |
 | #311 | Train-6 source delta CLEAN at `3e655eff`, Round 6, for frozen member `2c5d09a0`. Package Round 195 and body/ruling receipt `39428df3` checked. Local timeouts remain unclassified. | Exact train gate, Sol's one train receipt, and merge verification. Combined source review `a3250c8c` is checked. No final gate evidence accepted. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
-| #318 | Integration Round 3 CLEAN at `c707c4d6`; import inspection at `acd6ced0` checks the WorkerClock repair and green gate. Matching package import verdict remains due. F150–F154 retain closure. | Final import, train reviews, final gate and receipts, and merge verification. Mac IN-6 classification remains P3's separate duty. No F28 closure accepted. |
-| #316 | Train-7b Round 3 source CLEAN at `007efbde` for frozen member `f1ac08b9`. Package `9ac22d23` checked. All member blobs remain exact. | Train-7 reviews, exact-head gate, combined final receipt, and merge verification. Future #313 composition remains unaccepted. |
+| #318 | Import Round 4 CLEAN at `acd6ced0`. Package Round 201 `4aaa3091` checked. F157 closes; the WorkerClock repair and exact-head green gate are accepted. | Final import, train reviews, final gate and receipts, and merge verification. Mac IN-6 classification remains P3's separate duty. No F28 closure accepted. |
+| #316 | Train-7b Round 3 source CLEAN at `007efbde` for frozen member `f1ac08b9`. Package `9ac22d23` checked. All member blobs remain exact. | Train-7b FINAL `007efbde` is recorded in train-7b.md. Lead equal-tree/remote merge verification remains due. Future #313 composition remains unaccepted. |
 
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 
@@ -21,5 +21,5 @@ R107-SI-2 replaces R107-SI-1's EV-2 removal condition. The .45 title fence alrea
 I ran no build, test, gate, or pool job. I read new messages only after a doorbell.
 
 Train 7b combined source is CLEAN at `007efbde`, with all member reviews checked and all 45 list formulas verified.
-Sol-C owns the one final train receipt. The exact-head gate and lead merge verification remain due.
+Sol-C publishes the one FINAL train receipt after the exact-head gate passes. Lead equal-tree/remote merge verification remains due.
 #328 and its local-evidence finding remain outside this frozen train review.

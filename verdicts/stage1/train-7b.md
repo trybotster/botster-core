@@ -125,3 +125,58 @@ This verdict accepts no gate result, specific retry, future head, new status rem
 I ran no build, test, gate, mutation, reversal, measurement, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW; combined source only)
+
+
+## Round 2: final whole-train receipt
+
+- Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Gated tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+- Gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Frozen order: #316 `f1ac08b998f15f062f123a996e2688344c33c3ba`, #323 `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`, #302 `953aa2ba300df85bff1df7a8be15f5214b6ca67b`, #322 `25fbc9ec7bae580d28e3b29f7f43f0d6e0ff78b2`.
+- Source combined CLEAN: `40accbef6ca5dee90ba0385cbce46235b53f4de9`, Round 1 above.
+- Gate request: `msg_plugin-w_1791837495_e6eb01`.
+- Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-7b-007efbde-pool-20261012-132706-69303.log`.
+- Verified SHA256: `049b0bf57804f35a61221ff63c47cd146ce349c481712bf6b75858727fd9010e`.
+
+I independently read the retained completed gate and match its exact head and base to the combined source review.
+The local frozen train ref still names that head and tree. No member or source changes after the source CLEAN.
+All complete member source reviews and their closed findings remain applicable. No duplicate member final receipt is required under BUILD Green.
+This is the one final receipt for the whole train, including the four unchanged frozen members.
+
+All ten gate steps PASS on msa1. Both concurrency caps are four.
+Default passes 2080 tests with 412 skipped. Slow passes 677 tests with 2082 skipped.
+I verify every passing ordinal and unique identity in both normal tiers. Each tier has its complete ordinal set.
+Both strict summaries report 281 passes and zero failures at seeds 0–31.
+Strict checks 301 of 318 pending transcripts; seventeen real-only transcripts do not run there. Four held IDs retain their rules.
+Held-full runs three budget IDs at all 32 seeds, one trial per seed.
+The ledger remains 692 IDs, pending remains 388, real-pending remains 38, and minimum remains 69.
+The gate's within-ledger deferred and withdrawn counts remain distinct from the complete text-file set counts.
+
+I verify normal default and real slow PASS results for all 21 existing transcripts changed by the .44-to-.46 pin.
+The new a22_1 remains pending under its recorded owner. No A22 construction or future #313 composition is accepted.
+EV-2 and IN-8 pass normally on both tiers. The narrow IN-8 entry remains; the gate does not carry PC's structural fix.
+The #322 fixed cancel test passes in slow_session at 0.014 seconds and slow_driver at 0.013 seconds.
+The exact repository-list test and both new re-entry tests pass normally.
+
+Stage 1 runs 32 mutants: thirty caught, two unviable, zero missed, and zero timeout.
+I independently match all thirty unique raw catches to citations. Every cited catcher has a normal PASS result.
+All outcomes concern the reviewed lists change. The two unviable replacements require an unavailable Default implementation and supply no behavioral catch.
+Stage 2 does not run because Stage 1 misses none. No unmutated Stage-2 baseline is claimed.
+No runtime FLAKY, RETRY, or INCONCLUSIVE result appears. No listed flaky test earns catch credit.
+Fuzz selects no changed decoder harness and starts no run. That empty selection supplies no fuzz execution proof.
+CI takes 508.6 seconds. The job exits zero after 636 seconds, including 33 queued seconds and 603 running seconds.
+The wrapper exits zero after 637 seconds. Queue time is not a test duration.
+
+The real tier reports thirty passing ignored real-pending IDs. Every such ID remains pending in this train.
+Those messages authorize no additional removal. The dp3 follow-up #328 remains separate, with its own head and review duties.
+This gate uses default seeds 0–31 and normal slow seed zero. It supplies no full-seed real-tier or fresh Mac gate claim.
+Earlier local Mac failures, member gates, reversals, and clean-history limits retain their original scopes.
+#318 remains outside this train, including its separate repaired import and gate.
+
+All required source deltas and the combined review are CLEAN. The exact train gate is GREEN. Zero findings remain, including LOW findings.
+The lead can fast-forward v1 to this exact gated train head if the base remains the stated gate base.
+The lead must verify the resulting tree equals the gated tree and verify the remote push. Those operator steps remain due.
+No later head, changed member, additional retry, status removal, future pin, or completed merge is accepted by this receipt.
+I ran no build, test, gate, mutation, reproduction, measurement, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; FINAL for train 7b)

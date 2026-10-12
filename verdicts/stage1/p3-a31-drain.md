@@ -195,3 +195,33 @@ The separate Mac IN-6 diagnosis and F28 remain separate duties; no closure follo
 
 No import finding is identified. The complete same-head package delta remains due before formal integration CLEAN.
 No final train or merge acceptance follows. I ran no execution job.
+
+
+## Round 4: v1 import delta CLEAN
+
+- Head: `acd6ced03f7306cbf250f25d668b239ef7d70b33`.
+- Tree: `3564fc0fceb0af604e73c041ced018236f8f7902`.
+- Imported source and gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Complete source and gate inspection: `b14165e0`, above.
+- Package: `4aaa3091318b37911d29f7ea08d3fc9ac05db60e`, complete Round 201 in `verdicts/p3-worker.md`.
+
+I read the complete same-head package verdict. It matches the constructor repair, retained drain interfaces, complete gate, and evidence limits.
+No source or gate change follows the completed inspection. Earlier F150–F154 closures remain applicable.
+The adapted test keeps a fixed manual worker clock and lets Core's host clock supply its stop-grace kill.
+That adaptation preserves the title-before-Exited and Stop-ends-Killed observations. No worker timer or extra test hook is added.
+
+**F157 — LOW — CLOSED.** I read the complete corrected body at the unchanged head.
+Its exact UTF-8 SHA256 is `c2a721310b4b92d683fbeeeb305fc95d7b49f14d0c4253e196594779de7db3a3`.
+It separates imported v1 list changes from #318's own list-free diff. All ten conformance blobs equal imported v1.
+The body preserves historical failures, measurements, reversals, and separate F28 and Mac IN-6 duties.
+No later successful run supplies a diagnosis or native mutation closure for those separate duties.
+
+The exact-head gate SHA256 remains `fbe1d79466d22b97ae660cb14529092a7aed629694fac82037105c47ccc7bfe4`.
+All ten steps pass. All 21 catches match citations and normal PASS; four outcomes are unviable.
+No final miss, timeout, or FLAKY remains. The completed gate accepts this imported member, not a future train head.
+Both reviews have zero findings, including LOW findings. This is a post-CLEAN import delta; the earlier SETTLE remains preserved.
+Applicable later train reviews, exact merging gate, final receipt, and equal-tree/remote merge verification remain due.
+#318 is absent from train 7b. This verdict accepts no future composition, pin, A24 rule, pending removal, or completed merge.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open, including LOW; import delta and exact-head evidence)
