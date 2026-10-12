@@ -428,8 +428,18 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
 
 - **Arming.** `RouteProgress{route, mark, waiting: true}` arms the stall step at the pump that consumes it plus
   `stall_deadline`. A report of the same mark keeps the instant; a new mark restarts it; `waiting: false` disarms it.
-  `RouteStalled{route, mark}` arms the close step at the pump that consumes it plus `stall_close_after`; `RouteResumed`
-  disarms it. No report arms nothing: an older worker never sends `RouteProgress`, so its routes have no stall clock.
+  `RouteStalled{route, mark}` arms the close step at the pump that posts its event plus `stall_close_after`, with the
+  worker's mark; `RouteResumed` disarms it at the pump that consumes it. No report arms nothing: an older worker never
+  sends `RouteProgress`, so its routes have no stall clock.
+- **The clock at the post (0181's ST298-R5).** A `RouteStalled` whose event waits behind older parked route events
+  (EV-6) has no close step yet: the parked event (`ParkedRoute::Stalled`) keeps the worker's mark, and the close step arms
+  only when the event posts (`route_stall_posted`). So `next_deadline()` never shows a close step before the host has
+  `RouteStalled`, and a late poll never lets `RouteCloseDue` go first (R-90 Q1 condition 1). A resume or close of the
+  route that waits behind the parked stall event arms nothing at its post: the stall already ended in the worker. A
+  `RouteResumed` ends the close step when Core consumes it, also when its event waits: the worker left the stall, so a
+  close step after it would send a `RouteCloseDue` that the worker declines with no answer, and hold its slot for ever. With
+  one slot, `RouteResumed` could then never post. Tests: `tests/driver/stall.rs` (a stall event and a resume behind an
+  older parked close, a resume consumed before its close step, each with a late poll).
 - **The due step (R-90 Q1, E3-1 items 2 to 5).** `DeadlineKind::Route` is atomic with its event, as `Silent` is: it runs
   as `Work::DueStep` and needs event budget; with no budget it is carried (`more: true`). A step that runs checks the
   mandatory room. With room, it sends `RouteStallDue{route, mark}` (or `RouteCloseDue{route, mark}` for the stall's
