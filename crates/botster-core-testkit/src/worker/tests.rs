@@ -117,10 +117,11 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
     assert_eq!(edges.take(now, &worker, 0), Input::Spawned(Ok(id)));
     // No drain is asked: the edge reads output while it waits.
     assert_eq!(edges.ready(now, &worker), 1);
-    assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
-    // The drain is asked while output waits. Output that comes before the flushing read is found by it; output that comes
-    // after the count measured once after that read waits.
-    let held = control.output_unread();
+    assert_eq!(edges.take(now, &worker, 0), Input::PtyOutput(b"a".to_vec()));
+    // The drain is asked while output waits: the program printed `abc` and the worker read one byte (`write_size` 1). Output
+    // that comes before the flushing read is found by it; output that comes after the count measured once after that read
+    // waits.
+    let held = b"bc".len();
     edges.perform(now, Action::DrainPty);
     control.write_once(b"later");
     let mut drained = Vec::new();
@@ -139,18 +140,16 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
             other => panic!("{other:?}"),
         }
     }
-    assert_eq!(drained.len(), held + b"later".len());
-    assert_eq!(
-        control.output_unread(),
-        b"more".len(),
-        "a writer cannot extend the drain"
-    );
+    assert_eq!(drained, b"bclater", "a writer cannot extend the drain");
     // The rest is read with no drain, and no `PtyDrained` follows it.
-    while control.output_unread() > 0 {
-        assert_eq!(edges.ready(now, &worker), 1);
-        assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
+    let mut rest = Vec::new();
+    while edges.ready(now, &worker) > 0 {
+        match edges.take(now, &worker, 0) {
+            Input::PtyOutput(bytes) => rest.extend(bytes),
+            other => panic!("{other:?}"),
+        }
     }
-    assert_eq!(edges.ready(now, &worker), 0);
+    assert_eq!(rest, b"more");
 }
 
 /// A5-1: a worker exit closes the link, drops the program, and posts the process exit once.
