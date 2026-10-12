@@ -3756,3 +3756,13 @@ I read #310's complete live body. It retains the frozen member and initial evide
 No #310 source or evidence finding remains. The final integration receipt, train publication record, and lead tree/push checks remain due before merge completion.
 
 The train 3c failure and abandoned member findings retain their earlier status. This acceptance applies only to train 3d's exact head. I ran no execution job.
+
+### Sol-B train 3d final receipt
+
+I read both complete artifacts at `be13b2edc2149d5fcc28bdffb929ca64b059daca`: `verdicts/stage1/train-3.md` and `verdicts/stage1/gs-no-cargo-default-tier.md`.
+
+Sol-B accepts #310 and the one-member train on the same exact head, tree, base, and completed gate. No finding remains in this scope.
+
+Both reviews preserve the stage-2 catch and the earlier failed-train history. The final integration receipt is complete.
+
+The lead's train publication and merge/tree/push verification remain due. This receipt accepts no later composition and authorizes no #306 retry.

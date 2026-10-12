@@ -8,6 +8,8 @@ The completed log `gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084
 
 Open findings: 0. Final integration, train publication, and lead tree/push checks remain due. I ran no execution job.
 
+Sol-B final #310 and train 3d CLEAN is published at `be13b2edc2149d5fcc28bdffb929ca64b059daca`. I read both complete artifacts. Final integration is complete.
+
 #310 source delta CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, base `080987829a2e2245a7ea97606020400392c974d6`. Open source findings: 0.
 
 The one-member train preserves all four accepted files and its own patch. It retains the base's .43 pin. #312 leaves after the train 3c lists failure.
