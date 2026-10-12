@@ -44,7 +44,7 @@ use crate::stand_in::StandIn;
 use crate::stream_holders::{socket_id, SocketId};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, WorkerSpawn};
@@ -253,7 +253,7 @@ pub struct Tap<E> {
     inner: E,
     links: BTreeMap<LinkId, LinkTap>,
     accepts: VecDeque<LinkId>,
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
     rows: Rows,
     heard: Heard,
     /// The payload of each worker's `Launched` report that the tap read (Core AD-7, LC-5). It outlives the link. The host
@@ -880,7 +880,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     /// The exit of a worker whose session has a report hold waits for the hold's end (`report_holds`).
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
         let mut tap = self.tap();
         let Tap {
             inner,

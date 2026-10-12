@@ -174,13 +174,10 @@ fn an_exit_and_a_failed_send_keep_the_drain_past_the_grace_in_either_order() {
             seen.extend(rig.drain_events());
         }
         let req = first_request(&rig);
-        let exit = (
-            ProcessIdentity {
-                pid: 500,
-                start_time: 1,
-            },
-            ExitStatus::Code(0),
-        );
+        let exit = ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        };
         // The send that fails: a second read, which fails at once.
         let failing = |rig: &mut Rig, seen: &mut Vec<Event>| {
             fail_next_send(rig);
@@ -287,13 +284,10 @@ fn frames_after_a_chosen_end_are_read_without_an_end_of_file() {
     );
     rig.pump();
     seen.extend(rig.drain_events());
-    link(&rig).exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(7),
-    ));
+    link(&rig).exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     rig.pump();
     seen.extend(rig.drain_events());
     let done = results(&mut rig, &[read], &mut seen);
@@ -328,14 +322,11 @@ fn frames_after_a_chosen_end_are_read_without_an_end_of_file() {
     );
 }
 
-fn worker_exits(rig: &Rig, code: i32) {
-    link(rig).exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(code),
-    ));
+fn worker_exits(rig: &Rig) {
+    link(rig).exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
 }
 
 /// R-78 item 4, steward follow-up: a running worker wrote `Exited` and ended, and its link gives no end of file (a peer may
@@ -347,7 +338,7 @@ fn an_ended_worker_s_exited_frame_is_read_without_an_end_of_file() {
     run_session(&mut rig, "s1", LinkId(1));
     rig.drain_events();
     rig.worker_says(LinkId(1), exited(3));
-    worker_exits(&rig, 3);
+    worker_exits(&rig);
     let report = rig.pump();
     assert!(
         matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(3)),
@@ -366,7 +357,7 @@ fn an_ended_worker_with_nothing_written_is_gone_at_once() {
     let mut rig = Rig::new(limits(|_| {}));
     run_session(&mut rig, "s1", LinkId(1));
     rig.drain_events();
-    worker_exits(&rig, 0);
+    worker_exits(&rig);
     rig.pump();
     assert!(
         link(&rig).links[&LinkId(1)].closed_by_host,
@@ -404,7 +395,7 @@ fn a_partial_frame_at_the_exit_is_a_truncated_link() {
         .unwrap()
         .to_host
         .extend(&whole[..whole.len() - 1]);
-    worker_exits(&rig, 5);
+    worker_exits(&rig);
     let done = results(&mut rig, &[read], &mut seen);
     assert!(
         matches!(done[&read], OpResult::Ok(OpOutput::Modes(_))),
@@ -432,7 +423,7 @@ fn a_drain_blocked_on_mandatory_room_waits_for_the_poll() {
     super::start_session(&mut rig, "s1", LinkId(1));
     rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
     rig.worker_says(LinkId(1), exited(3));
-    worker_exits(&rig, 3);
+    worker_exits(&rig);
     let report = rig.pump();
     assert!(
         !report.more,
@@ -468,13 +459,10 @@ fn an_exit_taken_at_the_settle_leaves_the_drain_runnable() {
     run_session(&mut rig, "s1", LinkId(1));
     rig.drain_events();
     rig.worker_says(LinkId(1), exited(6));
-    link(&rig).late_exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(6),
-    ));
+    link(&rig).late_exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     let report = rig.pump();
     assert!(report.more, "the undrained link is runnable work");
     assert!(rig.wake_set(), "the wake stays set for the drain");
@@ -506,7 +494,7 @@ fn a_drain_delayed_by_the_pump_bound_stays_runnable() {
         );
     }
     rig.worker_says(LinkId(1), exited(9));
-    worker_exits(&rig, 9);
+    worker_exits(&rig);
     let mut reports = Vec::new();
     while !link(&rig).links[&LinkId(1)].closed_by_host {
         let report = rig.pump();

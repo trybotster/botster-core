@@ -15,7 +15,7 @@ use crate::report_holds::SharedReportHolds;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::ChoicePoint;
 use botster_core_edges::{Entropy, Link, RouteTransport, Scheduler, Wake as WakeEdge};
@@ -180,7 +180,7 @@ pub trait Spawner: Send {
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
     /// What `identity` matches now (AD-6).
     fn identity_state(&self, identity: ProcessIdentity) -> IdentityState;
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_exit(&mut self) -> Option<ProcessIdentity> {
         None
     }
     /// Connects to the endpoint of the worker of `instance` (DESIGN.md part 6): the worker takes `end`, its side of the new
@@ -336,7 +336,7 @@ impl HostEdges for SimEdges {
     }
 
     /// The exit of a worker whose session has a report hold waits for the hold's end (`report_holds`).
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
         let spawner = &mut self.spawner;
         crate::report_holds::lock(&self.report_holds)
             .poll_exit(|| spawner.as_mut().and_then(|s| s.poll_exit()))

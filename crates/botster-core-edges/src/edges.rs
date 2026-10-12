@@ -120,8 +120,9 @@ pub trait Process {
     fn spawn(&mut self, spec: &SpawnSpec) -> Result<ProcessIdentity, SpawnError>;
     /// Signals the process group of `id`, only when `identity_state(id)` is `Matches`.
     fn signal_group(&mut self, id: ProcessIdentity, signal: GroupSignal);
-    /// The next process that has ended, or `None`.
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
+    /// The next process that has ended and was reaped, or `None`. It carries no exit status: no host decision reads one, and
+    /// a failed wait has none to give (finding PB-W1).
+    fn poll_exit(&mut self) -> Option<ProcessIdentity>;
     fn identity_state(&self, id: ProcessIdentity) -> IdentityState;
 }
 

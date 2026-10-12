@@ -5,7 +5,7 @@ use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
+use botster_core_edges::edges::{GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_core_link::proof::{host_proof, token_proof};
@@ -52,7 +52,7 @@ impl HostEngine {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::HandoffLost { route } => self.on_handoff_lost(route),
-            Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
+            Input::ProcessExited { identity } => self.on_process_exited(identity),
             Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
                 Some(Owner::Session(id)) => self.adopt_connected(&id, link),
                 // No adoption waits for this link: it is closed, and nothing is read from it.
@@ -689,7 +689,7 @@ impl HostEngine {
         self.fail_inflight(&id);
     }
 
-    fn on_process_exited(&mut self, identity: ProcessIdentity, _status: ExitStatus) {
+    fn on_process_exited(&mut self, identity: ProcessIdentity) {
         let found = self
             .sessions
             .iter()

@@ -6,7 +6,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_link::hello::{Hello, TokenProof};
 use botster_core_link::msg::{HostMsg, WorkerMsg};
@@ -203,7 +203,6 @@ pub enum Input {
     /// A process that the engine spawned ended (the exit watch of the `Process` edge).
     ProcessExited {
         identity: ProcessIdentity,
-        status: ExitStatus,
     },
     IdentityState {
         identity: ProcessIdentity,

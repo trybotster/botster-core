@@ -3,8 +3,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec, Storage,
-    StorageError,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec, Storage, StorageError,
 };
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Entropy, Scheduler, Wake as WakeEdge};
@@ -525,8 +524,8 @@ impl HostEdges for RealEdges {
         botster_core_sys::process::identity_state(identity)
     }
 
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
-        self.children.poll_exit()
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
+        self.children.poll_exit().map(|(identity, _)| identity)
     }
 
     /// DESIGN.md "Adoption (P5)" 3.1: a non-blocking connect to the worker endpoint, registered as an accepted link is. A

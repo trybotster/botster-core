@@ -241,7 +241,7 @@ struct ProcessLog {
     peers: Vec<LinkEnd>,
     spawns: Vec<WorkerSpawn>,
     signals: Vec<(ProcessIdentity, GroupSignal)>,
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
     unlinks: Vec<InstanceId>,
 }
 
@@ -271,7 +271,7 @@ impl Spawner for RecordedSpawner {
         IdentityState::Matches
     }
 
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_exit(&mut self) -> Option<ProcessIdentity> {
         lock(&self.0).exits.pop_front()
     }
 
@@ -311,11 +311,8 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
     }
     edges.signal_group(ids[1], GroupSignal::EndPayload);
     assert_eq!(lock(&log).signals, vec![(ids[1], GroupSignal::EndPayload)]);
-    lock(&log).exits.push_back((ids[1], ExitStatus::Signal(9)));
-    assert_eq!(
-        edges.poll_process_exit(),
-        Some((ids[1], ExitStatus::Signal(9)))
-    );
+    lock(&log).exits.push_back(ids[1]);
+    assert_eq!(edges.poll_process_exit(), Some(ids[1]));
     assert_eq!(edges.poll_process_exit(), None);
     // DESIGN.md parts 1 and 6: a connect where no worker listens is no link, and the removal of an endpoint reaches the
     // spawner.
@@ -1121,7 +1118,7 @@ impl Spawner for GuardedSpawner {
         }
     }
 
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_exit(&mut self) -> Option<ProcessIdentity> {
         self.inner.poll_exit()
     }
 
