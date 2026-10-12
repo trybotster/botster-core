@@ -218,7 +218,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
         h.waiting_payload();
         let mut output = Vec::new();
         while output.len() < b"ready".len() {
-            h.driver.read_pty_chunk();
+            h.driver.read_pty_chunk().unwrap();
             let Some(Input::PtyOutput(bytes)) = h.driver.inputs.pop_front() else {
                 panic!("queued program bytes must remain readable at bound {bound}");
             };
@@ -227,7 +227,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
             assert!(h.driver.inputs.is_empty());
         }
         assert_eq!(output, b"ready");
-        h.driver.read_pty_chunk();
+        h.driver.read_pty_chunk().unwrap();
         assert!(!h.driver.pty_readable);
         assert!(h.driver.inputs.is_empty());
     }
@@ -434,7 +434,7 @@ fn pty_events_resume_reads_after_would_block() {
         assert_eq!(&bytes[..count], expected);
     };
     marker(&mut fifos[0], b"ready\n");
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
     // The test reads the link as a host does: the worker reports the program's output (Core 6.2), and a link that nobody
@@ -489,30 +489,31 @@ fn pty_events_resume_reads_after_would_block() {
 #[test]
 fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     let mut h = Harness::new();
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.waiting_payload();
     h.driver.pty_readable = false;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.driver.pty_readable = true;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(
         h.driver.inputs.pop_front(),
         Some(Input::PtyOutput(b"ready".to_vec()))
     );
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
-    assert_eq!(h.driver.drain_left, Some(0));
-    h.driver.read_pty_chunk();
+    // A drain whose read finds nothing is complete; `PtyDrained` follows in the next read step.
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
+    assert_eq!(h.driver.drain, Some(Drain::Done));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
     h.driver.payload.as_ref().unwrap().signal_group(9);
     h.driver
         .exits
@@ -525,5 +526,140 @@ fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     assert!(!h.driver.pty_registered);
     assert!(!h.driver.pty_readable);
     assert!(h.driver.payload.is_none());
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
+}
+
+/// A31 evidence (lead, QUESTION A31-B; not a final test): the payload writes `n` bytes and a title that the driver has not
+/// read, its group is killed, and the test then reads the master itself until the end of the output. It prints the count
+/// that `pending_output` gave before the kill, each read's result, and how the output ended (EIO or EOF), and checks that
+/// every byte that was written comes before that end.
+#[test]
+fn a31_evidence_the_tail_after_a_kill_comes_before_the_end_of_the_output() {
+    const TITLE: &[u8] = b"\x1b]0;T\x1b\\";
+    for n in [256usize, 1000, 4096, 16 * 1024, 60 * 1024] {
+        let mut h = Harness::new();
+        let ready = h.root.path().join("ready");
+        assert!(std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&ready)
+            .status()
+            .unwrap()
+            .success());
+        let mut reader = std::fs::File::from(
+            rustix::fs::open(
+                &ready,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap(),
+        );
+        let guard = payload_guard::PayloadGuard::new(h.root.path());
+        let script = format!(
+            "{}/usr/bin/head -c {n} /dev/zero | /usr/bin/tr '\\0' a; printf '\\033]0;T\\033\\\\'; /bin/echo queued > '{}'; read answer",
+            guard.prefix(),
+            ready.display()
+        );
+        h.own(guard);
+        h.driver
+            .spawn(&PayloadSpec {
+                argv: vec!["/bin/sh".into(), "-c".into(), script],
+                env: std::collections::BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+            })
+            .unwrap();
+        let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+            reader.as_fd(),
+            rustix::event::PollFlags::IN,
+        )];
+        // timer: deadline — bounds the program's marker after its output; a PTY that holds less than n unread blocks it.
+        let limit = rustix::event::Timespec {
+            tv_sec: 3,
+            tv_nsec: 0,
+        };
+        if rustix::event::poll(&mut fds, Some(&limit)).unwrap() == 0 {
+            let payload = h.driver.payload.as_ref().unwrap();
+            eprintln!(
+                "A31-EVIDENCE os={} n={n} BLOCKED: no marker within 3 s, count={}",
+                std::env::consts::OS,
+                payload.pending_output().unwrap()
+            );
+            continue;
+        }
+        let mut marker = [0; 64];
+        let count = reader.read(&mut marker).unwrap();
+        assert_eq!(&marker[..count], b"queued\n");
+        let payload = h.driver.payload.as_ref().unwrap();
+        let before = payload.pending_output().unwrap();
+        payload.signal_group(9);
+        let mut output = Vec::new();
+        let mut reads = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        // On macOS a dying leader can wait for its terminal to drain, so the test reads while it waits for the exit, and
+        // counts those reads as before the exit.
+        let mut waited = Duration::ZERO;
+        loop {
+            // timer: deadline — one slice of the bounded wait for the production exit watch after the group kill.
+            let slice = Duration::from_millis(50);
+            if h.driver.exits.1.recv_timeout(slice).is_ok() {
+                break;
+            }
+            waited += slice;
+            assert!(
+                waited < Duration::from_secs(10),
+                "n={n}: no exit after the kill"
+            );
+            match payload.read(&mut buf) {
+                Ok(k) if k > 0 => {
+                    output.extend_from_slice(&buf[..k]);
+                    reads.push(format!("pre-exit:{k}"));
+                }
+                other => reads.push(format!("pre-exit:{other:?}")),
+            }
+        }
+        let after_exit = payload.pending_output().unwrap();
+        let end = loop {
+            match payload.read(&mut buf) {
+                Ok(0) => break "EOF".to_string(),
+                Ok(k) => {
+                    output.extend_from_slice(&buf[..k]);
+                    reads.push(format!("{k}"));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    reads.push("EAGAIN".into());
+                    let mut pty = [rustix::event::PollFd::from_borrowed_fd(
+                        payload.master(),
+                        rustix::event::PollFlags::IN,
+                    )];
+                    // timer: deadline — bounds the wait for the master's next state after an EAGAIN.
+                    let wait = rustix::event::Timespec {
+                        tv_sec: 2,
+                        tv_nsec: 0,
+                    };
+                    let ready = rustix::event::poll(&mut pty, Some(&wait)).unwrap();
+                    reads.push(format!("poll={ready}:{:?}", pty[0].revents()));
+                    assert!(ready > 0, "n={n}: the master stayed quiet after EAGAIN");
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => break format!("{:?} errno {:?}", e.kind(), e.raw_os_error()),
+            }
+        };
+        eprintln!(
+            "A31-EVIDENCE os={} n={n} count_before_kill={before} count_after_exit={after_exit} read={} reads=[{}] end={end}",
+            std::env::consts::OS,
+            output.len(),
+            reads.join(",")
+        );
+        let mut expected = vec![b'a'; n];
+        expected.extend_from_slice(TITLE);
+        assert_eq!(
+            output.len(),
+            expected.len(),
+            "n={n}: bytes lost before {end}"
+        );
+        assert_eq!(output, expected);
+    }
 }

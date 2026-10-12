@@ -1,7 +1,7 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
 use botster_core_link::launch::WorkerLaunch;
-use botster_worker_core::{CandidateId, DescriptorId, Input, WorkerConfig};
+use botster_worker_core::{CandidateId, DescriptorId, Drain, Input, WorkerConfig};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::time::{Duration, Instant};
@@ -38,7 +38,8 @@ pub struct ReadyState {
     pub control_readable: bool,
     pub pty_registered: bool,
     pub pty_readable: bool,
-    pub draining: Option<usize>,
+    /// The drain that a `DrainPty` asked for; `None` when no drain is asked.
+    pub draining: Option<Drain>,
     pub queued_inputs: usize,
     pub pending_write: bool,
     pub write_blocked: bool,
@@ -55,11 +56,13 @@ pub struct ReadyState {
 impl ReadyState {
     pub fn timeout(&self, deadline: Option<Instant>, now: Instant) -> Option<Duration> {
         // A budget of zero stops the PTY's reads, so a readable PTY or a drain that still reads waits for the next budget.
-        // A complete drain (`Some(0)`) reports `PtyDrained` without a read.
+        // A complete drain (`Drain::Done`) reports `PtyDrained` without a read.
         let pty_reads = self.pty_budget != Some(0);
         let busy = (self.link_open && self.control_readable)
             || (self.pty_registered && self.pty_readable && pty_reads)
-            || self.draining.is_some_and(|left| left == 0 || pty_reads)
+            || self
+                .draining
+                .is_some_and(|drain| drain == Drain::Done || pty_reads)
             || self.queued_inputs != 0
             || (self.pending_write && !self.write_blocked)
             || self.endpoint_readable
@@ -85,14 +88,14 @@ pub fn read_control(link_open: bool, readable: bool) -> bool {
     link_open && readable
 }
 
-pub fn read_pty(registered: bool, readable: bool, draining: Option<usize>) -> bool {
-    (registered && readable) || draining.is_some()
+pub fn read_pty(registered: bool, readable: bool, draining: bool) -> bool {
+    (registered && readable) || draining
 }
 
-/// The bytes of the next PTY read: one chunk, bounded by what a drain still reads and by the read budget (OU-3d). `0`:
-/// no read now (the budget is spent).
-pub fn pty_read_bytes(chunk: usize, draining: Option<usize>, budget: Option<usize>) -> usize {
-    let want = draining.map_or(chunk, |left| left.min(chunk));
+/// The bytes of the next PTY read: one chunk, bounded by what a drain still reads (`Drain::want`) and by the read budget
+/// (OU-3d). `0`: no read now (the budget is spent).
+pub fn pty_read_bytes(chunk: usize, draining: Option<Drain>, budget: Option<usize>) -> usize {
+    let want = draining.map_or(chunk, |drain| drain.want(chunk));
     budget.map_or(want, |budget| budget.min(want))
 }
 
@@ -317,18 +320,22 @@ mod tests {
     }
 
     /// OU-3d: a PTY read takes one chunk, no more than a drain still reads, and no more than the budget; a spent budget
-    /// reads nothing.
+    /// reads nothing. A31: the flushing read of a drain takes a whole chunk.
     #[test]
     fn a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget() {
         assert_eq!(pty_read_bytes(64, None, None), 64);
-        assert_eq!(pty_read_bytes(64, Some(10), None), 10);
-        assert_eq!(pty_read_bytes(64, Some(100), None), 64);
+        for counted in [Drain::Counted(10), Drain::Flushed(10)] {
+            assert_eq!(pty_read_bytes(64, Some(counted), None), 10);
+            assert_eq!(pty_read_bytes(64, Some(counted), Some(7)), 7);
+            assert_eq!(pty_read_bytes(64, Some(counted), Some(0)), 0);
+        }
+        assert_eq!(pty_read_bytes(64, Some(Drain::Counted(100)), None), 64);
+        assert_eq!(pty_read_bytes(64, Some(Drain::Counted(7)), Some(10)), 7);
+        assert_eq!(pty_read_bytes(64, Some(Drain::Flush), None), 64);
+        assert_eq!(pty_read_bytes(64, Some(Drain::Flush), Some(7)), 7);
         assert_eq!(pty_read_bytes(64, None, Some(7)), 7);
         assert_eq!(pty_read_bytes(64, None, Some(100)), 64);
-        assert_eq!(pty_read_bytes(64, Some(10), Some(7)), 7);
-        assert_eq!(pty_read_bytes(64, Some(7), Some(10)), 7);
         assert_eq!(pty_read_bytes(64, None, Some(0)), 0);
-        assert_eq!(pty_read_bytes(64, Some(10), Some(0)), 0);
     }
 
     /// A route stream's token is never a candidate's.
@@ -350,8 +357,12 @@ mod tests {
                 control_readable: bits & 2 != 0,
                 pty_registered: bits & 4 != 0,
                 pty_readable: bits & 8 != 0,
-                // A drain that is complete (0 left), or one that still reads (5 left).
-                draining: (bits & 16 != 0).then_some(if bits & 4096 != 0 { 5 } else { 0 }),
+                // A drain that is complete, or one that still reads.
+                draining: (bits & 16 != 0).then_some(if bits & 4096 != 0 {
+                    Drain::Counted(5)
+                } else {
+                    Drain::Done
+                }),
                 queued_inputs: usize::from(bits & 32 != 0),
                 pending_write: bits & 64 != 0,
                 write_blocked: bits & 128 != 0,
@@ -406,10 +417,10 @@ mod tests {
         for open in [false, true] {
             for ready in [false, true] {
                 assert_eq!(read_control(open, ready), (open, ready) == (true, true));
-                for drain in [None, Some(0), Some(3)] {
+                for drain in [false, true] {
                     assert_eq!(
                         read_pty(open, ready, drain),
-                        drain.is_some() || (open, ready) == (true, true)
+                        drain || (open, ready) == (true, true)
                     );
                 }
                 for bytes in [0, 1, 4096] {

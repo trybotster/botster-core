@@ -30,7 +30,7 @@ use botster_core_sys::fd_pass;
 use botster_core_sys::payload::{self, LoopThread, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
 use botster_worker_core::{
-    Action, CandidateId, DescriptorId, Input, PayloadSpec, SpawnFailure, Worker,
+    Action, CandidateId, DescriptorId, Drain, Input, PayloadSpec, SpawnFailure, Worker,
 };
 use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
@@ -119,8 +119,8 @@ struct Driver {
     pty_wants_write: bool,
     /// The driver writes this action once per turn, after it serves the control link.
     pty_write: Option<Vec<u8>>,
-    /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
-    drain_left: Option<usize>,
+    /// The drain that a `DrainPty` asked for (`Drain`, as the testkit edge drives it); `None` when no drain is asked.
+    drain: Option<Drain>,
     waker: Arc<Waker>,
     /// The thread of this loop: the one thread that starts the payload (`payload`, "Loop thread").
     loop_thread: LoopThread,
@@ -191,7 +191,7 @@ impl Driver {
             pty_registered: false,
             pty_wants_write: false,
             pty_write: None,
-            drain_left: None,
+            drain: None,
             waker,
             exits: mpsc::channel(),
             inputs: VecDeque::new(),
@@ -223,7 +223,7 @@ impl Driver {
                 self.inputs.push_back(Input::Timer);
             }
             self.write_pty_once()?;
-            self.read_pty_chunk();
+            self.read_pty_chunk()?;
             self.settle()?;
             if self.exit {
                 return Ok(());
@@ -233,7 +233,7 @@ impl Driver {
                 control_readable: self.control_readable,
                 pty_registered: self.pty_registered,
                 pty_readable: self.pty_readable,
-                draining: self.drain_left,
+                draining: self.drain,
                 queued_inputs: self.inputs.len(),
                 pending_write: self.pty_write.is_some(),
                 write_blocked: self.pty_wants_write,
@@ -354,11 +354,11 @@ impl Driver {
             }
             Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
             Action::DrainPty => {
-                let left = match self.payload.as_ref() {
+                let pending = match self.payload.as_ref() {
                     Some(payload) => payload.pending_output()?,
                     None => 0,
                 };
-                self.drain_left = Some(left);
+                self.drain = Some(Drain::asked(pending));
             }
             Action::SignalPayload(signal) => {
                 if let Some(payload) = self.payload.as_ref() {
@@ -370,7 +370,7 @@ impl Driver {
                     self.deregister_pty(&payload);
                     payload.reap();
                 }
-                self.drain_left = None;
+                self.drain = None;
             }
             Action::Exit => self.exit = true,
             Action::CandidateClose(id) => {
@@ -528,51 +528,52 @@ impl Driver {
         }
     }
 
-    /// At most one chunk of the PTY. During a drain the read is bounded by what the PTY held when the drain was asked, and
-    /// `PtyDrained` follows once that is read (or the output ended).
-    fn read_pty_chunk(&mut self) {
+    /// At most one chunk of the PTY. During a drain each read follows `Drain` (A31, OU-7): the count taken when the drain
+    /// was asked, then one flushing read, which moves output that the count left out, then at most the count measured once
+    /// after it. `PtyDrained` follows once the drain is complete (or the output ended).
+    ///
+    /// # Errors
+    /// The count of the PTY after a flushing read that found bytes failed.
+    fn read_pty_chunk(&mut self) -> io::Result<()> {
         let Some(payload) = self.payload.as_ref() else {
-            if self.drain_left.take().is_some() {
+            if self.drain.take().is_some() {
                 self.inputs.push_back(Input::PtyDrained);
             }
-            return;
+            return Ok(());
         };
-        let draining = self.drain_left;
-        if draining == Some(0) {
-            self.drain_left = None;
+        if self.drain == Some(Drain::Done) {
+            self.drain = None;
             self.inputs.push_back(Input::PtyDrained);
-            return;
+            return Ok(());
         }
-        if !io_decisions::read_pty(self.pty_registered, self.pty_readable, draining) {
-            return;
+        if !io_decisions::read_pty(self.pty_registered, self.pty_readable, self.drain.is_some()) {
+            return Ok(());
         }
         // OU-3d: a spent budget stops the read, a drain's too, until the routes take bytes. The budget needs no decrement
         // here: the machine handles each read's `PtyOutput` in the next `settle`, before any other PTY read, and sends a new
         // budget then.
-        let want = io_decisions::pty_read_bytes(self.read_chunk.get(), draining, self.pty_budget);
+        let want = io_decisions::pty_read_bytes(self.read_chunk.get(), self.drain, self.pty_budget);
         if want == 0 {
-            return;
+            return Ok(());
         }
         let mut buf = vec![0u8; want];
+        // The bytes that the read found; 0 when it found nothing or the end of the output.
+        let mut found = 0;
         let mut ended = false;
         match payload.read(&mut buf) {
             Ok(0) => ended = true,
             Ok(n) => {
                 self.inputs.push_back(Input::PtyOutput(buf[..n].to_vec()));
-                if let Some(left) = self.drain_left.as_mut() {
-                    *left = left.saturating_sub(n);
-                }
+                found = n;
             }
             Err(error) => match io_decisions::failure(&error) {
-                IoFailure::Retry => {}
-                IoFailure::Blocked => {
-                    self.pty_readable = false;
-                    if self.drain_left.is_some() {
-                        self.drain_left = Some(0);
-                    }
-                }
+                IoFailure::Retry => return Ok(()),
+                IoFailure::Blocked => self.pty_readable = false,
                 IoFailure::Closed => ended = true,
             },
+        }
+        if let Some(drain) = self.drain {
+            self.drain = Some(drain.after_read(found, || payload.pending_output())?);
         }
         if ended {
             // The output ended: the descriptor would stay readable, so it leaves the loop.
@@ -580,10 +581,8 @@ impl Driver {
                 self.deregister_pty(&payload);
                 self.payload = Some(payload);
             }
-            if self.drain_left.is_some() {
-                self.drain_left = Some(0);
-            }
         }
+        Ok(())
     }
 
     /// At most one chunk of the control socket, with the descriptors that came with it (DP-2): one read is one input,
