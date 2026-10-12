@@ -132,3 +132,9 @@ The gate on `21f9406f` was RED at mutants only: `MISSED driver.rs:679:53: replac
 - The doc comment names five sources. The other four cases are unchanged.
 
 The final CLEAN needs one green gate on `63f4f5c8`, with 679:53 caught.
+
+### 016c's MEDIUM on 63f4f5c8 (I missed it): the R-89 test goes over the 2 s budget
+
+I confirm it. BUILD.md Testing rule 4: a default-tier test over 2 s fails CI (`.config/nextest.toml`: `slow-timeout = { period = "2s", terminate-after = 1 }`). `a_step_deadline_ends_a_wait_whose_core_or_client_always_reports_progress` runs its cases one after another, and each case waits for its 200 ms `Deadline` to expire. On `21f9406f` the gate measured 1.608 s for eight cases (about 201 ms each). With `core_posted`, ten cases take at least 2.0 s, plus setup. So the default tier fails the test.
+
+Fix (RC's choice): a shorter step deadline with margin, or a split into two tests. `core_posted` stays, so that `driver.rs:679:53` stays caught. My earlier "no finding" on this delta is withdrawn; this finding is open.
