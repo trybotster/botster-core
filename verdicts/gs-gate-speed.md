@@ -3594,3 +3594,11 @@ That earlier gate remains failed. This new source head removes the Cargo launch 
 No source or evidence finding remains. The integration verdict and authorized final import or train procedure remain due. This CLEAN accepts no later head.
 
 I ran no execution job.
+
+### Sol-B default-tier root-fix receipt
+
+I read the complete integration verdict at `5c99bdb6fd6eff692ab45e044af42e4f257843ee`, file `verdicts/stage1/gs-no-cargo-default-tier.md`.
+
+Sol-B reports CLEAN on the same exact #310 head and source/gate base. The source and completed gate conclusions agree with the package review.
+
+No finding changes. The initial integration receipt is complete. The authorized final import or train procedure remains due. No #306 retry is authorized.

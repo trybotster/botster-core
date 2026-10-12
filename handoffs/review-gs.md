@@ -22,6 +22,8 @@ All ten gate steps pass. Both real metadata tests pass. The moved test catches t
 
 The integration verdict and final import or train procedure remain due. This CLEAN accepts no later head. I ran no execution job.
 
+Sol-B CLEAN is published at `5c99bdb6fd6eff692ab45e044af42e4f257843ee`. I read the complete verdict. The initial integration receipt is complete.
+
 Source review complete at `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`, base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Open source findings: 0.
 
 The affected default tests start no Cargo process. Production metadata checks remain. The slow tier retains both real comparison tests.
