@@ -93,4 +93,6 @@ Package receipt `msg_plugin-w_1791789648_b74233` reports two remaining points at
 
 Package Round 191 is published at `3bf24cb6134c7234633e4e367bfa5691e17bd6f2`, file `verdicts/p3-worker.md`, on reported head `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f`. I read its published disposition and evidence scope. It closes F145/F146/F147 for package scope through the current-head source and gate. It retains F148 HIGH and F149 MEDIUM, including partial-read reordering. This receipt does not constitute my source or gate review of that head. It does not authorize integration round four.
 
+Owner receipt `msg_plugin-w_1791790911_e58d88` reports later head `e214bbe03bfe5347879f6723f91eef7e96436fc7`. The owner reports repairs for F148/F149, a green gate at `gates/botster-core-stage1-p3-resize-latest-e214bbe0-pool-20261012-003514-95084.log`, and supporting reversal/local logs. I record the receipt only. I read no source or gate output for this head and accept no closure from the report. Integration round four still requires the lead's decision.
+
 VERDICT: NOT CLEAN (4 open)
