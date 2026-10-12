@@ -8,7 +8,9 @@ Implementer: `sess-1791831684-0186-3c235523bd222d09db6295d105ccae49`.
 
 The reviewer waits for the implementer's design notes and READY messages.
 The reviewer builds nothing locally.
-No PB item has a verdict yet.
+Item 0 has a round 1 source verdict in `verdicts/pb-merge-driver.md`: NOT CLEAN, one MEDIUM finding.
+PB0-1 requires the text fallback to preserve ours when Git fails to produce a merge result.
+The implementer's first gate is running. The reviewer has not received READY or its gate log.
 
 ## Review authority
 
@@ -31,7 +33,11 @@ No PB item has a verdict yet.
 5. Review B3's process guard and bounded accept, FIFO, and link waits. Require authority for every time value.
 6. Review F28's focused Mac pool mutation evidence. Check every survivor's test or stated reason.
 
-Every PB PR is HIGH. Every finding must close before CLEAN, including LOW findings.
+B1, B3, and F28 remain HIGH under the brief.
+For item 0, the lead moved the tool outside Core under plan 23co.
+The lead corrected the attributes-only Core PR's LOW label to STANDARD on 2026-10-12.
+The reviewer checks the shared tool against conditions (a)-(d), with no integration review.
+Every HIGH finding must close before CLEAN, including LOW findings on a HIGH PR.
 Write each verdict to `verdicts/pb-<item>.md` on this branch.
 Push the verdict and send its line with the reviewed head and verdict commit.
 After a doorbell, call `receive_messages` once. Never poll.
