@@ -3522,3 +3522,39 @@ I read the complete integration verdict at `f0326d32b5d1416aae9b9208a840ad6a7932
 Sol-B reports CLEAN on the same exact PR head and supplied gate. Both LOW findings are closed. No finding changes.
 
 Both reviews retain the source merge base and newer gate base distinction. Required import or train evidence remains due. This receipt accepts no later head.
+
+## Core #310 — default tests without Cargo execution
+
+Exact head: `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`. Base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Risk: HIGH.
+
+I read all four changed files, the affected callers, the complete PR body, and the lead's root-fix assignment.
+
+The lead forbids another #306 re-gate after the job-common test timeout. This separate source repair removes Cargo execution from the affected default tests.
+
+The new checkout resolver is test-only. It reads the pinned contracts source from Cargo.lock and requires one matching checkout path.
+
+The path must have the repository prefix and a hexadecimal revision prefix of at least seven characters. Missing or multiple matches return errors.
+
+The file-reading wrapper starts no process. The job-common test retains its nonempty-copy assertion and byte comparison.
+
+The resolver does not independently prove a checkout's Git content from its directory name. The new slow test compares its canonical path with Cargo metadata.
+
+The production lists command still reads the checkout from Cargo metadata and compares the checked-in job-common copy. That production check is unchanged.
+
+The `packages_of` extraction retains the original metadata parsing. The caller retains Cargo execution and root canonicalization before it invokes the pure parser.
+
+The default fixture covers package features, target kinds, names, relative paths, required features, and exclusion of a target outside the root.
+
+The real workspace metadata test moves unchanged to `mutants_cited::slow_tests`. Both real comparison tests match the retained slow-module filter.
+
+Static caller inspection finds the remaining Cargo executions in production commands and slow-test modules. The caps test constructs a Cargo command but does not execute it.
+
+This inspection covers the xtask caller audit named in the body. It does not claim a new mechanical prohibition against future Cargo calls in default tests.
+
+No product dependency, candidate binary, mutation exclusion, gate verdict, timeout, seed schedule, or pending list changes.
+
+The faster default tests preserve the byte-copy decision. The full gate retains the real metadata checks in production and the slow tier.
+
+Open source findings: 0. Local results remain implementer reports. The exact-head gate, mutation evidence, final body, and integration verdict remain due.
+
+This source record accepts no running gate result and authorizes no retry. I ran no execution job.
