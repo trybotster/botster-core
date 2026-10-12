@@ -150,7 +150,7 @@ debug-assertions = true
 overflow-checks = true
 
 # The contracts' conformance driver and step runner execute every step of every conformance transcript. A profile of
-# `conf::in_9_legacy_keys_table` (contracts-v0.1.43: 311 steps, 32 seeds, debug build) put about half of its time in these two
+# `conf::in_9_legacy_keys_table` (contracts-v0.1.43: 311 steps; sampled at 1024 seeds, debug build) put about half of its time in these two
 # crates: the generic code that they build (a BTreeMap<String, Value> clone per step, next_event, input_log_track, the matcher)
 # ran at the dev opt-level, and the id went over its 2 s budget (gate on f16a10ba, node linux: 2.005 s; RC evidence
 # in9-profile-f16a10ba-*). Both are dependencies of the testkit, the xtask and botster-core's tests only. They are optimized in dev and
