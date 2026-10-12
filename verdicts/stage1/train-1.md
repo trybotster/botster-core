@@ -48,6 +48,14 @@ Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or exe
 
 VERDICT: CLEAN (0 open; combined source only, train evidence pending)
 
+## Completed #301 member delta receipts
+
+Sol-B read integration delta CLEAN `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`, `verdicts/stage1/p5-hold-start.md`, and package delta CLEAN `78a42cd654105b23aa7362cd81689cd54679242b`, `verdicts/p5-hold-start.md`. Both name this exact train head, tree, and base. Their source, list, and interaction conclusions agree with the combined review above.
+
+The imported worker.rs difference is the unit-test-only add_node helper. The train preserves it together with the hold report filter. The original R-97, identity-hold, and guardian-exit limits remain. No finding changes. The final train gate and all final evidence receipts remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; combined source only, train evidence pending)
+
 ## Final combined evidence acceptance
 
 Exact head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`. Gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. The reviewed combined source is unchanged.
@@ -67,11 +75,3 @@ Sol-B also verified #304's updated train body. The member scopes and all origina
 The lead must fast-forward the base to this train head, verify equality with the gated tree, and verify the push. This review claims no completed merge. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; combined train source and final evidence accepted)
-
-## Completed #301 member delta receipts
-
-Sol-B read integration delta CLEAN `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`, `verdicts/stage1/p5-hold-start.md`, and package delta CLEAN `78a42cd654105b23aa7362cd81689cd54679242b`, `verdicts/p5-hold-start.md`. Both name this exact train head, tree, and base. Their source, list, and interaction conclusions agree with the combined review above.
-
-The imported worker.rs difference is the unit-test-only add_node helper. The train preserves it together with the hold report filter. The original R-97, identity-hold, and guardian-exit limits remain. No finding changes. The final train gate and all final evidence receipts remain due. Sol-B ran no execution job.
-
-VERDICT: CLEAN (0 open; combined source only, train evidence pending)
