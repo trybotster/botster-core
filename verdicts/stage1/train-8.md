@@ -119,3 +119,79 @@ This source CLEAN accepts no gate, later head, completed merge, future pin, or a
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; combined source only, final train receipt remains due)
+
+## Round 2: single final train receipt
+
+Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Base: `007efbde6a59af403d0937c38361c137a8961a48`.
+The frozen members and merge order remain those in Round 1.
+Lead final-receipt request: `msg_plugin-w_1791839154_6f48a8`.
+
+Completed gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-8-2d8e8acc-pool-20261012-135145-99660.log`.
+Computed SHA256: `11fefd182f9023abc4995140fc5ec3b8aadd8c638c489328b3ff57eb290c513d`.
+The header names this exact train head and base. The base is an ancestor of the train head.
+The source and tree identities remain unchanged since the combined source review.
+
+All ten steps PASS, with a total of 750.9 seconds.
+The job exits 0 after 830 seconds on msa1: one queued and 829 running.
+The wrapper exits 0 after 831 seconds.
+Default passes 2095 tests, with 412 skipped, in 13.303 seconds.
+Ordinary slow passes 680 tests, with 2087 skipped, in 44.183 seconds.
+All 23 default and 25 ordinary slow binaries pass the exact build-root test.
+The static name check scans 254 Rust files; slow coverage checks 1101 slow-only tests.
+All seven named real proofs pass in the ordinary slow run.
+The read-order proof passes in 0.004 seconds; the real-resume proof passes in 0.099 seconds.
+All ten B1 tests pass, including the testkit Lost/Stop proof and six exact-action tests.
+The cache regression and held-full decision, naming, accounting, and profile regressions pass.
+
+Strict conformance reports 281 passed, zero failed, and 385 pending identifiers including 70 without transcripts.
+The minimum report is testkit-passing 69/69, of which one budget-held.
+The real report is real-passing 67/68 and real-accepted 68/69.
+This is not completion of the real minimum or Stage 1.
+The gate changes no list membership beyond the reviewed source.
+
+The held-full run passes all 96 trials, with zero skipped, in 21.980 seconds.
+Sol-B independently checks every identity: each of the three budget identifiers has exactly seeds 0-31 once.
+The printed maxima are:
+
+| Identifier | Maximum | Seeds at maximum |
+| --- | --- | --- |
+| conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops | 0.280 s | 10 |
+| conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves | 1.257 s | 1 and 23 |
+| conf::ev_8_every_query_stays_in_output | 1.255 s | 16 |
+
+Every trial is below the existing two-second limit.
+The dp_5_full maximum is also below the lead's 1.5-second condition.
+This completes the train's fresh .46 held-full evidence; no older member gate substitutes for it.
+
+Mutation stage 1 tests 70 distinct identities: 63 caught, two missed, five unviable, and zero timeouts.
+The unmutated stage 2 baseline passes 690 tests, with 2918 skipped, in 45.890 seconds.
+Stage 2 catches exactly the two stage-1 misses:
+
+- SessionInput::log replaced by Ok(Default::default()), caught by conf::am_2_one_admission_point_orders_all_sources.
+- Driver::run replaced by Ok(()), caught by slow_driver::a_client_close_ends_its_real_route.
+
+Final results are 65 caught, five unviable, zero missed, and zero timeouts.
+Sol-B independently matches all 65 raw catch identities to the 65 citations.
+Every cited catcher passes in the ordinary default or slow run before mutation execution.
+The raw stage-2 catch set equals the raw stage-1 miss set.
+No runtime FLAKY or INCONCLUSIVE result appears.
+The IN-8 diagnosis appears in the structured exclusion report; it earns no catch credit.
+The fuzz step selects no changed crate with a decoder harness and passes without a harness run.
+
+Sol-B independently reads the complete updated #325, #327, #324, and #329 bodies.
+They name this final gate, preserve earlier evidence heads and limits, and retain their frozen member heads.
+The #329 body records the tied 1.257-second maximum at seeds 1 and 23.
+The #325 body separates its aed0c8e1 evidence from this train and explicitly claims no .49/#97 transcript execution.
+All member heads remain frozen. All final body updates are complete.
+No new source or evidence finding arises from the completed gate.
+The lead's Q7, equal-tree merge, and remote checks remain due.
+No later head, completed merge, future pin, or specific retry is accepted.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+This is the ONE final receipt for all four unchanged members and the combined train.
+No separate package final receipt is required under BUILD Green.
+
+VERDICT: CLEAN (0 open; final train 8 source and completed exact-head gate)
