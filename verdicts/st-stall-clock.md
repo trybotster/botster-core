@@ -1,6 +1,82 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (5 open)
+VERDICT: NOT CLEAN (1 open)
+
+## Core #298: round 2
+
+Reviewed head: `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6`.
+Reviewed source base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+Risk tier: HIGH. The reviewer ran no local build or test.
+
+### Closed findings
+
+- ST298-R1: CLOSED. The source implements the steward's same-link slot takeover rule at contracts `1798a65de4c11855906366ab4a233564d3ec637d`.
+  It keeps the asked step after takeover and treats the later answer as an ordinary report.
+  The new driver tests cover a queued resume, a parked answer followed by a poll, and several due routes.
+  The host tests cover own-slot answers, other workers and frames that do not need mandatory room.
+- ST298-R2: CLOSED. A failed resumed baseline now retains the worker's stalled state and original stall mark.
+  The due close therefore ends the blocked route with its first close reason.
+  Two worker tests cover blocked writes and an existing healthy close. The host test verifies the typed close and slot release.
+- ST298-R3: CLOSED. Replacement reader steps, stalls and resumes clear the parked flag.
+  The new progress test checks the future deadline while the queue remains full and its later parking behavior.
+- ST298-R4: CLOSED. `report_output` now flushes route progress before sending Output.
+  The new test checks pending progress before pending Output under link backpressure.
+- ST298-E1: CLOSED. The exact-head Mac log supplies the changed checks and retains its broader failures, as recorded below.
+
+### ST298-R5 — HIGH — The close deadline can start before the stall event posts
+
+Evidence: `inbound.rs:312-315`, `inbound.rs:356-359`, `inbound.rs:775-784`, and `stall.rs:222-234` at the reviewed head.
+
+`on_worker_msg` calls `route_stalled` before `route_event`.
+`route_stalled` releases the reservation and arms `stall_close_after` from the current pump.
+However, `route_event` parks the stall event behind any existing `ParkedRoute` record.
+`run_parked` later posts that event without applying its clock transition at the post.
+
+This sequence is possible with an earlier parked route close:
+
+1. The mandatory queue is full, and an earlier route close waits in `self.parked`.
+2. A poll frees the last mandatory slot.
+3. The next pump runs a due stall step and reserves that slot before it runs the older parked work.
+4. Core consumes the worker's `RouteStalled` answer using the reservation.
+5. Core arms the close deadline and releases the slot. It appends the stall event after the older parked close.
+6. The older close posts and fills the queue. The stall event remains unposted until another poll frees room.
+
+`next_deadline()` already exposes the close deadline while the host has received no stall event.
+If the next poll comes after that deadline, Core can send `RouteCloseDue` before it posts `RouteStalled`.
+This violates R-90 Q1 condition 1 and section 3 of the approved design, which arms the close deadline when the stall event posts.
+The resume path has the same separation between its clock change and deferred event.
+
+Required change: apply each host-visible stall or resume clock transition atomically with its actual event post.
+Preserve the worker's mark while a report waits. Use the posting pump's clock for `stall_close_after`.
+Keep the existing event order, reservation bounds and event budget rules.
+Add a driver proof with an older parked route event, the last slot reserved, and a delayed second poll.
+Verify that no close deadline appears before `RouteStalled` posts and that the full close interval starts at that post.
+Also cover a deferred resume so its host-visible transition follows the same rule.
+
+### Completed evidence
+
+The lead authorized one re-gate after the known R-88 `in_9` failure. The earlier attribution record remains below.
+Re-gate: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-200112-36429.log`.
+All ten steps passed. The final status is exit 0 on gaming.
+Mutation result: 247 tested, 227 caught, 0 missed, 0 timeout and 20 unviable. Three catches came from stage 2.
+The header names this head and gate base `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+The source base remains `20b2525c`; this is review evidence, not a final-slot merge receipt.
+
+Mac evidence: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-195909-27591.log`.
+The five selected packages passed 1046/1046 tests. The repaired driver and worker tests passed there and in the Linux gate.
+The real run explicitly used `BOTSTER_PENDING_STRICT=1 BOTSTER_SEEDS=0-31`.
+It passed 240/242 tests and exited 100. This review does not call that broader run green.
+
+- `ev_5_route_closed_retires_route_keyed_events`, seed 13, step 28, has the recorded R-66 pre-close activity fence failure.
+  The expected activity precondition is true; the consumed close report shows false. The contracts #69 fix remains the recorded disposition.
+- `am_2_one_admission_point_orders_all_sources`, seed 1, step 14, receives `424143` (BAC) instead of ABC.
+  The supplied isolated head log reproduces that result.
+  The isolated `20b2525c` base log reproduces the same ID, step and byte order at seed 5.
+  The implementer reports a target clean before the base run. The base log shows fresh compilation from its separate worktree.
+  #298 does not change the admission queue. The verdict retains this base failure as a limitation of the broader evidence.
+
+The reviewer checked the completed logs and inspected the repaired source and tests.
+All five first-round findings are closed. ST298-R5 is the one open finding for round 2.
 
 ## Core #298: re-gate attribution at round-2 head
 

@@ -31,6 +31,12 @@ Verdict: NOT CLEAN (5 open). Two HIGH findings concern reservation deadlock and 
 Two MEDIUM findings concern stale parking state and Output report order. One MEDIUM finding requires focused Mac evidence.
 The Linux gate is green. The reviewer builds nothing locally.
 
+#298 round 2: `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6`. Verdict: NOT CLEAN (1 open).
+All five first-round findings are closed. New ST298-R5 is HIGH: the close clock starts before a deferred stall event posts.
+The authorized Linux re-gate passed all ten steps. Mac changed packages passed 1046/1046.
+The broader Mac real run passed 240/242 and exited 100; the verdict records its R-66 and AM-2 base failures.
+Wait for the next READY. The round limit has not been reached: this is the second NOT CLEAN round for #298.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
