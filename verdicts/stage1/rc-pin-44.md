@@ -64,3 +64,19 @@ The package verdict independently confirms all nine normal real PASS records and
 Zero integration findings remain. This CLEAN accepts the exact PR head and its completed READY gate. Applicable train delta reviews, combined review, final train gate, and member receipts remain required. I ran no execution job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 3: original train 3 composition
+
+- Train head: `3435a6d2ce981ec5c06a888ba907667938f50137`.
+- Base: `080987829a2e2245a7ea97606020400392c974d6`.
+- Tree: `787fc74f540d554f8e28070456d3cc5feeaa19b2`.
+- Reviewed delta: the #312 pin with #310, #308, and #309 imported in that order.
+- Package verdict: `7b46286be27fa4ccb952d84fa9425305fb53eda0`, file `verdicts/rc-real-controls.md`, train 3 section.
+
+I read the complete package delta section. The five #312 blobs retain their reviewed source. Its nine real-pending removals remain.
+
+**RC-PIN44-TRAIN-1 — MEDIUM, open composition condition.** The train applies the .44 pin but retains #308's known-flaky entry for `in_8_mode_checked_at_write_start_by_worker`. The entry names `contracts-v0.1.44 pin` as its removal trigger. The mutation stages exclude the fixed test. Retire the entry or record an explicit lead disposition for retention.
+
+The lead removes #308 and #309 from this train in `msg_plugin-w_1791819182_21365e`. The replacement train requires its own exact-head delta verdict. This record accepts no gate or merge. I ran no execution job.
+
+VERDICT: NOT CLEAN (1 open)

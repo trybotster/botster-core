@@ -160,3 +160,21 @@ I read the matching package disposition at `54ee5194f7dc850c065ec21539327657ebce
 R100-E2 closes by that explicit decision. Round 5's exact-head technical acceptance is now final integration acceptance for this PR head. No source, body, gate, or procedural finding remains. Applicable train reviews and final train evidence remain due. This is a disposition record, not a new source review round. I ran no execution job.
 
 VERDICT: CLEAN (0 open)
+
+## Train 3 delta: composition defect
+
+- Train head: `3435a6d2ce981ec5c06a888ba907667938f50137`.
+- Base: `080987829a2e2245a7ea97606020400392c974d6`.
+- Tree: `787fc74f540d554f8e28070456d3cc5feeaa19b2`.
+- Reviewed delta: the host/link composition with #305 and the new encoded-length test fixture.
+- Package verdict: `7b46286be27fa4ccb952d84fa9425305fb53eda0`, file `verdicts/rc-real-controls.md`, train 3 section.
+
+I read the complete package delta section. I checked the composed `LaunchSpec` type and the new test fixture directly.
+
+**RC-R100-TRAIN-1 — HIGH, open.** `the_encoded_len_is_the_length_of_the_encoding` initializes `stop_grace_ms: 250` at `crates/botster-core-link/src/msg.rs:435`. The composed `LaunchSpec` has no such field after #305. The test target cannot compile. Remove the obsolete initializer and preserve the encoded-length test. Sol-B records the same defect as T3-I1; both identifiers refer to one defect.
+
+The production shared Launch constructor correctly removes the field. That change reduces the encoded Launch size and preserves the conservative receiver bound. The earlier source-head closures remain scoped to `b920da76`.
+
+The lead removes #309 from train 3 in `msg_plugin-w_1791819182_21365e`. Removal prevents this defect from entering the replacement train; it does not repair #309. A corrected composition requires an exact-head review. I ran no compiler or execution job.
+
+VERDICT: NOT CLEAN (1 open)
