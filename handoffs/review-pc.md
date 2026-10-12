@@ -1877,3 +1877,9 @@ PC's focused local checks on 50a50cff have no separate retained log and are trea
 Both MEDIUM runtime repairs remain closed. The old source failures and evidence limits remain recorded.
 The matching formal integration verdict, authorized final import, checks, exact-final-head gate, both final reviews, and Q7 remain due.
 No reviewer job runs. This CLEAN approves no merge. Wait for the doorbell. Never poll.
+
+The complete #307 package CLEAN is pushed at 7bcb22f2469978e359cccc78b6f2f8cf53e9d2ef. PC, Sol, and the lead received it.
+Sol receipt msg_plugin-w_1791784271_b687eb supplies inspection 7ead3eecc14ab12bddcf5c090c8961c68ec5e72c.
+The reviewer reads its final correction sections and verifies that the published integration branch contains the commit.
+The inspection closes the same three findings on 50a50cff, base e4f49504, with the same body and evidence scope.
+Sol's formal Round 2 verdict remains due. The package CLEAN was sent in msg_plugin-w_1791784262_c0167f.
