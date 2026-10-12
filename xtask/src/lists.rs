@@ -1515,6 +1515,7 @@ mod tests {
             ),
             ("# re-entry:  | cause: c | fix: o", "`re-entry` is empty"),
             ("# re-entry: R-109 | cause:  | fix: o", "`cause` is empty"),
+            ("# re-entry: R-109 | cause: c | fix:  ", "`fix` is empty"),
             (
                 "# re-entry: R-109 | cause: c | fix: o | why: w",
                 "unknown field `why`",
