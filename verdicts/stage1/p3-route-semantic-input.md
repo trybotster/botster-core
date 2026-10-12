@@ -158,3 +158,108 @@ The final-slot current-v1 import/checks, exact-final-head gate, final reviews, a
 Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (3 open: 2 HIGH source findings and 1 LOW body condition) at c4ea4032456ed26605da3efb6fbabf1ba1061b6d against source base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
+
+## Round 2 — repaired source and corrected body
+
+Head: `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`.
+Parent: `c4ea4032456ed26605da3efb6fbabf1ba1061b6d`, the previously reviewed head.
+Tree: `7760d25cadb6cd76f8cc6b01d0269fab15f03e79`.
+Source base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Gate reference: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`, not imported.
+READY receipt: `msg_plugin-w_1791778252_5446dd`.
+Complete package Round 189: `ea1b79c322d23d09219a006ab55a1ce319825ce0`, `verdicts/p3-worker.md`.
+Package receipt: `msg_plugin-w_1791778514_13bd8f`.
+
+I read the complete three-file repair, affected whole-change behavior, new tests, scripts/logs, body, and completed gate.
+The repair has 169 additions and fourteen deletions.
+Its full-index SHA256 is `b0e39c8a317ee5ce5ab0b55770c923d56a37aa1c867b71f86b1136b43ea16dce`.
+The pending, real-pending, and held files are byte-identical to the reviewed parent.
+
+### R302-SI-1 / F142 — HIGH — CLOSED
+
+`receive_route` records each semantic frame's body length plus its four-byte prefix.
+`Received::Input` carries that length to `enqueue_route_input`.
+The queued input retains this charge; `route_bytes` sums it for the applicable route.
+Bytes, Text, and Paste retain their existing payload-byte charge.
+Key, Mouse, and Focus retain their stream-frame charge while queued.
+The reader's undecoded bytes remain charged. Frames waiting for refusal room cause a zero read allowance.
+Encoding still occurs at transaction start through the model. No early encoding or terminal byte constants enter the source.
+Active input keeps the existing encoded-unwritten-byte charge.
+Settlement before the next input starts can temporarily retain a conservative allowance; the next recomputation updates it.
+
+The new behavior test blocks a preceding write and checks each queued key's reduced read allowance.
+It observes insufficient room for another frame, then returned room after PTY progress.
+It supplies another key when room returns and compares every resulting PTY byte with the model encoder's output, in order.
+The test observes actions and bytes, without inspecting the private input queue or adding a production accessor.
+Its normal PASS and its zero/one-charge mutation catches appear in the exact-head gate.
+
+### R302-SI-2 / F144 — HIGH — CLOSED
+
+`receive_route` supplies the configured `CoreLimits.max_key_text_bytes` to `Route::decide`.
+The Key text check uses UTF-8 byte length before other key size computations or encoding.
+An oversized text produces `TooLarge` with its optional route op and never enters PTY admission.
+Existing before-live and view-only decisions remain first.
+
+The new behavior test sets the bound to eight bytes.
+It supplies nine bytes with op 5 and observes exactly one `TooLarge` refusal.
+It supplies eight bytes and later Bytes input; the PTY contains only those admitted inputs.
+This proves the boundary, zero effect of refusal, and continued route use.
+The exact-head gate passes the test and catches the changed bound comparisons.
+
+### R302-SI-3 / F143 — LOW — CLOSED
+
+I read the complete current body, raw JSON SHA256 `d38dbd7c94ec34d40e9518cb234cdac0cef9a1b1e155dd973e4f7c0deea566e9`.
+It now assigns testkit FAIL/no matching event and real INCONCLUSIVE/step_timeout to all fourteen focus trials.
+Those classifications agree with the previously read raw outcomes.
+The earlier corrections remain: reviewer 0165, four before identifiers, dp3 before not run, and the retained 8c local failure.
+The c4 local rerun remains an unretained owner report. Historical source heads and gate references remain distinct.
+The body describes both repairs, both new tests, and the exact repair-head gate.
+
+### Evidence
+
+I read the complete reversal script and log.
+They substitute only the two production files from the reviewed parent while retaining the two new tests.
+Both tests fail on the old source and pass after restoration of this exact head.
+The byte-charge failure reports 1116 instead of 993. The bound failure reports no refusal instead of op 5 `TooLarge`.
+Log SHA256: `1fe08fec51038bfa97d531902c0020c65dc7cacfac55b3fe5eef380732111ca0`.
+The script has no clean marker or numeric Cargo test exits. It sets build jobs to four but not the nextest thread cap.
+This record supplies supporting reversal outcomes, not independent cache proof.
+The first four test reversals remain the earlier unretained owner report.
+
+I read the complete local-check script and log.
+The log names this exact head and the 04:02:01 UTC target clean with exit zero.
+Nextest reports 1205 PASS and 429 skipped; nextest and prebuild exit zero.
+Strict conformance reports 262 PASS, zero failures, and exit zero with seeds 0–31.
+It runs 318 of 336 pending ids; eighteen are real-only and three are held.
+Log SHA256: `eb401a2fe9c99c6d178bea5ca2c22edd6fb6c4a066832ef2e9e742512e0db9a5`.
+The script sets both parallelism caps and removes the toolchain override.
+No new pending removal follows from this repair. The .41 pin lacks an A15-1 transcript; the behavior test supplies its bound proof.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p3-route-semantic-input-78d7057f-pool-20261011-210519-99514.log`.
+SHA256: `44f9d4f5868c05d969a651afd0644d81f2b783d41c827aa1c02a20cdd96824fd`.
+All ten steps PASS in 203.4 seconds. Job and wrapper exit zero after 286 seconds on msa1.
+The job has 71 queued seconds and 215 run seconds.
+Default: 1871 PASS, 429 skipped, 20.386 seconds. Slow: 613 PASS, 2039 skipped, 47.013 seconds.
+Both strict summaries report 262 PASS and zero failures.
+Held-full runs two budget ids at 32 seeds: 64 expected ignored results, zero failures, 19.29 seconds.
+The two new regressions and the earlier semantic-input tests have normal PASS records.
+All three original both-tier removals retain normal PASS on both tiers. dp4 retains normal testkit PASS and its real-pending scope.
+All 34 reported passing ignored real ids remain in the unchanged 45-entry real-pending list.
+
+I independently match all 23 unique mutation outcomes: 22 caught, one unviable, zero missed, zero timeout.
+All 22 raw catches equal their citations; every cited test has normal PASS.
+Stage 2 does not run because stage 1 misses no mutation. The log has no FLAKY token.
+The mutation outcomes take 25.5 seconds; the whole mutation step takes 28.5 seconds.
+Fuzz selects no changed decoder harness.
+
+### Disposition
+
+All three integration findings close. The complete package verdict agrees.
+The source preserves transaction-start encoding, optional route ops, DP-5 outcomes, and separate refusal pressure.
+Resize remains PR B. DP-12 focus state and the historical fence/cache/evidence limits remain separate.
+This review accepts the exact repair head and its completed evidence.
+The final slot, current-v1 import/checks, applicable delta reviews, exact-final-head gate, final evidence reviews, and Q7 remain due.
+No future source, import, pin, pending removal, gate, or merge is accepted.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open) at 78d7057fca48480e2e8e3174baa2e5c2ab7a70c3 against source base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
