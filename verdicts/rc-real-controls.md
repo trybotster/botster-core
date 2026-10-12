@@ -2491,3 +2491,50 @@ Both delta reviews have zero open findings. Both retain the local clean-proof li
 The canonical FAIL remains explicit. The two delta reviews satisfy its review requirement without automatic carry.
 The final exact-head gate, full mutation result, matching body, both final verdicts, and Q7 remain due.
 The reviewer accepts no final gate result here and runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — profile delta review
+
+VERDICT: NOT CLEAN (2 open LOW findings).
+Exact head: `edb9de1074c2df0086f212ea2cbd9695667894ce`.
+Imported base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Source tree: `1f800c230105e6f5accd25cb87b38250038062b3`.
+Implementer message: `msg_plugin-w_1791779773_889403`.
+
+The final-slot gate on f16a10ba fails test-budget. It is not accepted as green evidence.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-42-f16a10ba-pool-20261011-210606-1524.log`.
+The header names the reviewed head and imported fcc09461 base.
+The first six steps pass. The default run passes 1913 of 1914 tests; in_9_legacy_keys_table times out at 2.005 seconds.
+The gate reports two budget failures: nextest fails, and that same test exceeds its two-second bound.
+Slow, mutants, and fuzz do not run. Jobq exits 1 after 659 seconds; the wrapper exits 1 after 660 seconds.
+
+The lead's handoff approves two dependency overrides as mitigation and retains separate product and contracts cost work.
+The steward accepts the mitigation and assigns the contracts clone cost to backlog B-1.
+The exact delta adds eighteen Cargo.toml lines. It changes no other file.
+Both named contracts conformance packages get opt-level 2, debug assertions, and overflow checks.
+No Core workspace package receives an override. No budget, pending status, control, test assertion, or exclusion changes.
+The manifests place these dependencies in the testkit, xtask, and Core's dev dependencies.
+The reviewer accepts the profile configuration under BUILD.md's speed rule and the lead's ruling.
+The profile delta remains HIGH and needs both reviews.
+
+The reviewer reads the sample header and relevant driver, clone, pump, event, matcher, and encoder stacks.
+The stacks support hot driver work. Inclusive counts overlap; the reviewer does not sum them as independent percentages.
+The implementer reports separate timing comparisons at seeds 0-31. These reports do not establish Linux gate acceptance.
+The completed local log names edb9de10 and fcc09461. All ten printed command exits are zero.
+It reports the same library and 26 route/resume passes, plus strict seeds 0-31 with 259 passes and no failure in 3.18 seconds.
+The clean time marker still has no printed numeric exit or independent raw clean proof.
+The body retains the failed gate and marks the new final gate PENDING.
+
+RC-PIN43-6 — LOW, open: inconsistent sample seed count.
+Cargo.toml's new comment identifies the sample as 32 seeds. Change item 7 identifies the same sample as 1024 seeds.
+Required change: use the correct sample seed count in both records. Keep the separate timing comparisons at seeds 0-31.
+
+RC-PIN43-7 — LOW, open: incorrect failed-job duration.
+Gate entry 8 states that both jobq and the wrapper exit after 660 seconds.
+The raw final records report jobq 659 seconds and wrapper 660 seconds.
+Required change: state each duration correctly. This correction requires no source change or reviewer execution.
+
+The reviewer sends both findings to the implementer and integration reviewer.
+The profile configuration has no source behavior finding. Delta CLEAN waits for both precision findings to close.
+The final exact-head gate, matching body, both final verdicts, and Q7 remain due.
+The reviewer runs no test, build, gate, or diagnostic.
