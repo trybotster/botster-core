@@ -48,6 +48,12 @@ pub struct LaunchSpec {
     pub cursor_ordinal: u64,
 }
 
+/// The bits of the cursor ordinal in an input cursor of `ReadFacts` (ST-7; steward ruling R-101, follow-up). The sequence
+/// number of the instance's log is below them; together they stay below 2^53.
+pub const CURSOR_ORDINAL_BITS: u32 = 24;
+/// The largest cursor ordinal of a data directory. The host mints ordinals from 1.
+pub const MAX_CURSOR_ORDINAL: u64 = (1 << CURSOR_ORDINAL_BITS) - 1;
+
 /// A request of the host to a session worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "snake_case")]

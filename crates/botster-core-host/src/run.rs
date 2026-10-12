@@ -376,11 +376,22 @@ impl HostEngine {
 
     /// One durable write of `row` for `owner`; the answer carries the returned ticket (AD-7).
     pub(crate) fn write_row(&mut self, owner: Owner, row: &Row) -> crate::io::Ticket {
+        let bytes = serde_json::to_vec(row).expect("a row is JSON");
+        self.write_raw(owner, &crate::session::row_key(&row.id), bytes)
+    }
+
+    /// Writes `bytes` at `key` in the registry.
+    pub(crate) fn write_raw(
+        &mut self,
+        owner: Owner,
+        key: &str,
+        bytes: Vec<u8>,
+    ) -> crate::io::Ticket {
         let ticket = self.ticket(owner);
         self.act(Action::WriteRow {
             ticket,
-            key: crate::session::row_key(&row.id),
-            bytes: serde_json::to_vec(row).expect("a row is JSON"),
+            key: key.to_string(),
+            bytes,
         });
         ticket
     }

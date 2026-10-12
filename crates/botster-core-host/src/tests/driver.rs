@@ -386,6 +386,14 @@ impl Rig {
         scheduler: Box<dyn Scheduler + Send>,
         rows: BTreeMap<String, Vec<u8>>,
     ) -> Rig {
+        Rig::try_open(cfg, scheduler, rows).unwrap_or_else(|e| panic!("the registry reads: {e:?}"))
+    }
+
+    fn try_open(
+        cfg: crate::EngineConfig,
+        scheduler: Box<dyn Scheduler + Send>,
+        rows: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Rig, CoreError> {
         let mock = Arc::new(Mutex::new(Mock {
             rows,
             closed_streams: Vec::new(),
@@ -403,13 +411,12 @@ impl Rig {
             endpoints: BTreeMap::new(),
         }));
         let now = crate::tests::real_now();
-        Rig {
-            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))
-                .expect("the registry reads"),
+        Ok(Rig {
+            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))?,
             mock,
             now,
             unix: 10,
-        }
+        })
     }
 
     fn pump(&mut self) -> PumpReport {
@@ -1107,4 +1114,20 @@ fn an_end_read_with_the_retry_report_follows_running() {
         e,
         Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
     )));
+}
+
+/// Steward ruling R-101 Q6: `open` reads the cursor ordinal counter with the registry. A counter row that is not a number
+/// is a corrupt registry: the open fails `RegistryFailed`, and no ordinal is guessed.
+#[test]
+fn open_refuses_a_cursor_ordinal_counter_that_is_not_a_number() {
+    let rows = BTreeMap::from([(crate::session::ORDINAL_KEY.to_string(), b"seven".to_vec())]);
+    let opened = Rig::try_open(
+        config(CoreLimits::default()),
+        Box::new(Production::new()),
+        rows,
+    );
+    match opened {
+        Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: false }),
+        Ok(_) => panic!("a corrupt counter row opens"),
+    }
 }
