@@ -1,5 +1,63 @@
 # PR #298 integration review
 
+## Round 7: source delta after the train-9b and train-10 import
+
+Exact head: `7a8592fb493450c8b046a076cf484317eb58d96e`.
+Exact tree: `baf0c3dc73bee4ff7ae3892f30fb7e16b97db3b0`.
+Previous reviewed head: `8f070c492c17d0be727b914f74edce626065b7f2`.
+Imported v1: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Actual merge base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+These are the merge's two parents and their actual base.
+This round reviews the owner's Round 8 import. It supplies a source receipt only.
+
+Sol-B compares Git objects without an executable merge or base check.
+The PR retains exactly 38 changed paths relative to the imported base.
+Every path retains the same added-line and deleted-line multiset as the previously reviewed PR delta.
+Sol-B also reads the imported changes in all seven overlapping paths.
+The imported worker action change concerns documentation for R-108. The existing stall action logic remains intact.
+The imported drain proofs, socket diagnostics module, and real-route frame counter remain present.
+
+The route-client conflict retains both TestkitRoute.reports and TestkitRoute.frames.
+The constructor retains reports: None and frames: FrameEnds::default().
+The with_reports method retains the progress record attachment.
+The route_accept arm updates that record before the stream can accept output under its limit.
+The temporary record lock ends before the stream-control call.
+Client writes update FrameEnds; route_frames_taken reads the stream's taken-byte count and the separate frame boundaries.
+The real route retains its progress hook before allowance and drain changes.
+Its frame counter retains separate sent-byte, frame-boundary, and socket-query state.
+Neither control replaces the other control's state.
+
+The R-93 fence prerequisites remain in force.
+From the route's first frame through its frame-consumption fence, no route_gate or route_accept limit may be in force.
+The route_queue_bytes value must remain the Core default. This import adds no new transcript claiming that fence.
+The source still pins .46. The R-109 real-pending re-entry and later pin requirement remain unchanged.
+
+Sol-B independently checks all nine conformance text sets against both parents and the actual merge base.
+Each set equals the parent union minus identifiers that either parent removes from the base.
+The deferred TOML equals the imported base. All ten list checks agree with the owner's retained ID-set log.
+Final identifier counts are pending 379, real-pending 44, held seven, ledger 692, real-only 26, and minimum 69.
+The real-proof set retains four identifiers. The deferred TOML retains two deferred identifiers.
+The imported base removes one real-pending identifier; the merge does not restore that identifier.
+Cargo.lock, xtask/src/ci.rs, .gitattributes, and .cargo/mutants.toml retain the imported base's blobs.
+
+Sol-B reads the retained local script and the local result summaries.
+Log: `/Users/jasonconigliari/botster-sessions/gates/st-298-r8/local-7a8592fb.log`.
+Computed SHA256: `746254c49f0feaa84a1dd84c8b1c914417e0dfca12bda8104588c561a51a023c`.
+The log names this exact head and records a target clean at 2026-10-12T22:30:06Z.
+All fifteen commands report exit 0. Selected packages pass 1235 tests; strict default conformance passes 595 at seeds 0-31.
+These remain owner-run local results. They supply no independent cleanup, pool timing, or new focused Mac proof.
+
+Sol-B reads the updated Round 8 PR body and the complete matching package section.
+Package receipt: `4df1d162a66cff477d5da868cbe0195ad6ea2dbf`, verdicts/st-stall-clock.md on stage1/review-st.
+The package reviewer reports source CLEAN on this exact head and imported base.
+The lead handoff records the route-client conflict and #298's move to train 11.
+The owner and package reviewer report the lead's order: no separate member gate; the train-11 gate covers the combined source.
+This receipt accepts no completed gate at this new head. The earlier gate remains evidence for its own head and base.
+The lead controls the combined source review, final train gate, final receipt, and merge checks.
+All earlier findings remain closed. Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (source delta only; 0 open; the final train gate and applicable final review remain due)
+
 ## Round 1
 
 Exact head: `0f9079c44e028644c6d1724c9dae9cd8b03d0459`. Reviewed and gate base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`. Lead assignment: `msg_plugin-w_1791771329_97e289`. Branch: `stage1/st-stall-clock`. Risk: HIGH.
