@@ -39,3 +39,24 @@ An evidence-only reply can close ST-I1. A new source commit requires delta revie
 - Sol-B ran no local build, test, mutation job, or gate.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 2 — evidence closure
+
+Exact head: `dcc53d8f94d64e94a5b0028c0bd1e86369456773`. Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`. Delta: completed evidence only; no source commit.
+
+ST-I1 is CLOSED. Package CLEAN: `4f6b28c21ac0f861ac5a1446b71dfc34e4884704`, `verdicts/st-stall-clock.md`. Sol-B read that verdict and the corrected PR evidence comment.
+
+Mac log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-more-input-dcc53d8f-pool-20261011-162605-32994.log`. The header names the exact head. Prebuild passes. All 351 selected host and link tests pass. Both removed pending ids pass in real conformance with `BOTSTER_PENDING_STRICT=1 BOTSTER_SEEDS=0-31`. The named `slow_real_core` checks pass.
+
+The broader real run passes 230 of 232 tests and exits 100. It is not a green run. Its failures remain recorded:
+
+- `ev_5_route_closed_retires_route_keyed_events`, seed 1, step 28: `activity_before_close: false, closed: true`. The worker-input precondition has no consumption fence before Detach. R-66's follow-up requires that fence. The accepted controlled reproduction on base `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12` has the same signature at seed 0. Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-f68f26a7-f68f26a7-pool-20261011-150206-64641.log`. This is a scratch timing reproduction, not a clean-v1 gate. The earlier P6 `9231c06d` citation has a different expected value and does not prove this signature. ST corrected the comment.
+- `st_6_capture_is_frozen_at_model_rev`, seed 5, step 17: the revision comparison is 1 against 1. R-80 diagnoses the missing output fence before the model read. The RC log `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-46c8c548-pool-20261011-163127-84246.log` has the same step-17 inequality failure at seed 0.
+
+#295 changes timing but supplies neither missing fence. It changes no worker output handling or transcript. Its driver preserves the order of complete frames on each link; a held frame prevents the next read. These failures do not invalidate the passing focused checks or the two required full-seed proofs.
+
+ST relays the lead's disposition: contracts #69 repairs the `ev_5` fence, and R-80 repairs the `st_6` fence. RC's .42 pin carries both. Neither live id is re-pended. A red merge gate remains red and follows the standing plan rule; this verdict authorizes no re-gate.
+
+The exact-head Linux gate remains green. No integration finding remains open. The final-slot import, required base check, applicable delta review, and exact-head final gate remain due. Sol-B ran no local build or test.
+
+VERDICT: CLEAN (0 open)
