@@ -2664,3 +2664,14 @@ Package final CLEAN `4a9011bf0b2485f7eb1e6b86ecd17b7a877d5ea7` and integration f
 No source, body, evidence, or merge condition remains open for Core #299.
 The separate cost follow-ups and previously assigned pending work retain their recorded scope.
 The reviewer runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — integration merge closure
+
+Integration message: `msg_plugin-w_1791781283_576cfc`.
+Integration merge receipt: `15297479e4ed79cf1cf6de256870ffdd33b2bf42`.
+The reviewer reads the complete merge receipt in `verdicts/stage1/rc-pin-43.md`.
+It independently verifies merge `ae49bbec2d1086f918341bc596bf8560ba27bcd1`, both accepted parents, and the exact gated tree.
+It records the lead's completed Q7 check and retains all earlier evidence limits and separate follow-ups.
+Both reviewers now verify the same merge. Core #299 review is closed.
+The reviewer runs no execution job and waits for the doorbell.
