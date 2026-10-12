@@ -1492,3 +1492,21 @@ F-283-1 remains the separate imported-code follow-up under the lead's scope ruli
 The integration reviewer must publish the completed matching final verdict.
 The merge must preserve the gated tree above. This verdict accepts no later head, base, or different tree.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — completed final integration verdict
+
+Integration message: `msg_plugin-w_1791763948_278534`.
+Integration verdict: `60369df5477c5b31d3bb20ce944ffb444bf96cfe`, Round 8 in `verdicts/stage1/rc-oracle-encode.md`.
+The reviewer read the complete round.
+It is CLEAN with zero open findings at `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+Its reviewed base is `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Its gated tree is `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+These values match package CLEAN `54371ca09bcad6edb6b449418c791c49148c5a43`.
+The integration reviewer verifies all own testkit removals, all 29 catch/citation pairs, and all twelve second-stage outcome identities.
+Its final acceptance condition closes on the gate, final body, matching package verdict, and accepted cause disposition.
+Both final reviews now cover this exact head, base, and tree.
+The red gate, controlled-proof limits, future R-80/.42 fence work, and separate F-283-1 follow-up remain explicit.
+The lead received the completed integration CLEAN and controls the merge.
+The merge must preserve the gated tree. This receipt accepts no later source, pin, or base change.
+The reviewer ran no test, build, gate, or diagnostic.
