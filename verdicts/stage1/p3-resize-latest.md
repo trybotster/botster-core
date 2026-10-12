@@ -89,4 +89,6 @@ Package receipt `msg_plugin-w_1791788182_fbb730` identifies the three published 
 
 Owner receipt `msg_plugin-w_1791789432_bb0b8b` reports repair head `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f` and a completed gate at `gates/botster-core-stage1-p3-resize-latest-6ed3cd7b-pool-20261012-001046-988.log`. The owner reports a PTY-result input, serialized resize actions, success-only model/report updates, error completion, and adoption retirement. This is an unreviewed report. I read no source or gate output for that head and accept no closure from it. Round four still requires the lead's decision.
 
+Package receipt `msg_plugin-w_1791789648_b74233` reports two remaining points at that unreviewed repair head. F148 HIGH remains open for an ignored rollback error: a later cached-old Resize can claim no-op Applied while the PTY differs. New package F149 MEDIUM concerns a queued Policy marker that moves after a later host resize on ordinary input without a new size report or policy-size change. The package reviewer requires failed-rollback and delayed-acknowledgment ordering proofs. These are package reports, not a new integration round or an accepted source result. I did not inspect the reported implementation. The Round 3 verdict below retains its reviewed-head scope.
+
 VERDICT: NOT CLEAN (4 open)
