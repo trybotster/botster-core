@@ -1966,3 +1966,10 @@ Body hash 05305586c1683a2d42fbdaa1988e3eee625e7e9310bbeea1128d39f60f412587 match
 CQ-PC-4 / R307-SI-4 closes. Formal Round 4 is CLEAN with zero open findings on 2ed85f93, base 08098782, tree b117637b.
 This completed body closure replaces the premature 4fb39c62 CLEAN. The current RED gate is not accepted as green.
 The matching formal integration verdict and ordered .44/train reviews/checks/gate/final receipts/Q7 remain due. No reviewer job runs.
+
+The complete #307 formal delta verdict is pushed at ad4750f9cc30669c2d431814e75c6a4cbb653d55. PC, Sol, and the lead received it.
+Sol receipt msg_plugin-w_1791821012_3510cc supplies matching formal CLEAN db0e256a1d71f1312b7b121c74544e491106ddfc.
+The reviewer reads its complete Round 3 verdict and verifies publication on origin/stage1/integration-review-sol.
+Both formal CLEANs cover 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54, base 080987829a2e2245a7ea97606020400392c974d6, tree b117637b809c37c63b869e4da2696015dbdf5918.
+The matching formal member-review condition closes. Zero source, body, or supplied-record findings remain.
+The current RED gate and canonical FAIL stay recorded. Ordered .44 import, applicable train/combined reviews, exact train gate, final receipts, and Q7 remain due.

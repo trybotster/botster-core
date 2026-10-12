@@ -421,3 +421,11 @@ The verified lead decision still requires #312's `.44` pin before #307 and final
 The current gate stays RED. Its thirteen Stage 2 mutants and fuzz remain unexecuted. No final gate or merge is accepted.
 The matching formal integration verdict and all ordered-train reviews, checks, gate, final receipts, and Q7 remain due.
 No reviewer execution job ran. Wait for the doorbell. Never poll.
+
+### Matching formal member-delta verdict
+
+Sol receipt `msg_plugin-w_1791821012_3510cc` supplies formal CLEAN `db0e256a1d71f1312b7b121c74544e491106ddfc`.
+The reviewer reads its complete Round 3 verdict and verifies publication on the integration branch.
+It matches package verdict `ad4750f9cc30669c2d431814e75c6a4cbb653d55` on exact head `2ed85f93`, base `08098782`, and tree `b117637b`.
+Both close all findings after the final body correction and preserve the current RED gate and canonical FAIL.
+The matching formal member-review condition closes. The ordered `.44` import and all final train conditions remain due.
