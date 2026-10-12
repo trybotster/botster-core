@@ -111,3 +111,32 @@ Owner receipt `msg_plugin-w_1791820382_511ac7` supplies the completed train-3c g
 I read the exact-head header, failure, and final summary. The lists step fails because `conf::a5_2_deferred_completion_keeps_slot_until_polled` is pending and passes on the testkit. Later steps do not run. Job and wrapper exit one. Round 4 accepted source only; this gate supplies no final acceptance.
 
 The owner reports replacement member `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`, importing v1 `08098782` and removing that identifier. The replacement has no pool gate. Its source delta and same-head package verdict remain separate requirements. I ran no execution job.
+
+## Round 5: replacement member after the lists failure
+
+- Head: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+- Tree: `e7324ae1ff712377222770843ea9dbe4caf64183`.
+- Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+- Previous member head: `54805661b93f7acc7c548d0a429d429247c54255`.
+- Reviewed delta: the train-2 base import and one pending identifier removal.
+- Package verdict: `101a3ac854f4cd0c5007e7cfda684b9cf10d0cce`, file `verdicts/rc-real-controls.md`, complete repaired-member section.
+
+I read the complete same-head package verdict. It reports zero open findings, including LOW findings. The lead removes and unfreezes #312 after the train-3c lists failure. Its repair order defers the full gate to the final composed train after source delta reviews.
+
+Merge `717276302460f3f3bd10d74fbfd6080c51d75b21` has the previous member and imported base as its parents. The next commit removes only `conf::a5_2_deferred_completion_keeps_slot_until_polled` and its obsolete pending comment. All five earlier #312 blobs remain unchanged. The pin, nine real-pending removals, probe report arm, and route-log behavior retain their accepted source.
+
+The pinned .44 transcript uses `pending_ops: 1` and scheduler hold/release controls. The imported base contains #300's accepted scheduler support. The new exact-head strict testkit run reports a normal PASS for this identifier. Its focused real-tier trial also passes. The .44 fence-exception list has no entry for it. The identifier therefore leaves pending and does not enter real-pending. No transcript, budget, or expected result changes.
+
+I checked all nine conformance line-set formulas after the declared removal. Each passes. Core-pending contains 405 IDs; core-real-pending retains 34. No other identifier removal appears. The mutation configuration, process-check allowlist, and known-flaky file equal the imported base. No new exclusion or private-state assertion appears.
+
+**RC-PIN44-4 — LOW — closed.** The repair body initially said no other pending identifier passes without the required held qualification. The package reviewer requested a correction. Its same-head verdict verifies the final wording: unheld pending identifiers fail; the four held identifiers pass under their held rules and retain their status. The earlier body findings remain closed. This correction changes no source.
+
+Local evidence: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-pin-44/strict-c0f8a09c-20261012-154821.log`.
+
+I read the script, exact-head header, commands, exits, and results. Fmt, lists, ledger-ids, and prebuild exit zero. Strict testkit at seeds 0–31 reports 262 passes and zero failures. It checks 318 of 335 pending identifiers; seventeen are real-only, and four use held rules. The focused real a5_2 trial passes with command exit zero. It sets no seed override; the pinned local default is 0–7. No full-seed real claim follows.
+
+The script calls quiet Cargo clean but retains neither its numeric exit nor removal output. Its time marker proves no additional cache or target-writer history. This limitation remains explicit. The failed train-3c gate supplies no acceptance. No pool gate covers this replacement head yet.
+
+Zero integration delta findings remain. This CLEAN accepts source only at the stated head. FINAL-READY can follow the matching delta receipts under the lead's repair order. Applicable train reviews, final composed gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
