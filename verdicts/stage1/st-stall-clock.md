@@ -122,3 +122,35 @@ The package verdict retains both broader failures and closes its original eviden
 Sol-B ran no local build, test, gate, mutation job, reversal, or reproduction campaign.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 3
+
+Exact head: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`. Source base remains `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`. Gate comparison base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. No new base merge belongs to this round.
+
+Sol-B read all five commits and the complete six-file delta from `1d044f8b`. The delta changes host source, proofs, and DESIGN.md. It changes no worker, link protocol, testkit, process, PTY, socket, conformance file, or contracts pin.
+
+ST-I298-6 is CLOSED under the lead's approved rule: add at post, remove at consume. The lead records this decision in shared/core-stage1/handoffs/core-lead.md. The steward records no objection. This decision supersedes Round 2's requirement to defer the resume's deadline removal until its event post.
+
+ParkedRoute::Stalled retains the worker's mark. post_route_progress arms the close deadline only after post_mandatory succeeds. route_stall_posted uses the posting pump's time and the full stall_close_after interval. The parked runner removes the current event before that call. A later parked event for the same route suppresses the deadline, because Core already consumed that route's resume or close. Posting an older stall event therefore cannot restore its ended close step.
+
+RouteResumed removes the close deadline at consumption and releases an outstanding close reservation. Its event retains the existing parked order. Waiting until the event posts can let a due close take the only slot. The resumed worker can then decline that close without an answer, which prevents the resume event from posting. The lead-approved rule avoids this cycle. DESIGN.md states both parts of the rule and their reasons.
+
+The new driver proof uses an older parked close, the last reserved slot, and a late poll. It observes no close deadline before RouteStalled posts. It checks the full close interval from that post and the retained mark in RouteCloseDue. Two resume proofs cover takeover of a due close's slot and consumption before any close step runs. The engine proof covers a stall with its resume parked behind it. All four proofs pass in the completed gate. Event order, mandatory bounds, and the existing event-budget rules remain intact.
+
+ST-I298-7 is CLOSED. Sol-B read the complete updated body. It distinguishes the source base from the comparison bases for both gates. It attributes AM-2 to the general R-93 missing arrival fence. It states the Mac failures and sampled Linux passes without claiming a Mac-only defect. Earlier failures remain recorded.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-76b369c7-pool-20261011-205842-74210.log`. Its lists step names source merge base `20b2525c`, distinct from comparison base `fcc09461`. All ten steps PASS in 826.8 seconds. Default: 1,911 passed. Slow: 609 passed. Mutants: 260 total, 239 caught, 0 missed, 0 timeout, 21 unviable. Stage 2 tests the five stage-1 misses, catches three, and reports two unviable. Its unmutated baseline passes. No FLAKY result appears. The job and wrapper exit 0 after 834 seconds on gaming. The stopped `726f2547` gate supplies no completed result.
+
+Reversal excerpts: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/handoffs/st-298-r3-red-on-revert-excerpts.md`. Reported SHA256: `786db4b3addbaccfff85dcfd7a0fbd374e9392a945f18843a29cc653ff2371dd`. Sol-B read the complete record. It describes the old-source reversal, the disabled stall-post guard, and the rejected at-post resume variant. It records their filtered failures and restoration.
+
+ST copied these excerpts from its session transcript after the runs. No original log file exists. The record reports the same worktree and target for these checks. Sol-B retains these facts as ST's owner report. Sol-B does not claim independent verification of the original output, cleanup, or artifact provenance. The reviewed source and completed pool gate independently support the repaired behavior. Sol-B requested no rerun.
+
+The original five findings remain CLOSED. Round 2's Mac evidence retains its exact earlier-head scope and its broader failures. Its selected packages passed 1,046 of 1,046; the broader real run passed 240 of 242 and exited 100. The R-66 and R-93 dispositions remain applicable. Round 3 changes no OS-dependent transport or worker path. It claims no new Mac run or repaired transcript fence.
+
+Package CLEAN: `7c422c3c1e0e5f4a61b310f863160b1c67821a7e`, `verdicts/st-stall-clock.md`, on this exact head. Sol-B read the complete Round 3 section. Both reviews close the remaining clock finding and retain the evidence limits. No package or integration finding remains.
+
+This CLEAN covers this exact source head and its supplied initial evidence. The current-base import, applicable base review, final exact-head gate, and final body remain due. The adoption and other pending limits remain recorded in the earlier rounds. This verdict approves no additional status removal or later contracts pin.
+
+Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open)
