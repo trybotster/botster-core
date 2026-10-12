@@ -1382,6 +1382,11 @@ mod slow_tests {
             unread(&worker).unwrap(),
             "the reader's own FIONREAD"
         );
+        // The client's end is a cross-check: a socket of another pair is not the worker end's peer (Linux: the reply's
+        // peer; macOS: no row has it in `Conn`), and the query fails.
+        let (other, _peer) = UnixStream::pair().unwrap();
+        let stranger = of(&other);
+        assert!(super::super::rqueue::unread(&worker_socket, &stranger).is_err());
     }
 
     /// Condition (b): a failed query is a harness error, never a pass: a route of the plain harness, a closed client
