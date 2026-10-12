@@ -1,22 +1,31 @@
 //! The start controls of the testkit (`docs/core-testkit-controls.md`): the stored row of a session (`registry_row`), the
-//! hold of one step of its start (`hold_start_at`, `release_start_at`), whether that hold has stopped its step (`start_held`),
-//! and whether its payload runs (`payload_alive`).
-//! They read the storage edge and act at the program edge of the in-process worker, never in the worker machine or the host
-//! (plan 2.1), so the order of AD-7 that a transcript observes is the host's own.
+//! hold of one step of its start (`hold_start_at`, `release_start_at`), the hold of the worker's control link at the host's
+//! accept (`hold_start`, `release_start`), whether a hold has stopped its step (`start_held`), and whether its payload runs
+//! (`payload_alive`).
+//! They read the storage edge and act at the program edge of the in-process worker or at the host's link edge, never in the
+//! worker machine or the host (plan 2.1), so the order of AD-7 that a transcript observes is the host's own.
 
 use crate::controls::{parse, session_row, ControlRegistry};
-use crate::harness::TestkitHarness;
+use crate::harness::{HostFaults, TestkitHarness};
 use crate::worker::InstanceKey;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{InstanceId, SessionId, SessionState};
 use botster_core_host::session::Row;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    // The testkit has no panic that leaves its state half written, so a poisoned lock still holds usable state.
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("registry_row", registry_row);
     registry.register("hold_start_at", hold_start_at);
     registry.register("release_start_at", release_start_at);
+    registry.register("hold_start", hold_start);
+    registry.register("release_start", release_start);
     registry.register("start_held", start_held);
     registry.register("payload_alive", payload_alive);
 }
@@ -139,9 +148,60 @@ fn release_start_at(
     Ok(Value::Null)
 }
 
-/// `{held}`: whether the hold of `hold_start_at` has stopped its step (steward ruling R-59): the scheduler has the held step
-/// due, which is the worker's spawn of the payload, kept by the hold. False while the hold is only armed, and when no hold of
-/// the session is set. It reads the hold and never waits (R-14.3).
+/// Core LC-4, A2-1 (steward ruling R-71, the form of the real tier's `hold_start`): holds the session's start at the host's
+/// accept of the worker's control link. Core spawns the worker (AD-7 step 2); the worker connects and writes its hello; the
+/// edge keeps that link from `accept_link`, so Core sees no link of the worker and the session stays `Starting`. The worker's
+/// own startup clock runs during the hold. The hold is set before the `Start`.
+fn hold_start(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfSession { session } = parse(args)?;
+    let row = session_row(harness, handle, &session)?;
+    not_begun(&session, &row)?;
+    let (faults, _) = host_faults(harness, handle)?;
+    let mut faults = lock(&faults);
+    if faults.start_holds.contains_key(&row.instance) {
+        return Err(ControlError::Bad(format!(
+            "the start of {} is already held",
+            session.0
+        )));
+    }
+    faults.start_holds.insert(row.instance, None);
+    Ok(Value::Null)
+}
+
+/// Ends the hold of `hold_start`: the host's wake is signalled, and its next `accept_link` takes the held link, with every
+/// byte that the worker wrote on it, in order. An armed hold is disarmed.
+fn release_start(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfSession { session } = parse(args)?;
+    let row = session_row(harness, handle, &session)?;
+    let (faults, wake) = host_faults(harness, handle)?;
+    if lock(&faults).start_holds.remove(&row.instance).is_none() {
+        return Err(ControlError::Bad(format!(
+            "no hold of the start of {}",
+            session.0
+        )));
+    }
+    wake.signal();
+    Ok(Value::Null)
+}
+
+fn host_faults(harness: &TestkitHarness, handle: &str) -> Result<HostFaults, ControlError> {
+    harness
+        .faults_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))
+}
+
+/// `{held}`: whether the hold of `hold_start_at` or `hold_start` has stopped its step (steward ruling R-59): the scheduler has
+/// the held step due, which is the worker's spawn of the payload, kept by the hold; or the edge holds the worker's control
+/// link. False while the hold is only armed, and when no hold of the session is set. It reads the holds and never waits
+/// (R-14.3).
 fn start_held(
     harness: &mut TestkitHarness,
     handle: &str,
@@ -149,8 +209,10 @@ fn start_held(
 ) -> Result<Value, ControlError> {
     let OfSession { session } = parse(args)?;
     let row = session_row(harness, handle, &session)?;
+    let (faults, _) = host_faults(harness, handle)?;
+    let link_held = matches!(lock(&faults).start_holds.get(&row.instance), Some(Some(_)));
     let key = start_key(harness, handle, row.instance)?;
-    Ok(json!({ "held": harness.workers().start_held(&key) }))
+    Ok(json!({ "held": link_held || harness.workers().start_held(&key) }))
 }
 
 /// `{alive}`: whether the session's payload runs now, as the process edge sees it (Core EV-5(c), AD-7). The payload ends
