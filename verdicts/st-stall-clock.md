@@ -4,6 +4,12 @@ VERDICT: CLEAN (DP-8 design revision 5)
 
 ## DP-8 route adoption: design revision 5
 
+Follow-up artifact SHA-256: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.
+The reviewer inspected the updated wire definition and size argument after the implementer's message.
+`RouteLive` now skips absent `route_tag` and `owner`, as the pinned `AttachOptions` does.
+The note requires size tests with absent and present tags and makes the actual serde test decide the margin.
+The design verdict remains CLEAN. The lead's approval before code remains required.
+
 Artifact: `shared/core-stage1/handoffs/st-dp8-route-adoption-design.md`.
 SHA-256: `0860f14a407f812cd38424c9bcb917977946f407c932078e9af69ab46142e7b3`.
 Declared Core base: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.

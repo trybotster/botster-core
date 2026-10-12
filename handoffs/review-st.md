@@ -65,6 +65,8 @@ Verdict: CLEAN. STDP8-D5 is closed; no design finding remains open.
 The worker sends its current client revision for retained and fresh observations, preserving nondecreasing host revisions.
 The implementation's size test must cover absent and present tags with the actual pinned serde types.
 This design CLEAN does not replace the lead's approval before code. Wait for the next doorbell.
+Follow-up artifact: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.
+The reviewer inspected the absent-tag encoding update. The design verdict remains CLEAN.
 
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
