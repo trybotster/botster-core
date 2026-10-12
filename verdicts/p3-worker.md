@@ -14332,3 +14332,65 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All earlier history remains preserved. Next package round: 197, after the required lead decision for #318.
 
 VERDICT: NOT CLEAN
+
+
+## Round 197 — #302 v1 import source delta, 2026-10-12
+
+Exact submitted head: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`.
+Previous CLEAN head: `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`.
+Previous package verdict: `ea1b79c322d23d09219a006ab55a1ce319825ce0`, Round 189 CLEAN.
+Previous integration verdict: `a4fade3be3e1dd4b1283c2e97efe9ccf5f18a8c1`, Round 2 CLEAN.
+The submitted head merges the previous CLEAN head with imported base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Three-way base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+DELTA request: `msg_plugin-w_1791831176_11ad04`. Tier: HIGH, unchanged.
+Integration reviewer Sol confirms the active import review in `msg_plugin-w_1791831204_e1015f`.
+The lead places #302 in train 7. This review accepts source only; no gate exists on this exact head.
+
+### Source and list review
+
+The current own diff has five files, 375 additions and 26 deletions, as before the import.
+Read-only comparison finds identical added/deleted lines for all five paths against their respective bases.
+Route and route-test blobs are byte-identical to the previous CLEAN head.
+The overlapping input file also imports R-97's removal of the worker grace predicate. Stopping still follows termed/killed.
+The prior retained semantic-frame byte charge, configured key-text bound, and DP-5 outcome branches remain unchanged.
+F142/F143/F144 retain their closures. The prior whole-change review remains applicable to those preserved paths.
+There is no source conflict and no new package source finding.
+
+The only reported conflict is core-pending. The resolution preserves this PR's removal of the in_1 id and the base's two in_6 removals.
+All three ids remain absent. No previously accepted package removal returns.
+The reviewer compares the actual base, both parents, and merged head without an executable merge-check job.
+The base-minus-either-removals-plus-either-additions formula matches all six core text lists checked, with no duplicate entry.
+Relevant final counts: core-held 4, core-pending 399, core-real-pending 35, core-real-proofs 7.
+Their base/package/import/merged counts are 3/3/4/4, 410/406/403/399, 44/45/34/35, and 4/4/7/7 respectively.
+The ledger remains 691 entries and real-only remains 26. The accepted dp_4 real-pending move stays.
+The base's .44 pin and known-flaky entry remain inherited. This verdict grants no additional pin or pending removal.
+The overlap prevents a disjoint Q7 carry. Applicable train reviews and execution remain required.
+
+### Supplied body and local evidence
+
+Complete PR snapshot: `/private/tmp/review-p3-pr302-953aa2ba.json`.
+The current-head section names this merge, imported base, actual conflict, all four relevant list counts, local checks, and deferred train 7 gate.
+It labels the 78d7057f records as historical and preserves the earlier evidence limitations.
+No body correction is required in this delta.
+
+Local record: `shared/core-stage1/evidence/p3-302-merge-check-953aa2ba.log`.
+SHA256: `eff3505404bac6e15bd56cb5bd94093942fe85f7006715f6f0dc79a2bdea926c`.
+It names the exact head and records target removal at 2026-10-12T18:43:17Z.
+Format, actual CI taint, lists, and check --tests for worker-core/worker/testkit/core exit zero.
+Worker-core reports 199 passes, no skips, in 0.736 seconds. Strict seeds 0-31 report 580 passes/111 skips in 23.980 seconds.
+Both commands exit zero. No failure or timeout appears in this supplied local record.
+These are local source/import checks, not a complete current-head gate or a new real-tier conformance acceptance.
+The earlier exact-head gate at 78d7057f retains its historical scope. It is not an exact-head gate for this import.
+
+### Verdict and limits
+
+The #302 import source delta is CLEAN at this exact head. No package source or body finding remains in this delta.
+This verdict grants no FINAL-READY, train gate acceptance, final evidence receipt, or merge acceptance.
+Applicable train-head delta reviews, combined integration review where required, the exact train 7 gate, final receipts, and equal-tree merge verification remain due.
+The Resize/Latest work in #311 remains separate, even where it carries the previously accepted #302 code.
+#318 awaits its authorized c707c4d6 READY and gate; its next review remains limited to F154 under the lead's SETTLE decision.
+F28/F33/F39, F61/F62, and other Part B duties retain their separate scopes.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier history remains preserved. Next package round: 198.
+
+VERDICT: CLEAN
