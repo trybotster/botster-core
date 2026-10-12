@@ -23,6 +23,12 @@ The PR body has the required prior-art note. The verdict records the gate log an
 Integration review remains pending. The implementer asked the lead to name its reviewer.
 The reviewer built nothing locally.
 
+Sol-B reported integration CLEAN for #327 at `0e25e27da6606a27cf2ff94df5d139c80f27b4d5`.
+Integration verdict: `3b0691b0a3ab2d303a6740bda7266c0281ef5d3c`.
+The lead requested a package delta for train 8 at `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+The package source delta is CLEAN. Sol-B owns the combined review and the final train receipt.
+The train gate and the lead's merge checks remain due.
+
 ## Review authority
 
 - The package brief is `~/botster-sessions/shared/core-stage1/brief-part-b.md`.

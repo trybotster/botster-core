@@ -1,5 +1,34 @@
 # PB B1: R-106 exit watch
 
+## Train 8 source delta
+
+Date: 2026-10-12. Package: #327. Tier: HIGH.
+Train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Train tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Train base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Reviewed member: `0e25e27da6606a27cf2ff94df5d139c80f27b4d5`.
+
+VERDICT: CLEAN
+
+Scope: #327's fit on train 8 only. The reviewer built nothing locally and ran no tests.
+This is a source delta verdict. Sol-B owns the combined review and the final train receipt.
+
+The member is an ancestor of the train head.
+Ten of the member's eleven changed files are byte-identical to the reviewed member.
+The remaining file is `worker-core/src/worker/tests.rs`. It adds #325's independent read-reply-order test.
+The added test changes no shared fixture or failure test. B1's `exit_watch` module and its six tests remain intact.
+
+The train's other testkit changes add cached input hex, change held-test selection, and fence the real resume test.
+The input log still records the same accepted bytes. The changes do not alter B1's ProcessCell, WorkerEdges, or cleanup.
+B1's named unit tests remain separate from conformance selection and held-full trials.
+
+The `.46` pin changes contract and transcript inputs, including RouteAdopted's optional tags and new fences.
+It does not change B1's wait result, failure input, exit action, Lost reason, or Stop completion type.
+The worker machine, real driver, sys watch, and testkit failure test are byte-identical to the member reviewed at `.44`.
+The train's mutation exclusions do not add an exclusion for B1's new failure decisions.
+
+No package finding remains open. The train gate and the lead's merge checks remain due.
+
 ## Current verdict: round 2
 
 Date: 2026-10-12. Tier: HIGH.
