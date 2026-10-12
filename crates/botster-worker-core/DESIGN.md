@@ -407,7 +407,8 @@ Rejected:
   the fence refuses the old epoch's commands (DP-8), and no cancel was issued (R-103 (3)). A client
   input that waits in a closing route's `received` queue is discarded and ends `not_written` with 0 PTY bytes, never
   `cancelled` (R-105 Q1): its IN-2 reason (`SessionEnded` or `Stopping`) when the session's end closed the route, else
-  `refused` (`receipt.rs` `discarded`). An input at the admission point ends at its turn, as before.
+  `refused` (`receipt.rs` `discarded`). The session's end is `SessionEnded`, `SessionRemoved` and `SessionLost`: the worker
+  never closes a route `SessionLost`, but a lost session is an ended session for IN-2 (lead, 2026-10-12). An input at the admission point ends at its turn, as before.
 - **The cursor** is `ordinal << 29 | seq` (R-101 follow-up): the 24-bit ordinal of `LaunchSpec.cursor_ordinal` (the host's
   durable counter of the data directory) and the sequence number of the entry. An adoption keeps both, so a cursor read
   before it reads incrementally after it. A cursor of another ordinal is a `gap`. Each record that has not ended keeps one
