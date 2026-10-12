@@ -71,6 +71,22 @@ fn frame_ends_decoder() {
                 assert_eq!(whole.taken(end - 1), k, "and not one byte before");
             }
             assert_eq!(whole.taken(u64::MAX), expected.len());
+            // Well-formed frames whose body sizes come from the input: every frame is complete, so its end is known. Arbitrary
+            // bytes rarely start with a length that fits, so this keeps the ends non-empty.
+            let mut framed = Vec::new();
+            let mut known = Vec::new();
+            for &size in bytes.iter().take(64) {
+                let body = usize::from(size % 16);
+                framed.extend_from_slice(&(body as u32).to_be_bytes());
+                framed.resize(framed.len() + body, size);
+                known.push(framed.len() as u64);
+            }
+            let mut built = FrameEnds::default();
+            for chunk in framed.chunks(step) {
+                built.push(chunk);
+            }
+            assert_eq!(built.ends(), known, "well-formed frames");
+            assert_eq!(built.taken(u64::MAX), known.len());
         });
 }
 
