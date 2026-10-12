@@ -47,3 +47,11 @@ No combined source finding remains. This review does not replace either member's
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check. Static Git reads and ID-set comparisons supply the source checks above.
 
 VERDICT: CLEAN (0 open; combined source only, train evidence pending)
+
+## Completed #301 member delta receipts
+
+Sol-B read integration delta CLEAN `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`, `verdicts/stage1/p5-hold-start.md`, and package delta CLEAN `78a42cd654105b23aa7362cd81689cd54679242b`, `verdicts/p5-hold-start.md`. Both name this exact train head, tree, and base. Their source, list, and interaction conclusions agree with the combined review above.
+
+The imported worker.rs difference is the unit-test-only add_node helper. The train preserves it together with the hold report filter. The original R-97, identity-hold, and guardian-exit limits remain. No finding changes. The final train gate and all final evidence receipts remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; combined source only, train evidence pending)

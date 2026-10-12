@@ -121,3 +121,17 @@ P6 reports no canonical base-merge-check record for this conflicting import. Thi
 The focused Mac job is still running. Sol-B read no unfinished result. Completed compile/test evidence, the applicable final train record, exact train gate, and final body remain due. This verdict accepts no later head or status removal. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; source delta only, evidence pending)
+
+## Completed focused Mac evidence for the import
+
+Exact head remains `484912ac58743b899c7856e87bdcad0f2b398300`. Base remains `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-484912ac-pool-20261011-220151-15434.log`. Sol-B read the complete output and decoded the recorded command. The pool job names this exact head and base and runs in Mac slot-2 on Darwin 27.0.0.
+
+Clippy for edges, host, Core, testkit, and xtask with the selected slow feature exits 0 under -D warnings. Edges passes seven library tests. Host passes 339, with one ignored trace-print evidence test. The permanent seeded comparison, all six hold proofs, and the imported drain proofs pass. The host/edges pipeline reports cargo exit 0, rather than only the filter's exit.
+
+Prebuild succeeds and writes three candidate binaries. Testkit's five op_holds tests pass with the slow feature; that pipeline also reports cargo exit 0. The job and wrapper exit 0 after 713 seconds, with six seconds queued and 707 running.
+
+This completes the previously running focused import check. It does not establish a full gate or train result. The final train record, exact-head train gate, and body remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; import source and focused evidence only, train evidence pending)
