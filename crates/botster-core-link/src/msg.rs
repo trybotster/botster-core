@@ -51,8 +51,9 @@ pub struct LaunchSpec {
 /// The bits of the cursor ordinal in an input cursor of `ReadFacts` (ST-7; steward ruling R-101, follow-up). The sequence
 /// number of the instance's log is below them; together they stay below 2^53.
 pub const CURSOR_ORDINAL_BITS: u32 = 24;
-/// The largest cursor ordinal of a data directory. The host mints ordinals from 1.
-pub const MAX_CURSOR_ORDINAL: u64 = (1 << CURSOR_ORDINAL_BITS) - 1;
+/// The largest cursor ordinal of a data directory, 2^24 - 1. The host mints ordinals from 1. It is one literal, and a unit
+/// test ties it to `CURSOR_ORDINAL_BITS`.
+pub const MAX_CURSOR_ORDINAL: u64 = 0xFF_FFFF;
 
 /// A request of the host to a session worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +317,12 @@ impl WorkerMsg {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_largest_cursor_ordinal_fills_its_bits() {
+        assert_eq!(MAX_CURSOR_ORDINAL, (1 << CURSOR_ORDINAL_BITS) - 1);
+        assert_eq!(MAX_CURSOR_ORDINAL, 16_777_215);
+    }
 
     fn size() -> Size {
         Size {
