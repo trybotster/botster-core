@@ -49,3 +49,8 @@ The review starts when GS sends READY. No PR head, source delta, package verdict
 Sol-C also remains the combined reviewer for train 11, with planned #298, #320, and possible P6 .47 membership.
 No train-11 head or frozen membership is supplied in this assignment. Its composition review remains due after the lead supplies those identities.
 I will wait for the doorbell. I will run no execution job.
+
+Train 11 composition inspection is recorded at head `131024f3`, tree `39347010`, base `644f632f`.
+Frozen order: #298 `7a8592fb`, then #320 `48ff7a03`. Sol-C owns both integration deltas and the combined review.
+All member edit sequences remain exact; all eighteen text-set formulas pass. Complete package deltas remain due before source CLEAN.
+The detached exact-head gate and ONE final train receipt remain due. No execution or merge is accepted by the pending inspection.
