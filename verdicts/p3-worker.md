@@ -14135,3 +14135,92 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All prior history remains preserved. Next package round: 195.
 
 VERDICT: NOT CLEAN
+
+
+## Round 195 — #311 v1 import source delta, 2026-10-12
+
+Exact submitted head: `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d`.
+Previous package CLEAN head: `e214bbe03bfe5347879f6723f91eef7e96436fc7`, verdict `51304c533d8460204ea4fcdc40c267b1e0a41052`, Round 192.
+Previous integration CLEAN: `6a72d62756db2facdb3582aa5b3748eb3e4781a1`, authorized Round 4.
+Import commit: `e2e45f0bf7751361e187c7a743da06dd60d1413c`, parents e214bbe0 and `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+The final submitted commit repairs one SZ-1 test call after that import.
+Imported source base: e37b91d6, the landed train 4b head. Three-way base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+DELTA request: `msg_plugin-w_1791829600_6de476`. Tier: HIGH, unchanged.
+This request is a source delta review before a future train gate. No gate exists for this exact submitted head.
+Authority: BUILD.md's merge/train rules; R-97's stop_grace follow-up; the existing Resize/Latest rulings and source verdict.
+The earlier integration round-limit settlement and history remain. Integration Round 4 was CLEAN, so its conditional SPLIT did not trigger.
+
+### Import and conflict review
+
+The delta from the prior CLEAN head imports 63 files: 2900 additions and 324 deletions.
+Those changes are the landed base's work. This review checks the package import, its overlaps, conflict resolutions, and shared interfaces.
+It does not claim a new independent review of every imported base PR.
+Nine paths overlap the old package diff and the base's moves. A disjoint Q7 carry does not apply.
+The reviewer runs no executable merge-check job.
+
+The pending conflict removes all three relevant ids: in_1_host_write_and_route_frames_share_payload_kinds and both in_6 ids.
+The package removed in_1; the base removed in_6_cancel_result_kinds and in_6_refused_full_wakes_on_room.
+Read-only four-tree set comparison uses the actual three-way base and both parents.
+The merged sets equal the base minus either parent's removals, plus either parent's additions.
+core-pending: base 409/package 393/import 403/merged 387. No missing or extra id; no duplicate.
+core-real-pending: 43/47/34/38. No missing or extra id; no duplicate.
+core-real-proofs: 4/4/7/7. No missing or extra entry; no duplicate.
+The package's previously accepted removals and real-pending moves remain unchanged.
+The inherited new proofs and the known-flaky entry remain present.
+
+The session conflict retains the complete SZ-1 real PTY-size test and takes the base's corrected LC-5 documentation.
+The following commit removes its obsolete 5000 argument from Session::launch.
+The imported fixture now takes only root and script. Its launch frame no longer carries stop_grace_ms.
+R-97 assigns that deadline to Core. The worker receives KillPayload at the host's due pump and retains no grace timer.
+The import retains SIGUSR2 mapping in the real driver and KillPayload readiness/input in the testkit.
+Its queued-spawn behavior preserves kill priority and the old package's failed-spawn resize completions.
+The stopping predicate retains termed/killed after the worker grace field disappears.
+The fixture still retains bounded SZ-1 output reads, the nonblocking release byte, ownership, and cleanup.
+
+Read-only comparison of added/deleted lines finds the same package edits in sixteen of its seventeen paths.
+The sole difference is the removed Session::launch argument. This comparison does not assert disjoint paths or an executable merge result.
+Eight package-only blobs are byte-identical to the prior CLEAN head.
+The overlapping worker/testkit code retains the PTY-result path, restoration coherence, adoption retirement, and captured-policy ordering.
+Both resize drivers preserve their result mapping and the same size conversion. R-97's interface changes do not bypass these paths.
+F145 through F149 remain CLOSED for source scope. No new package source finding appears.
+
+The imported contracts pin is .44 at `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea` in Cargo.toml and Cargo.lock.
+This is the landed base's pin. No new package pin or additional pending removal is proposed here.
+The body snapshot is `/private/tmp/review-p3-pr311-2c5d09a0.json`; its historical evidence remains at the previously named heads.
+
+### Supplied local records and unresolved execution scope
+
+The e2e45f0b local record reports target cleanup at 2026-10-12T18:09:44Z, format/taint/lists exit zero, and 1057 default passes.
+Its clippy and worker-slow compilation exit 101 because the SZ-1 call supplies the removed third argument.
+The submitted one-line repair fixes that source error.
+The 2c5d09a0 log names the exact head and an unchanged-worktree cache claim after that cleanup.
+Format, actual CI taint, clippy, and prebuild exit zero. All 141 worker slow tests pass in 13.750 seconds.
+Both real SZ-1 forms pass, at 0.076 and 0.134 seconds.
+These are local checks, not a complete current-head gate.
+
+The supplied records also contain actual budget failures. They are not dismissed by this source verdict.
+At e2e45f0b, strict conformance reports 577 passes and three timeouts: application_cursor_and_keypad, legacy_keys_table, and ou_3_progressing_reader_lossless.
+At 2c5d09a0, the isolated three-id run times out legacy_keys_table at 2.005 seconds and exits 100.
+The complete strict run reports 578 passes and two timeouts: application_cursor_and_keypad at 2.008 seconds and legacy_keys_table at 2.011 seconds.
+That run exits 100. It is not a green local strict run.
+Older Linux timings do not diagnose the cause of these Mac failures and supply no current-head gate acceptance.
+The reviewer sends the lead QUESTION `msg_plugin-w_1791829810_b4b8c8` for the responsible diagnosis owner and the earlier RC cost duty's scope.
+No budget exception, tier move, timeout increase, rerun, or root-cause closure is granted.
+A future exact train gate and final receipts must supply the required execution evidence.
+
+Local record SHA256 values:
+- e2e45f0b log: `f45e35074ac5e7b14e027f79b51b221525fb9649e282603be668d35bf1c71e39`.
+- 2c5d09a0 log: `a21245a4b27604da954122f54e2b0de8de40cf08a22365a8b23af1b7976d309e`.
+
+### Verdict and limits
+
+The #311 import source delta is CLEAN at this exact head. This is source acceptance for the submitted DELTA request only.
+The pending budget diagnosis and execution evidence remain due. This verdict supplies no FINAL-READY or final gate receipt.
+Applicable train-head delta reviews, a combined integration review where required, the exact train gate, member receipts, and equal-tree merge verification remain due.
+The earlier e214bbe0 gate stays historical; it is not reused as an exact-head gate for this import.
+No future train, gate, merge, pin, or pending removal is accepted.
+#318 retains its independent Round 194 NOT CLEAN findings F153/F154. F28/F33/F39 and other Part B duties remain separate.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier history remains preserved. Next package round: 196.
+
+VERDICT: CLEAN
