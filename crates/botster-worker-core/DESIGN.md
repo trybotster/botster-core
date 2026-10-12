@@ -297,6 +297,13 @@ The resync sequence (at `Stalled → Open`, OU-9):
   `fail_handoff` (fail_next_handoff), `client_close` (close), `input_blocked` (the admission point is full). New:
   `route_stream_holders`, `alloc_window`/`alloc_peak`, `hold_handoff`/`release_handoff`, `route_stream_written`,
   `oracle_screen`, `oracle_screen_payload`, and a route-transport term in `edges_quiet`.
+- `route_frames_taken` (Core AM-2; steward ruling R-93 Q1): the client's complete frames whose last byte the worker read
+  from the stream. The client counts its own frame boundaries (`FrameEnds`, the 4-byte length prefixes). The testkit reads
+  the taken bytes at the in-memory stream (`EndControl::taken`). The real tier subtracts the worker end's unread bytes from
+  the bytes that the client's stream accepted, by a read-only kernel query (`real/rqueue.rs`: `unix_diag` on Linux,
+  `netstat` on macOS). A failed query is a harness error. The fence holds only under the premise of R-93 (a): no
+  `route_gate` or `route_accept` limit in force on the route from its first frame to the fence, and `route_queue_bytes` at
+  the Core default. A reviewer checks the premise (checklist item 6, R-115); no lint checks it.
 
 ### Real-only (not in the P4a testkit PRs)
 
