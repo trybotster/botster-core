@@ -32,7 +32,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[path = "candidate.rs"]
 mod candidate;
@@ -54,11 +54,48 @@ fn fifo(root: &Path, name: &str) -> PathBuf {
     path
 }
 
+/// The limit of a wait for a real worker: its connection, a frame from it, and a write to it (A11). It is the fixture's
+/// existing frame limit, now named and shared; not a contract value.
+// timer: deadline — the limit of a wait for a real worker's connection, frame or write; not a contract value.
+const WORKER_WAIT: Duration = Duration::from_secs(20);
+
+/// Accepts the worker's connection on `listener` by `deadline` (A11). The listener is non-blocking, and each accept follows
+/// a poll that the deadline bounds: a wake with no connection gives `WouldBlock` and polls again. The accepted stream is
+/// blocking (on macOS it would inherit the listener's `O_NONBLOCK`); its reads and writes have their own bounds.
+fn accept_within(listener: &UnixListener, deadline: Deadline) -> UnixStream {
+    use rustix::event::{poll, PollFd, PollFlags, Timespec};
+    listener.set_nonblocking(true).unwrap();
+    loop {
+        let left = deadline.remaining();
+        if left.is_zero() {
+            panic!("the worker did not connect within {:?}", deadline.limit());
+        }
+        let timeout = Timespec {
+            tv_sec: i64::try_from(left.as_secs()).unwrap_or(i64::MAX),
+            tv_nsec: i64::from(left.subsec_nanos()),
+        };
+        let mut fds = [PollFd::new(listener, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Ok(_) | Err(rustix::io::Errno::INTR) => {}
+            Err(error) => panic!("the poll of the control socket failed: {error}"),
+        }
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(false).unwrap();
+                return stream;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(error) => panic!("the accept of the worker's connection failed: {error}"),
+        }
+    }
+}
+
 /// A worker that a test starts itself.
 struct OwnedWorker {
     worker: Child,
     payload_guard: Option<PayloadGuard>,
-    observer_guard: Option<process_guard::GroupGuard>,
+    /// The test's own hold on the worker's process group (A8): both paths start the worker through its prefix.
+    group_guard: Option<process_guard::GroupGuard>,
 }
 
 impl Drop for OwnedWorker {
@@ -70,7 +107,7 @@ impl Drop for OwnedWorker {
         if let Some(guard) = self.payload_guard.as_mut() {
             guard.release();
         }
-        drop(self.observer_guard.take());
+        drop(self.group_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
                 rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
@@ -218,33 +255,35 @@ impl Session {
             endpoint: root.join("e"),
             startup_ms: WorkerLaunch::millis(CoreLimits::default().startup),
         };
-        let observer_guard = crate::DRIVER_OBSERVER.map(|_| process_guard::GroupGuard::new(root));
-        let mut command = if let Some(observer) = crate::DRIVER_OBSERVER {
-            use std::os::unix::process::CommandExt;
-            let mut command = Command::new("/bin/sh");
-            command.args([
-                "-c",
-                &format!("{}exec \"$@\"", observer_guard.as_ref().unwrap().prefix()),
-                "observer",
-            ]);
+        // A8: the worker leads its own process group on both paths, and the test's guard joins that group before the
+        // worker body runs, so a killed test runner leaves no worker behind.
+        let group_guard = process_guard::GroupGuard::new(root);
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            &format!("{}exec \"$@\"", group_guard.prefix()),
+            "worker",
+        ]);
+        if let Some(observer) = crate::DRIVER_OBSERVER {
             command.arg(std::env::current_exe().unwrap());
             command.args(["--exact", observer, "--nocapture"]);
             command
                 .env_clear()
-                .env("BOTSTER_DRIVER_CONTROL", &launch.control)
-                .process_group(0);
-            command
+                .env("BOTSTER_DRIVER_CONTROL", &launch.control);
         } else {
-            let mut command = Command::new(worker_binary());
+            command.arg(worker_binary());
             command.args(launch.args()).env_clear().envs(launch.env());
-            command
-        };
+        }
+        {
+            use std::os::unix::process::CommandExt;
+            command.process_group(0);
+        }
         let worker = OwnedWorker {
             worker: command.spawn().unwrap(),
             payload_guard: Some(payload_guard),
-            observer_guard,
+            group_guard: Some(group_guard),
         };
-        let (stream, _) = listener.accept().unwrap();
+        let stream = accept_within(&listener, Deadline::after(WORKER_WAIT));
         let (link, payload) = hello_and_launch(
             stream,
             &launch,
@@ -291,10 +330,9 @@ fn hello_and_launch(
     route: Option<std::os::fd::BorrowedFd<'_>>,
     limits: CoreLimits,
 ) -> (Link, PayloadId) {
-    // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
-        .unwrap();
+    // A11: a frame from the worker and a write to it each wait at most `WORKER_WAIT`.
+    stream.set_read_timeout(Some(WORKER_WAIT)).unwrap();
+    stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
     let mut link = Link {
         stream,
         decoder: FrameDecoder::new(1 << 20),
@@ -421,12 +459,33 @@ fn attach_route(core: &CoreLimits) -> HostMsg {
     }
 }
 
-/// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
-fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
-    let mut reader = BufReader::new(std::fs::File::open(fifo).unwrap());
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    (reader, line)
+/// Reads the first line that the payload writes to `fifo` by the cleanup bound, and returns a read end that sees the end of
+/// file when the payload's writers are gone (A11: no open or read waits without a bound). The first open is for reading and
+/// writing, so it never waits for the payload's open; once the payload has written its line, it holds the FIFO open for
+/// writing, so a second, read-only open does not wait either. The first end closes only after the second one is open, so
+/// the FIFO always has a reader. The read-only end is non-blocking: read it with [`Bounded`].
+fn first_line(fifo: &Path) -> (std::fs::File, String) {
+    use rustix::fs::{open, Mode, OFlags};
+    let mut both = Bounded::new(std::fs::File::from(
+        open(
+            fifo,
+            OFlags::RDWR | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .unwrap(),
+    ));
+    let line = both
+        .line(Deadline::cleanup())
+        .unwrap()
+        .expect("a first line");
+    let read_only = open(
+        fifo,
+        OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .unwrap();
+    drop(both);
+    (std::fs::File::from(read_only), line)
 }
 
 fn exited(code: Option<i32>, signal: Option<i32>) -> WorkerMsg {
@@ -488,7 +547,7 @@ fn lc_6_signal_reaches_the_whole_group() {
         held.display()
     );
     let mut s = Session::launch(root.path(), &script);
-    let (mut reader, line) = first_line(&held);
+    let (reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     s.link.msg(&HostMsg::Op {
         req: 1,
@@ -509,13 +568,9 @@ fn lc_6_signal_reaches_the_whole_group() {
             exited(None, Some(15)),
         ]
     );
-    let started = Instant::now();
-    let mut rest = Vec::new();
-    reader.read_to_end(&mut rest).unwrap();
-    assert!(
-        started.elapsed() < Duration::from_secs(10),
-        "the background child held the FIFO: it outlived the group signal"
-    );
+    Bounded::new(reader)
+        .to_eof(Deadline::cleanup())
+        .expect("the background child held the FIFO: it outlived the group signal");
     s.remove();
 }
 
@@ -638,10 +693,9 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
 /// proof at that epoch and an `Adopted` report of its running payload.
 fn adopt(stream: UnixStream, epoch: u64) -> Link {
     let (instance, token) = (InstanceId("1-1".into()), [5; 32]);
-    // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
-        .unwrap();
+    // A11: a frame from the worker and a write to it each wait at most `WORKER_WAIT`.
+    stream.set_read_timeout(Some(WORKER_WAIT)).unwrap();
+    stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
     let mut adopter = Link {
         stream,
         decoder: FrameDecoder::new(1 << 20),
@@ -746,6 +800,8 @@ fn the_link_helper_keeps_every_frame_of_one_read() {
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
         .unwrap();
+    // A11: every write of a `Link` is bounded.
+    stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
     let mut link = Link {
         stream,
         decoder: FrameDecoder::new(1 << 20),
@@ -773,7 +829,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         held.display()
     );
     let mut session = Session::launch(root.path(), &script);
-    let (mut reader, line) = first_line(&held);
+    let (reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     // The graceful group signal must not remove independent test ownership.
     session.link.msg(&HostMsg::Op {
@@ -794,7 +850,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
     session.signal_worker(rustix::process::Signal::KILL);
     status_by_bound(&mut session.worker.worker, "the worker ends after SIGKILL");
     let mut fds = [rustix::event::PollFd::new(
-        reader.get_ref(),
+        &reader,
         rustix::event::PollFlags::IN,
     )];
     assert_eq!(
@@ -814,16 +870,10 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         panic!("the test failed after the worker died");
     }));
     assert!(result.is_err());
-    let (sent, received) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut rest = Vec::new();
-        let _ = sent.send(reader.read_to_end(&mut rest));
-    });
-    received
-        // timer: deadline — the payload must release the FIFO after test cleanup.
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the payload group ended")
-        .unwrap();
+    // The payload must release the FIFO after test cleanup, within the cleanup bound.
+    Bounded::new(reader)
+        .to_eof(Deadline::cleanup())
+        .expect("the payload group ended");
 }
 
 /// DP-2, plan 23ae condition 2: a route descriptor that the worker receives is close-on-exec, so the payload holds no copy.
@@ -892,6 +942,8 @@ impl RouteClient {
         stream
             .set_read_timeout(Some(Duration::from_secs(20)))
             .unwrap();
+        // A11: a write of the client's frames to the worker is bounded too.
+        stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
         RouteClient {
             stream,
             reader: botster_route_codec::prelude::StreamReader::new(),

@@ -97,23 +97,21 @@ crates/botster-core-testkit/tests/slow_process_group.rs | the_leader_streams_are
 crates/botster-worker/tests/common/driver_edges.rs | pty_events_resume_reads_after_would_block | command-wait
 crates/botster-worker/tests/common/driver_edges.rs | waiting_payload | command-wait
 crates/botster-worker/tests/common/driver_edges.rs | with_read_bound | blocking-read
-crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_ends_the_payload_group | blocking-read
 crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_ends_the_payload_group | shell-loop
 crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | fifo | command-wait
-crates/botster-worker/tests/common/session.rs | first_line | blocking-read
-crates/botster-worker/tests/common/session.rs | launch | blocking-read
 
-# The probes' control socket of the real-tier program controls (PC, #233): the accept runs on a non-blocking listener after a
-# bounded poll (Deadline::cleanup() re-armed each round, closing checked each round); WouldBlock polls again; the check cannot
-# see the non-blocking listener. Temporary: the P6 bounded accept in botster-test-process replaces it (same plan as the
-# session.rs launch entry).
+# The probes' control socket of the real-tier program controls (PC, #233), and the worker fixture's control socket
+# (`accept_within`, PB B3, A11): the accept runs on a non-blocking listener after a bounded poll; WouldBlock polls again;
+# the check cannot see the non-blocking listener. program.rs re-arms Deadline::cleanup() each round and checks closing each
+# round; accept_within polls by one deadline, `WORKER_WAIT`, for the whole wait. Temporary: the P6 bounded accept in
+# botster-test-process replaces both.
 crates/botster-core-testkit/src/real/program.rs | accept | blocking-read
+crates/botster-worker/tests/common/session.rs | accept_within | blocking-read
 crates/botster-worker/tests/common/session.rs | launch | spawn
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_5_the_worker_control_signals_end_the_payload_and_the_worker_stays | shell-loop
-crates/botster-worker/tests/common/session.rs | lc_6_signal_reaches_the_whole_group | blocking-read
 crates/botster-worker/tests/common/session.rs | lc_6_signal_reaches_the_whole_group | shell-loop
 crates/botster-worker/tests/common/session.rs | observer_parent | blocking-read
 crates/botster-worker/tests/common/session.rs | observer_parent | shell-loop
