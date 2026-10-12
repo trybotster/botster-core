@@ -216,3 +216,13 @@ The gate has not run. Combined review, exact-head train gate, Sol's train receip
 I supply no final receipt under the lead's corrected instruction. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW; #311 source delta only)
+
+
+### Matching train-6 package delta
+
+I read complete package Round 199 at `8a47bd75d5beb4b93119a69eb4f46e3d049fc0e2`.
+Message `msg_plugin-w_1791832907_70b792` supplies that receipt.
+It matches the exact train head, base, tree, frozen member, preserved source edits, and zero findings in integration Round 6.
+Both reviews retain the lead's pre-checks as reported evidence. Neither claims a completed train gate.
+Sol owns the combined review, the dp_3 real-pending trigger check, and the one final train receipt.
+No additional review round or final acceptance follows from this matching record.
