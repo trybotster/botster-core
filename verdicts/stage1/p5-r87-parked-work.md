@@ -365,3 +365,16 @@ This verdict accepts no later source, base import, pin, pending removal, or diff
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open; final source, evidence, and body) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
+
+### Round 5 supplement — merge receipt
+
+P5 reports #292 merged in its #297 READY, `msg_plugin-w_1791769214_6114d8`.
+Sol independently reads merge object `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+Its parents are reviewed base `1b984f06f11378e1a424db75dfe99b1e2d15c567`
+and exact final head `1ed69c709da7f75a7f90895ae36675f3e8702d84`.
+Its tree equals accepted gated tree `8d370b057c8b25dcb05a8d31621b6db46e3066fc`.
+The merge adds no source delta to the final acceptance above.
+Future .42 fence work, op_posted, and historical evidence limits retain their separate scopes.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open; merge retains the accepted tree) at 20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5
