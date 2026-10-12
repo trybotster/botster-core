@@ -250,9 +250,11 @@ impl CoreHarness for TestkitHarness {
     }
 
     /// The runner dropped the handle's Core (LC-12: its workers and its rows stay). The handle is gone, so a control that
-    /// names it is `Bad`; a later `open` of the same directory, under any handle, reaches the rows and the workers again.
+    /// names it is `Bad`, the record of its Core included (`parked_work`, `op_posted`; R297-F1); a later `open` of the same
+    /// directory, under any handle, reaches the rows and the workers again.
     fn drop_handle(&mut self, handle: &str) {
         self.handles.remove(handle);
+        self.records.remove(handle);
     }
 
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
@@ -377,6 +379,9 @@ mod tests {
             .record_of("a")
             .expect("the layer's record")
             .parked(&s1));
+        // R297-F1: the record goes with the handle.
+        harness.drop_handle("a");
+        assert!(harness.record_of("a").is_none(), "a dropped handle");
     }
 
     fn spec() -> OpenSpec {

@@ -147,6 +147,9 @@ struct Handle {
     /// A duplicate of the poll descriptor of the handle's wake (`RealEdges::wake_descriptor`): `wake_fd` gives a
     /// duplicate of it while the Core is in its slot (steward ruling R-68).
     wake: OwnedFd,
+    /// What the handle's Core reported in its diagnostics, as the testkit's layer records it (`parked_work`, `op_posted`).
+    /// It goes with the handle, so a control that names a dropped or crashed handle is `Bad` (R297-F1).
+    record: CoreRecord,
 }
 
 /// The unrelated process of a `reuse_pid` (R-55 (2), (3)): the harness's own child, the leader of its own group, unreaped
@@ -263,8 +266,6 @@ pub struct RealCoreHarness {
     /// The scripted synchronous refusals of each handle (`fail_next`, R-49 Q3): the testkit's own layer in front of the
     /// handle's Core returns them without calling Core.
     refusals: BTreeMap<String, RefusalHandle>,
-    /// What each tapped handle's Core reported in its diagnostics, as the testkit's layer records it (`parked_work`, `op_posted`).
-    records: BTreeMap<String, CoreRecord>,
     /// The probes' control sockets (the program controls). Declared before `root`: its socket is in the root.
     programs: program::Programs,
     /// The bystanders of `reuse_pid`, by data directory and session. Their drop ends and reaps them (R-55 (3)), before the
@@ -340,7 +341,6 @@ impl RealCoreHarness {
             heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
-            records: BTreeMap::new(),
             bystanders: BTreeMap::new(),
             hold: None,
             stand_ins: 0,
@@ -571,23 +571,23 @@ impl RealCoreHarness {
     fn parked_work(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         self.recorded(handle, &session)?;
-        let parked = self
-            .records
-            .get(handle)
-            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
-            .parked(&session);
+        let parked = self.record(handle)?.parked(&session);
         Ok(json!({ "parked": parked }))
+    }
+
+    /// The record of the Core of `handle` while the handle is open: a dropped or crashed handle has none (R297-F1).
+    fn record(&self, handle: &str) -> Result<&CoreRecord, ControlError> {
+        self.handles
+            .get(handle)
+            .map(|h| &h.record)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))
     }
 
     /// `{posted}`: Core has posted the op's terminal `Completed`, polled or not (steward ruling R-88 (B)), as Core's
     /// diagnostics reported after its last call ([`CoreRecord`]). An op that Core never minted is not posted.
     fn op_posted(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfOp { for_op } = parse(args)?;
-        let posted = self
-            .records
-            .get(handle)
-            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
-            .op_posted(for_op);
+        let posted = self.record(handle)?.op_posted(for_op);
         Ok(json!({ "posted": posted }))
     }
 
@@ -1145,6 +1145,7 @@ impl CoreHarness for RealCoreHarness {
                 Box::new(move || marks.next())
             });
             let (slot, crash) = Crashable::new(Box::new(layer));
+            let record = CoreRecord::default();
             self.handles.insert(
                 spec.handle.clone(),
                 Handle {
@@ -1153,11 +1154,10 @@ impl CoreHarness for RealCoreHarness {
                     resume,
                     crash,
                     wake,
+                    record: record.clone(),
                 },
             );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            let record = CoreRecord::default();
-            self.records.insert(spec.handle.clone(), record.clone());
             Box::new(RefusalLayer::new(Box::new(slot), script.clone(), record))
         } else {
             Box::new(botster_core::Core::open(config)?)
@@ -2401,6 +2401,11 @@ mod slow_controls {
             .is_socket());
         let held = Arc::downgrade(&tap);
         drop(tap);
+        // The first op, the `Create` of s1, completed: its completion is posted.
+        assert_eq!(
+            harness.control("a", "op_posted", &json!({"for_op": 1})),
+            Ok(json!({"posted": true}))
+        );
         assert_eq!(
             harness.control("a", "host_crash", &json!({})),
             Ok(Value::Null)
@@ -2408,6 +2413,11 @@ mod slow_controls {
         assert!(held.upgrade().is_none(), "the tap went with the Core");
         assert!(matches!(
             harness.control("a", "edges_quiet", &json!({})),
+            Err(ControlError::Bad(_))
+        ));
+        // R297-F1: the record of the crashed Core went with its handle.
+        assert!(matches!(
+            harness.control("a", "op_posted", &json!({"for_op": 1})),
             Err(ControlError::Bad(_))
         ));
         assert!(std::fs::symlink_metadata(&socket)
@@ -2871,10 +2881,16 @@ mod slow_tests {
         );
     }
 
-    /// After the driver drops a handle, the harness no longer names its data directory.
+    /// After the driver drops a handle, the harness no longer names its data directory, and `op_posted` no longer reads the
+    /// record of its Core (R297-F1): the record went with the handle.
     #[test]
     fn a_dropped_handle_is_no_longer_open() {
         let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        let (behind, _reached) = crate::refusal::tests::behind();
+        let diagnostics = behind.diagnostics_slot();
+        let record = CoreRecord::default();
+        let mut layer =
+            RefusalLayer::new(Box::new(behind), RefusalHandle::default(), record.clone());
         harness.handles.insert(
             "h".into(),
             Handle {
@@ -2883,14 +2899,28 @@ mod slow_tests {
                 resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
                 wake: OwnedFd::from(UnixStream::pair().unwrap().0),
+                record,
             },
         );
+        *diagnostics.lock().unwrap() = json!({"next_op": 2, "unposted_ops": []});
+        layer.pump(Now {
+            monotonic: std::time::Instant::now(),
+            unix: 0,
+        });
         assert_eq!(
             harness.data_dir_of("h"),
             Some(DataDirRef("/nonexistent/d/h".into()))
         );
+        assert_eq!(
+            harness.op_posted("h", &json!({"for_op": 1})),
+            Ok(json!({"posted": true}))
+        );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+        assert!(matches!(
+            harness.op_posted("h", &json!({"for_op": 1})),
+            Err(ControlError::Bad(_))
+        ));
     }
 
     /// A route of an open handle serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf); a route of a
@@ -2906,6 +2936,7 @@ mod slow_tests {
                 resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
                 wake: OwnedFd::from(UnixStream::pair().unwrap().0),
+                record: CoreRecord::default(),
             },
         );
         let session = SessionId("s1".into());
