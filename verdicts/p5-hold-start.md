@@ -187,4 +187,53 @@ The matching member delta reviews and Sol-B's combined review remain required be
 The completed exact-train-head gate and each member's final reviewer receipts remain required before merge.
 I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
 
+### Completed train gate — final #301 evidence receipt
+
+Completion request: `msg_plugin-w_1791783035_55fe8b`.
+This update keeps Round 2 and its exact train head `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The tree remains `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`; the base remains `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The source verdict at `78a42cd654105b23aa7362cd81689cd54679242b` remains unchanged.
+I read Sol's complete matching source section at `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`.
+I also read the current complete #301 body. It still describes the frozen member and its initial evidence.
+This section supplies the separate final train evidence receipt; it does not relabel the initial member gate as the train gate.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`.
+SHA256: `1e84c3eb42a01cf5bf59dd1cbf88f440a3d6788fd40f11ae8eae42a438842705`.
+I audit the completed log's exact identities, outcomes, counts, mutation records, citations, and final job records.
+The header names this exact head and base. The lists step confirms that the merge base equals the named base.
+All ten steps PASS in 520.5 seconds.
+The job and wrapper exit 0 after 850 seconds on msa1. Queue time is 232 seconds; run time is 618 seconds.
+Default: 1920 passes and 431 skips in 11.613 seconds. Slow: 617 passes and 2064 skips in 40.906 seconds.
+The gate preserves the public facade and produces the candidate worker manifest.
+
+All five new #301 hold tests PASS.
+Attach-state has normal PASS on the testkit in 0.355 seconds and the real tier in 0.141 seconds.
+The held-quiet test passes in 0.005 seconds. It retains the required false/true/false hold observations and release behavior.
+The complete strict summaries have 260 passes and zero failures, in 7.29 and 6.08 seconds.
+The strict check runs 320 of 337 pending identifiers, with seventeen real-only exclusions and four held identifiers.
+The list retains 407 pending identifiers, including seventy without transcripts. The ledger has 691 identifiers.
+The two train removals remain exactly those accepted in the source section above.
+Minimum counts are testkit-passing 67/69, real-passing 61/68, and real-accepted 62/69.
+
+Coverage checks 1080 slow-only tests and seven named real proofs.
+The three DP-2 proofs from #304 have normal PASS and are accepted by the gate's proof check.
+These results supply no broader #301 source or proof claim and do not replace #304's final reviewer receipts.
+I independently match all 35 passing ignored real identifiers to the unchanged 43-entry real-pending list.
+No additional removal follows from those ignored passes.
+Held-full runs three budget identifiers at 32 seeds and reports 96 ignored trials with zero failure.
+
+Mutation has 29 unique outcomes: 21 caught, eight unviable, zero missed, and zero timeout, in 105.2 seconds.
+I independently match all 21 raw catches to their citations. Every cited test has normal PASS in this same gate.
+The held-first test catches the hold predicate's false and comparison mutants.
+The held-quiet test catches the empty held-worker list, changed controls, and removal of the held-report filter.
+Stage 1 misses no mutant, so stage 2 does not run. The complete log has no FLAKY token.
+Fuzz reports no changed crate with a decoder harness. No new fuzz execution is claimed.
+
+Zero #301 source, body, or final evidence findings remain on this exact train head.
+The completed train gate closes this package's pending final evidence condition.
+This final #301 CLEAN names the train gate above. It accepts no later head, tree, or gate.
+The other member's final receipts, matching integration receipts, base/tree verification, and verified push remain the lead's merge conditions.
+The earlier local provenance and platform limits remain. R-97, identity-hold, and guardian-exit work remain separate.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
 VERDICT: CLEAN
