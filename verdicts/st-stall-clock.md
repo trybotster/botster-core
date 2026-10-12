@@ -1,6 +1,43 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (Core #313 at bf8af719)
+VERDICT: CLEAN (Core #298 at 5d5d4eef)
+
+## Core #298: train-2 merge delta, round 5
+
+Reviewed head: `5d5d4eefd5872864a972bc248f415f9cf6673ef3`.
+Previous source CLEAN: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Imported train-2 and gate base: `080987829a2e2245a7ea97606020400392c974d6`.
+Three-way base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+VERDICT: CLEAN. No source finding remains open. The reviewer ran no local build or test.
+
+The reviewer inspected merge `d1ff70d31b8f0fc71a2e5112c625a86740ee64bf` with `git show --remerge-diff`.
+The host DESIGN.md takes the imported KillPayload rule at stop grace and keeps the carried due-step rule and stall section.
+The driver test module list keeps both `seeded_trace` and `stall`.
+The follow-up replaces the imported `Work::Silent` name with `Work::DueStep` in `Driver::held`.
+`DueStep` includes both a due Silent event and a route stall step. Neither can wait for a scheduler hold under the deadline rules.
+The exemption also applies when the driver checks runnable work and its wake state, preserving TM-6.
+The imported scheduler filter still applies to other work. The merge does not change the reviewed host or worker stall source files.
+
+The reviewer independently checked all six conformance id sets against the three-way rule.
+The merged sets contain held 7, pending 400, real-only 26, real-pending 49, real-proofs 4 and deferred 2.
+Every set equals the union of both parents minus base ids removed by either parent.
+No id was lost or added by the resolutions.
+
+Completed gate: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-5d5d4eef-pool-20261012-083713-16979.log`.
+The header names this exact head and imported base. All ten steps pass; the wrapper reports exit 0 after 1238 seconds on msa1.
+Mutation result: 244 tested, 228 caught, 0 missed, 0 timeout and 16 unviable. Three catches came from stage 2.
+The held-full run covers six budget ids at 32 seeds, one trial per seed.
+The carried-step conformance ids and repaired stall-post and resume driver tests pass.
+
+Local log: `~/botster-sessions/gates/st-298-merge-local-5d5d4eef.log`.
+It names this head and records the target clean at `2026-10-12T15:25:41Z`.
+All 14 steps exit 0. The selected packages pass 1104 tests with one skipped; strict conformance passes 595/595 at seeds 0-31.
+The earlier focused Mac evidence and its stated limitations remain recorded for the unchanged stall transport paths.
+The merge-specific change is host scheduler logic; the imported train's other changes belong to its base review.
+
+The reviewer verified the updated PR body at this exact head.
+It names both resolutions, the semantic follow-up, the imported base and the completed gate.
+This is the same-head package delta receipt. The lead controls the next train and any later base update.
 
 ## Core #313: completed source receipt
 

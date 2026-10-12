@@ -135,6 +135,12 @@ The lead controls the merge slot and any later base update. Wait for the next do
 #313 body follow-up: B313-I1 is closed at unchanged `bf8af719`.
 The reviewer verified the required-field and optional-field distinction. The package CLEAN remains unchanged.
 
+#298 train-2 merge delta: CLEAN at `5d5d4eefd5872864a972bc248f415f9cf6673ef3`.
+Imported train-2 and gate base: `080987829a2e2245a7ea97606020400392c974d6`; three-way base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The reviewer verified both text resolutions and the DueStep scheduler-hold exemption. All six conformance id sets match.
+The exact-head Linux gate passes all ten steps, exit 0 after 1238 seconds on msa1. The PR body records the same head and gate.
+No source finding remains open. The lead controls the next train and any later base update. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
