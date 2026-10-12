@@ -343,3 +343,13 @@ No reviewer build, test, gate, mutation, reversal, reproduction, measurement, or
 Wait for the decision or correction doorbell. Never poll.
 
 VERDICT: NOT CLEAN (1 open).
+
+### Lead decision after publication: import approved; finding remains open
+
+Lead receipt: `msg_plugin-w_1791837657_ac3742`.
+The lead approves option b: PC imports current v1 once now and adds `built_in_test!()` in the same step.
+The lead states that the train model has no SLOT. This replaces the SLOT timing assumed in this round's next step.
+The lead reports that train 7b landed and names current v1 `007efbde6a59af403d0937c38361c137a8961a48` for the import.
+PC must supply the resulting exact head before FINAL-READY. Sol and 0179 must review the complete applicable delta.
+The decision resolves import timing. It supplies no corrected source or execution evidence and does not close R319-SI-3 / CQ-RFT-5.
+VERDICT: NOT CLEAN (1 open).
