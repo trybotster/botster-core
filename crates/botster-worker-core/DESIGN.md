@@ -376,7 +376,7 @@ Rejected:
 - `botster-core-link`: `HostMsg::AttachRoute` gets `limits: AppliedRouteLimits` (PR1, the correction above), and
   `route::terminal_format`, which names a snapshot format on the wire as `{name lowercase}/{version}+raw`.
 
-## ReadFacts (ST-7; P5; steward rulings R-101, R-102, R-103)
+## ReadFacts (ST-7; P5; steward rulings R-101, R-102, R-103, R-105)
 
 - **The log** (`worker/facts.rs`, one per instance, made at the launch): the input records of client and host input in one
   order, the client tail, and the time of the last client input. Only the worker has them at one point of its ordering
@@ -386,14 +386,17 @@ Rejected:
   is `pending`, and its `pty_bytes` is null.
 - **What a client frame is** (`receipt.rs`, one function for each mapping, no catch-all):
   - one client input: `bytes`, `text`, a key, the mouse, focus, a query reply, and a paste's or a file's commit;
-  - not input (no `rev` step, no `Activity`, no record): a paste's or a file's begin, chunks and abort (R-102), and a frame
-    that does not parse, which closes the route `BadFrame` (R-103 (1));
+  - not input (no `rev` step, no `Activity`, no record, no `age_ms` reset): a paste's or a file's begin, chunks and abort
+    (R-102), a resize (R-105 Q4; it is still route activity for DP-6 `Latest`), and a frame that does not parse, which
+    closes the route `BadFrame` (R-103 (1));
   - the record keeps what was sent (R-103 (1)): a key's, the mouse's or focus's 5.1A fields, read from the frame's body
-    with the contract's types; a query reply as `kind: bytes` with the JSON of its `reply`; a frame of an unknown kind as
+    with the contract's types; a query reply as `kind: bytes` with the decoded bytes of an `encoded` reply, else the JSON of
+    its `reply` as received (R-105 Q2); a frame of an unknown kind as
     `kind: bytes` with its body as received. Text that is not UTF-8 is `kind: text` with no payload;
   - a refused input's record ends at once with its IN-2 reason, not the wire reason (R-101 Q2): `not_writable`, `not_ready`
     and `refused` are `Refused`; `too_large` is `PayloadTooLarge`; `unsupported{what}` is `Unsupported` with the variant of
-    its cause when one exists (the codec's `key`, an unknown named key, is `named_key`), else `Other` (R-103 (2)); a
+    its cause when one exists (the codec's `key`, an unknown named key, is `named_key`), else `Other` (R-103 (2), R-105
+    Q3); a
     refusal at the admission point keeps `SessionEnded` or `Stopping` apart.
 - **Completion is an appended status update** with a new cursor (`input.rs` `end_record`); the record is never edited. The
   state comes from the IN-2 outcome (`record_end`): `Partial` and `Failed` are `partial` with the exact PTY bytes, 0
@@ -402,8 +405,9 @@ Rejected:
   reports `Observation::ClientInputEnded{route}`, and the host raises the keyed `Activity{Client(route)}` edge again (EV-6).
 - **Inputs that never start:** a host write that the adoption fence drops ends `not_written{refused}` with 0 PTY bytes:
   the fence refuses the old epoch's commands (DP-8), and no cancel was issued (R-103 (3)). A client
-  input that waits in a closing route's `received` queue is discarded and ends `cancelled` with 0 PTY bytes. An input at
-  the admission point ends at its turn, as before.
+  input that waits in a closing route's `received` queue is discarded and ends `not_written` with 0 PTY bytes, never
+  `cancelled` (R-105 Q1): its IN-2 reason (`SessionEnded` or `Stopping`) when the session's end closed the route, else
+  `refused` (`receipt.rs` `discarded`). An input at the admission point ends at its turn, as before.
 - **The cursor** is `ordinal << 29 | seq` (R-101 follow-up): the 24-bit ordinal of `LaunchSpec.cursor_ordinal` (the host's
   durable counter of the data directory) and the sequence number of the entry. An adoption keeps both, so a cursor read
   before it reads incrementally after it. A cursor of another ordinal is a `gap`. Each record that has not ended keeps one
