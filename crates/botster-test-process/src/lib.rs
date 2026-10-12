@@ -17,6 +17,7 @@
 
 pub mod alone;
 pub mod anchor;
+pub mod built_in;
 mod child;
 mod deadline;
 mod fixture;
@@ -38,4 +39,15 @@ pub(crate) fn fail(report: String) {
     } else {
         panic!("{report}");
     }
+}
+
+/// The compile-time manifest directory of this crate, for the build-root check of the test binaries (bug catalog B13,
+/// `built_in`).
+#[doc(hidden)]
+pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");
+
+#[cfg(test)]
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
 }
