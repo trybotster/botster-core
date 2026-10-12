@@ -63,7 +63,7 @@ impl RouteInstances {
 /// a 4-byte big-endian length and that many bytes, and the testkit knows its own boundaries. A raw write (`route_send_raw`)
 /// counts as whatever its length prefixes say; the order lint gives no fence after one.
 #[derive(Debug, Default)]
-pub(crate) struct FrameEnds {
+pub struct FrameEnds {
     /// The bytes seen so far.
     seen: u64,
     /// The bytes of the length prefix of the frame in progress, while it is incomplete.
@@ -80,7 +80,7 @@ const FRAME_PREFIX: usize = 4;
 impl FrameEnds {
     /// The client handed `bytes` to the stream, after every byte before. The walk takes one byte per step, and each step
     /// moves `seen` by one, so it ends after `bytes.len()` steps whatever a length prefix says.
-    pub(crate) fn push(&mut self, bytes: &[u8]) {
+    pub fn push(&mut self, bytes: &[u8]) {
         for &byte in bytes {
             self.seen += 1;
             match self.body_end {
@@ -106,8 +106,13 @@ impl FrameEnds {
         }
     }
 
+    /// The stream offset just after each complete frame, in order.
+    pub fn ends(&self) -> &[u64] {
+        &self.ends
+    }
+
     /// The complete frames whose last byte is within the first `taken` bytes of the stream.
-    pub(crate) fn taken(&self, taken: u64) -> usize {
+    pub fn taken(&self, taken: u64) -> usize {
         self.ends.partition_point(|&end| end <= taken)
     }
 }

@@ -37,6 +37,8 @@ pub mod route_reports;
 pub mod scheduler;
 pub mod sim;
 pub mod snapshot_controls;
+#[doc(hidden)]
+pub mod sock_diag;
 pub mod stand_in;
 pub mod start_controls;
 pub mod statement_runs;
