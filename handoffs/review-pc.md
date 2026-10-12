@@ -2218,3 +2218,10 @@ The reviewer independently confirms that the old head lacks the built_in_test ma
 The fix needs the newer dependency API. Sol has asked the lead to decide early import versus final-slot timing.
 That decision and completed corrected-head evidence remain due. No early import or provisional CLEAN is approved here.
 Wait for the lead decision or correction doorbell. No reviewer execution job runs. Never poll.
+
+Sol relay msg_plugin-w_1791837724_855543 supplies lead decision msg_plugin-w_1791837657_ac3742.
+The lead permits PC to import current v1 once and add the root macro in the same step, before FINAL-READY.
+The relay names landed base 007efbde6a59af403d0937c38361c137a8961a48.
+The lead states that the train model has no final slot. The earlier slot-timing condition for #319 is superseded.
+Both reviewers must inspect the resulting exact delta. CQ-RFT-5 stays open until the corrected head and applicable evidence arrive.
+Wait for the completed correction doorbell. No reviewer execution job runs. Never poll.

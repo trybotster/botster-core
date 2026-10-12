@@ -353,3 +353,10 @@ The marker fix therefore needs the newer dependency API before it can compile.
 Sol has asked the lead to decide whether PC can import that base before the final slot.
 This receipt records that pending decision; it approves no early import or provisional CLEAN.
 Wait for the lead decision or completed correction doorbell. Never poll. No reviewer execution job runs.
+
+Sol relay `msg_plugin-w_1791837724_855543` supplies lead decision `msg_plugin-w_1791837657_ac3742`.
+The lead permits PC to import current `v1` once and add the existing root macro in the same step, before FINAL-READY.
+The relay names current landed base `007efbde6a59af403d0937c38361c137a8961a48`.
+The lead states that the train model has no final slot. This replaces the earlier slot-timing condition for this work.
+Both reviewers must inspect the resulting exact delta. The corrected head and applicable evidence remain due.
+CQ-RFT-5 stays open. No new head or execution result is accepted by this decision receipt.
