@@ -431,7 +431,10 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   `RouteStalled{route, mark}` arms the close step at the pump that posts its event plus `stall_close_after`, with the
   worker's mark; `RouteResumed` disarms it at the pump that consumes it. No report arms nothing: an older worker never
   sends `RouteProgress`, so its routes have no stall clock.
-- **The clock at the post (0181's ST298-R5).** A `RouteStalled` whose event waits behind older parked route events
+- **The clock at the post (0181's ST298-R5; lead decision 2026-10-12, steward: no objection).** The rule is "add at
+  post, remove at consume". A clock change that adds a deadline applies at the pump that posts its event: otherwise the
+  deadline can run before the event. A clock change that only removes a deadline applies at the pump that consumes the
+  report: it cannot put a step before an event, and a step after a known resume is wrong. A `RouteStalled` whose event waits behind older parked route events
   (EV-6) has no close step yet: the parked event (`ParkedRoute::Stalled`) keeps the worker's mark, and the close step arms
   only when the event posts (`route_stall_posted`). So `next_deadline()` never shows a close step before the host has
   `RouteStalled`, and a late poll never lets `RouteCloseDue` go first (R-90 Q1 condition 1). A resume or close of the
