@@ -2853,3 +2853,35 @@ The earlier source, bootstrap, compilation-count, Mac, and disk evidence retains
 The live body still records the earlier reviewed heads and results. The completed exact-head final gate and final body remain due.
 
 Sol-B must publish its same-head delta verdict. I read no running gate output and ran no execution job.
+
+### Core PR #293: completed final evidence
+
+VERDICT: CLEAN at `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`, base `e4f495040a80b524a7ac9accba95272d5c2594fa`. Open retained findings: 0.
+
+I read the final gate identity, completed summaries, mutation records, and exits. Its lists check names the exact base and the same merge base.
+
+All ten steps pass in 783.9 seconds. The job and outer wrapper exit zero after 879 seconds, with no queue time.
+
+The default tier passes 1911 tests. The slow tier passes 613 tests. Prebuild writes all three candidate binaries.
+
+The imported held-full run reports two budget ids at 32 seeds. The B13 root check runs before this dispatch, as verified in the source delta.
+
+Mutation testing reports 15 mutants: 13 caught, zero missed, zero timed out, and two unviable. Stage 2 has no remaining mutant.
+
+I matched all thirteen unique raw catches to all thirteen citations. Every cited test has a normal PASS before mutation.
+
+The two unviable mutants provide no catch. The complete log contains no FLAKY token.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-029a740b-pool-20261011-202653-13678.log`.
+
+I read the complete final body. It records the exact final head and base, the canonical failure and delta reviews, the completed gate, and the retained scope.
+
+The prior failed gates and the in_8 disposition retain their earlier-head scope. The coverage guarantee remains assigned to the separate design item.
+
+Sol-B publishes source delta CLEAN in `6a9b93c0ba29a4be54e1241986d7ecefe4918ec8`, at `verdicts/stage1/gs-b13-built-in.md`, round 4.
+
+I read the complete round. It agrees with the package source review on the overlapping paths, retained B13 code, transferred coverage finding, and owned flake disposition.
+
+GitHub confirms the unchanged head and base. The PR is open at this read. Sol-B's final evidence receipt and the lead's merge remain pending.
+
+This completes the package review of final source, evidence, and body. It accepts no later head or merge tree. I ran no execution job.
