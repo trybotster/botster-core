@@ -59,7 +59,6 @@ crates/botster-core-sys/tests/slow_payload.rs | payload_waiting_for_input | comm
 crates/botster-core-sys/tests/slow_payload.rs | wait | child-wait
 
 # Process slow tests. PR C migrates them to botster-test-process (owner P5, core-sys storage and process).
-crates/botster-core-sys/tests/slow_process.rs | the_worker_control_signal_reaches_the_worker_handler | command-wait
 crates/botster-core-sys/tests/slow_process.rs | WAITING_CHILD | shell-loop
 
 # The reaper body's own test (R-55 (1) condition 2, item 4; #257): `reap` takes a std `Child` and reaps it itself, so the
