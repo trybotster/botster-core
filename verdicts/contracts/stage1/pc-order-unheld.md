@@ -96,3 +96,29 @@ Every finding of mine (F1, F2) is closed. CLEAN on `7c02f4ef40a0307267a87903073b
 **The final head.** Main is `a874c62ef6f74c2caec50503fe02cbc31283e63f`. It took #88 (`crates/botster-core-conformance/src/driver.rs`, code) after this head's base `b47533be`, so this is not a rulings-only move. BUILD.md says: "In botster-contracts, a PR's gate and verdicts are on the exact head that `main` fast-forwards to". So the merge needs one of these:
 - a merge of `a874c62e` into this branch, with the Q7 script output and ONE gate on that exact head. The paths are disjoint (#88: `driver.rs` only; #87: `fence_lint*` and `core-fence-exceptions.txt`), so under Q7 I confirm that head with no delta round;
 - or the steward's merge train.
+
+016c's round 2 (REJECT on `7c02f4ef`): F3 (`expect_quiet_until`) and F4 (pairs allocated before the bound) were still open. 016c's scope.
+
+## Round 3: CLEAN on 7a43316aa1681e3a52932205d65f1d65e5edb449
+
+The delta from `7c02f4ef`:
+- `9daef8ef`: 016c's F3 and F4, in `fence_lint/unheld.rs`. This is 016c's scope.
+- `284e4876`: a merge of main `a874c62e` (#88).
+- `7a43316a`: a merge of main `0b0f611b` (#89 and rulings).
+
+Main is `0b0f611b38a965b23a53cd77c923bc2f94f7584a`, the gate base.
+
+- **The merge of #88 (Q7, disjoint).** The tree `a2ff7a9e…` equals `git merge-tree --write-tree 9daef8ef a874c62e`. #88 changes only `driver.rs`, and #87 does not touch it.
+- **The merge of #89 (a shared list file).** `git merge-tree 284e4876 0b0f611b` has one conflict, in `core-fence-exceptions.txt`, and the head's tree differs from merge-tree only in that file. The three-way entry set against base `a874c62e`:
+  - #87 adds 2 entries;
+  - main removes 27 and adds 4;
+  - the head holds exactly that union, except that am_2_one's debt line moves from step 14 to step 15 and its fence text moves from "between s9 and s10" to "between s10 and s11".
+  - That move is correct. #89 inserts `program_ready` at s9, so at this head s10 is r1's `route_send` A, s11 is the host write B, and s15 is the `route_expect_pty`.
+  - The file's header is #87's (nine reasons). Main did not change the header.
+- **#89's transcript changes** (21 fenced ids, including am_2_one and in_10) are linted by #87's rule in the gate. The count is still 2.
+- **Red on revert** (`red-on-revert-284e4876.log`, with a recorded clean): the baseline passes 99 of 99, and 19 of 19 parts fail.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 199 s on linux, base main `0b0f611b`: `~/botster-sessions/gates/botster-contracts-stage1-pc-order-unheld-7a43316a-pool-20261012-000241-69112.log`.
+
+**A note for the steward (not a finding of #87).** Main `0b0f611b` rules R-93 (a) again: "R-93's order lint treats `route_frames_taken` as a fence only when items 1 and 2 hold". Those are no `route_gate` or `route_accept` limit, and no lowered `route_queue_bytes`. It asks for three self-tests and a controls-doc row. At this head, `order.rs` and `unheld.rs` still accept `route_frames_taken` with no premise check. But no transcript uses the control (`git grep` finds it only in the exception line's note), and the controls doc has no `route_frames_taken` row yet. So no result changes today. The ruling names no owner for the lint part. I read it as part of the PR that adds the control and its row, before any transcript uses the fence.
+
+Every finding of mine is closed. CLEAN on `7a43316aa1681e3a52932205d65f1d65e5edb449`.
