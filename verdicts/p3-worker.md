@@ -13576,3 +13576,116 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 190 — #311 Resize and DP-6 Latest, 2026-10-11
+
+Exact submitted head: `28bd24161430f48e69bc00c275b258e9d9372a99`.
+Source merge base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Supplied gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, not imported.
+PR A stack: `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`, #302.
+Risk: HIGH under BUILD rules 2, 3, and 5: PTY behavior, shared testkit changes, and process/PTY paths.
+Owner READY: `msg_plugin-w_1791785321_535fb6`.
+Integration reviewer: Sol-C, sess-1791781343-0185-0b0f5f6ddc65cfcfbf7326db792a6d82, as the lead handoff assigns.
+This is the first package NOT CLEAN round on #311.
+
+### Source and import review
+
+The reviewer reads all fifteen changed paths against the source base, including the carried PR A input guards and proofs.
+PR B adds ResizePty, the host Resize path, the Latest policy, modes coalescing, and both oracle-layer size-change records.
+The model remains the sole terminal implementation. Host and policy sizes use one set_size path.
+Latest uses the last size of the open route with the last received activity; routes without a size are skipped.
+Healthy close and route end reevaluate the policy. With no candidate route, the session keeps its size.
+A new route size report can supersede a host Resize even when it repeats the last computed policy size.
+The modes queue keeps a started frame and replaces only an unstarted frame, by codec type byte.
+Host Resize coalescing remains outside the approved PR B scope. Resize has no route answer frame.
+
+The reviewer checks the import parents of aee7c1dc5be5575a1a7e7946d7fd01decfbb3072.
+They are 8bbb2d3b37786c1459ae000cdac49fa4785cc313 and the exact ae49bbec source base above.
+A read-only three-way identifier comparison matches both resolved pending lists with no duplicate.
+It preserves the base's removed identifiers and the branch's own removals.
+This is review of the existing import, not execution of a merge-check job or automatic Q7 carry.
+The PR still carries #302's four commits. Its separate final import and merge remain unaccepted here.
+
+**F145 MEDIUM — a failed spawn drops queued Resize requests. OPEN at this head.**
+on_resize stores (req, size) in early.resizes while the payload is Spawning.
+on_spawned takes Early, but only its success branch replays those requests through on_resize.
+Its failure branch drops them with no Done. An admitted request can therefore remain unanswered.
+The new no-PTY test sends Resize after failure, so it does not cover a queued Resize before failure.
+Required change: complete each queued request on spawn failure with the applicable SessionEnded result.
+Add behavior proof for two distinct queued requests, LaunchFailed first, exactly one Done per request, and no ResizePty.
+Finding receipts: P3 `msg_plugin-w_1791785499_2e53c3`; Sol-C `msg_plugin-w_1791785499_636433`.
+
+**F146 MEDIUM — the real resize test has an unbounded FIFO open/write. OPEN at this head.**
+sz_1_resize_sets_the_real_pty_size uses std::fs::write on the go FIFO.
+Its open/write can block forever if the payload exits or fails before it opens the FIFO for reading.
+The bounded second output read cannot bound this earlier operation.
+Required change: use a bounded event or pipe mechanism for the release and both size reads.
+Preserve process ownership and bounded cleanup when the reader is absent or the payload ends.
+BUILD testing rules 5 and 10 and the guard rulings apply to every test path, not only the passing path.
+The supplied passing real-worker test does not close an unbounded-wait finding.
+Finding receipts: P3 `msg_plugin-w_1791785499_2e53c3`; Sol-C `msg_plugin-w_1791785499_636433`.
+
+**F147 HIGH — queued old-host Resize requests survive the adoption fence. OPEN at this head.**
+Worker::adopt replaces the link and its request namespace, then calls input_fence to retire old host writes.
+It does not retire early.resizes. A later on_spawned replays each old resize and emits Done through the new link.
+A new host can reuse the same request number and receive the old operation's completion.
+DESIGN 3.4 retires old-host requests. AM-3 requires the completion to remain with its own operation.
+Required change: retire queued old-host resize requests at the adoption fence.
+Add behavior proof that queues Resize during Spawning, adopts, and reuses the request number on the new host.
+Cover spawn success and failure. Only the new host's Done can arrive, exactly once.
+The queued-failure fix for F145 must obey the same fence.
+Finding receipts: P3 `msg_plugin-w_1791785730_fa5852`; Sol-C `msg_plugin-w_1791785730_3c4517`.
+
+**F148 HIGH — PTY resize errors have no result path. OPEN; lead ruling or repair required.**
+
+Both ResizePty driver arms discard the program/PTY resize result.
+set_size updates the model and emits SizeChanged and Applied without a PTY result input.
+SZ-1 sets and resizes the PTY; SZ-3 reports the applied size after resize.
+The source comment comparing ResizePty with SignalPayload does not supply a ruling for a failed ioctl.
+Sol-C reports no approved anchor and a QUESTION to the lead in `msg_plugin-w_1791785722_177796`.
+That boundary must be settled before CLEAN. This round does not invent the error result or a contract exception.
+This finding matches integration R311-I1 in 605a6d25737f2d2e6268c6510f1d58cf19f899d1.
+Sol-C names the lead QUESTION receipt msg_plugin-w_1791785722_c15043.
+Closure requires a binding anchor that permits this behavior, or a PTY result path with failure handling and a boundary regression.
+
+### Supplied evidence
+
+The complete initial body is saved in /private/tmp/review-p3-pr311-28bd2416.json.
+The body correctly separates the source merge base, gate base, carried #302, and historical evidence heads.
+The Mac scripts clean targets/p3 before worktree switches and set BOTSTER_SEEDS=0-31 for strict identifier trials.
+The before run uses 78d7057f and the .41 tree; the after runs use 54152468/.41 and 424bab51/.43.
+The supplied results support nine own complete removals and three own moves to real-pending.
+The three moved real trials pass, but their unfenced steps remain recorded; those passes do not prove real acceptance.
+sz_3_coalesced remains testkit FAIL and real INCONCLUSIVE. dp_6_tie has no transcript in the pin and remains pending.
+The historical red/green log covers four route tests and two oracle-layer tests. It also retains its strict/process-check failures.
+The final local log names this head and a clean exit zero: 1298 nextest passes, strict 275/0, and 42 real-worker slow tests pass.
+Its checks, fmt, and clippy exit zero. These outcomes do not exercise or close F145/F146/F147.
+The seven manual mutants fail tests, and restoration passes 212 tests. The focused pool run reports 52 caught, two unviable, zero missed.
+Those focused records remain supporting evidence; the complete gate supplies the landing mutation result at this head.
+
+Gate: gates/botster-core-stage1-p3-resize-latest-28bd2416-pool-20261011-230219-11145.log.
+SHA256: 066ed1e42f438e1a0dce478a2b71239ada5263c72b6b7ebbe40d4be5e245d259.
+The headers name the exact submitted head and gate base above. All ten steps PASS.
+Default: 1951 passed, 416 skipped, 12.659 seconds. Slow: 630 passed, 2050 skipped, 41.911 seconds.
+Stage 1: 67 outcomes, 63 caught, one missed, three unviable, zero timeout, 85.4 seconds.
+The unmutated slow baseline passes 630 tests in 40.843 seconds; its full step takes 52.4 seconds.
+Stage 2 catches the sole missed Payload::resize replacement through slow_driver::sz_1_resize_sets_the_real_pty_size.
+Stage 2 takes 29.1 seconds. Final: 64 caught, three unviable, zero missed or timeout. No FLAKY record appears.
+All raw caught identities match the 64 named citations, and every catcher has normal PASS.
+Fuzz selects no changed decoder harness. Total step time is 328.7 seconds.
+Jobq exits zero after 340 seconds on msa1; the wrapper exits zero after 341 seconds. Queue/run times are 1/339 seconds.
+Minimum: testkit 66/69; real 59/68 passing, 60/69 accepted, at this head's list scope.
+The green gate does not close source defects or unbounded waits and does not carry to a later head.
+
+### Disposition
+
+F145 and F146 remain MEDIUM OPEN. F147 and F148 remain HIGH OPEN. F148 retains the lead question.
+P3 reports later repairs c31c96737578efa01d7714002f4ca01ce0d6c35a and fd84949c27b2613fa3dbdcc4db4729152c1dd2c2.
+Those reports are not closure at this submitted head. Their source, evidence, and applicable gate need the next exact-head review.
+No future head, import, gate, merge, pin, additional pending removal, or host coalescing implementation is accepted.
+F39 and F61/F62 retain separate scopes. All earlier verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: NOT CLEAN
