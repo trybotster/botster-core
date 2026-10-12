@@ -709,30 +709,37 @@ impl Worker {
                 Ok(Some(frame)) => (ToWorker::decode(&frame, &bounds), frame),
                 Err(error) => (Err(error), Default::default()),
             };
+            let decoded = match decoded {
+                Ok(decoded) => decoded,
+                // A frame that cannot be decoded is no input: it ends the receipt, and the route closes `bad_frame`.
+                Err(error) => {
+                    route
+                        .received
+                        .push_back(Received::Bad(RouteCloseReason::BadFrame {
+                            code: error.code,
+                        }));
+                    return;
+                }
+            };
             let receipt = match &decoded {
-                Ok(Decoded::Frame(frame)) => receipt::of_frame(frame, &raw),
-                Ok(Decoded::Unsupported { .. } | Decoded::Invalid { .. }) => receipt::of_raw(&raw),
-                Ok(Decoded::Ignored { .. }) | Err(_) => Receipt::Part,
+                Decoded::Frame(frame) => receipt::of_frame(frame, &raw),
+                Decoded::Unsupported { .. } | Decoded::Invalid { .. } => receipt::of_raw(&raw),
+                Decoded::Ignored { .. } => Receipt::Part,
             };
             let received = match decoded {
-                Ok(Decoded::Frame(frame)) => route.decide(frame),
-                Ok(Decoded::Ignored { .. }) => continue,
+                Decoded::Frame(frame) => route.decide(frame),
+                Decoded::Ignored { .. } => continue,
                 // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
-                Ok(Decoded::Unsupported { op, what }) => {
+                Decoded::Unsupported { op, what } => {
                     Some(Received::Refused(op, RefusalReason::Unsupported { what }))
                 }
                 // Steward ruling R-75: a parseable frame that breaks a field rule of Core 5.1A, and is not over a size bound
                 // or of an unknown kind or value, is refused `refused`, with zero effect. The codec's field rules
                 // (`Input::check`) are of that class.
-                Ok(Decoded::Invalid { op, .. }) => {
-                    Some(Received::Refused(op, RefusalReason::Refused))
-                }
-                Err(error) => Some(Received::Bad(RouteCloseReason::BadFrame {
-                    code: error.code,
-                })),
+                Decoded::Invalid { op, .. } => Some(Received::Refused(op, RefusalReason::Refused)),
             };
             let received = match (receipt, received) {
-                (Receipt::Input(kept), Some(received)) if !matches!(received, Received::Bad(_)) => {
+                (Receipt::Input(kept), Some(received)) => {
                     self.client_input(now, id, &kept, received)
                 }
                 (_, received) => received,

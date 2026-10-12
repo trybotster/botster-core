@@ -760,8 +760,7 @@ fn record_end(outcome: WriteOutcome, pty_bytes: u64) -> (InputRecordState, Optio
         }
         WriteOutcome::Cancelled => (InputRecordState::Cancelled, Some(pty_bytes)),
         WriteOutcome::NotWritten(reason) => (InputRecordState::NotWritten { reason }, Some(0)),
-        WriteOutcome::Unknown { .. } => (InputRecordState::Unknown, None),
-        // A later outcome of the non-exhaustive enum: this worker cannot tell its count, so it claims none.
+        // `Unknown`, and a later outcome of the non-exhaustive enum: this worker cannot tell the count, so it claims none.
         _ => (InputRecordState::Unknown, None),
     }
 }

@@ -1133,13 +1133,14 @@ impl WorkerEdges {
     /// Reads the frames of a `LinkSend` as the link carries them, and keeps the JSON size of the `input_records` list of each
     /// `ReadFacts` answer (`input_records_cost`). It changes nothing that the link carries and adds no wait.
     fn measure_sent(&mut self, bytes: &[u8]) {
-        let mut at = 0;
-        while at < bytes.len() {
-            let took = self.sent.push(&bytes[at..]);
-            at += took;
-            let mut framed = false;
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let took = self.sent.push(rest);
+            // The decoder takes bytes up to the end of a frame, and each complete frame is taken below; after a refusal it
+            // takes everything. So every push takes a byte, and the loop ends.
+            assert_ne!(took, 0, "the frame decoder took no byte of a LinkSend");
+            rest = &rest[took..];
             while let Ok(Some(frame)) = self.sent.next_frame() {
-                framed = true;
                 if frame.kind != FrameType::WORKER_MSG {
                     continue;
                 }
@@ -1152,9 +1153,6 @@ impl WorkerEdges {
                         .map_or(0, |v| v.len() as u64);
                     lock(&self.cell).records_cost = Some(cost);
                 }
-            }
-            if took == 0 && !framed {
-                return;
             }
         }
     }

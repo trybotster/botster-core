@@ -35,6 +35,9 @@ const MAX_ORDINAL: u64 = botster_core_link::msg::MAX_CURSOR_ORDINAL;
 /// The largest sequence number.
 const MAX_SEQ: u64 = (1 << SEQ_BITS) - 1;
 const _: () = assert!(ORDINAL_BITS + SEQ_BITS <= 53);
+/// The largest cursor: the largest ordinal and the largest sequence number, 2^53 - 1. It is a literal: its JSON length is
+/// what counts, and every arithmetic form of a 16-digit number has the same length (a unit test ties it to the bits).
+const LARGEST_CURSOR: u64 = 9_007_199_254_740_991;
 
 /// What a record keeps of its input.
 #[derive(Debug, Clone, Copy)]
@@ -141,7 +144,7 @@ impl Facts {
     }
 
     fn cursor(&self, seq: u64) -> InputCursor {
-        InputCursor(self.ordinal << SEQ_BITS | seq)
+        InputCursor((self.ordinal << SEQ_BITS) + seq)
     }
 
     fn next_seq(&mut self) -> u64 {
@@ -289,24 +292,18 @@ impl Facts {
             return InputRecordEntry::Record(record);
         }
         let content = record.payload.as_ref().map_or(0, |p| p.0.len());
-        // The longest payload prefix that fits: a binary search over its length.
-        let (mut lo, mut hi) = (0usize, content);
         let cut = |n: usize| {
             let mut r = record.clone();
             r.payload = r.payload.map(|p| HexBytes(p.0[..n].to_vec()));
             r.payload_truncated = true;
             r
         };
-        if record.payload.is_some() && fits(&cut(0)) {
-            while lo < hi {
-                let mid = (lo + hi).div_ceil(2);
-                if fits(&cut(mid)) {
-                    lo = mid;
-                } else {
-                    hi = mid - 1;
-                }
-            }
-            return InputRecordEntry::Record(cut(lo));
+        // The longest payload prefix that fits. A payload is lowercase hex in the JSON, two characters for each byte, so the
+        // prefix is computed, with no search: the room left by the empty prefix, two characters a byte.
+        let empty = json_len(&InputRecordEntry::Record(cut(0)));
+        if record.payload.is_some() && empty <= room {
+            let n = usize::try_from((room - empty) / 2).map_or(content, |n| n.min(content));
+            return InputRecordEntry::Record(cut(n));
         }
         InputRecordEntry::Record(minimal(record))
     }
@@ -323,7 +320,7 @@ fn json_len(entry: &InputRecordEntry) -> u64 {
 
 /// The JSON length of the largest status update: both cursors at their largest, the longest state and the largest count.
 fn largest_status_update() -> u64 {
-    let cursor = InputCursor(MAX_ORDINAL << SEQ_BITS | MAX_SEQ);
+    let cursor = InputCursor(LARGEST_CURSOR);
     let states = [
         InputRecordState::NotWritten {
             reason: NotWrittenReason::ModePreconditionFailed,
@@ -440,13 +437,9 @@ fn record_of(
 /// The minimal form of a record (ST-7): its cursor, source, `at`, kind and state. It is `payload_truncated` only when
 /// something of the record was cut (steward ruling R-103).
 fn minimal(record: InputRecord) -> InputRecord {
-    let whole = InputRecord {
-        payload_truncated: false,
-        ..record.clone()
-    };
     let mut cut = InputRecord {
         cursor: record.cursor,
-        source: record.source,
+        source: record.source.clone(),
         at: record.at,
         kind: record.kind,
         event: None,
@@ -460,11 +453,12 @@ fn minimal(record: InputRecord) -> InputRecord {
         mouse: None,
         focus: None,
         payload: None,
-        payload_truncated: false,
+        payload_truncated: record.payload_truncated,
         state: record.state,
         pty_bytes: record.pty_bytes,
     };
-    cut.payload_truncated = record.payload_truncated || cut != whole;
+    // A record that was cut before keeps a payload, so the minimal form differs from it then too.
+    cut.payload_truncated = cut != record;
     cut
 }
 
