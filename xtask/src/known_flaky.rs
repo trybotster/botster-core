@@ -576,11 +576,11 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds exactly one entry: the in_8 real-tier race at transcript step 8 (Core
-    /// lead, 2026-10-12), which the contracts-v0.1.44 pin removes with its fix, contracts #79. (#243 removed the ev_5 entry
-    /// earlier. The Stage 1 exit needs the list empty.)
+    /// The repository's list parses, and it holds the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12), which #316
+    /// removes, and the in_8 real-tier race (Core lead, 2026-10-12), which the contracts-v0.1.44 pin removes. #243 removed
+    /// the ev_5 flake's cause and entry. The Stage 1 exit needs the list empty.
     #[test]
-    fn the_repository_list_parses_and_holds_the_listed_tests() {
+    fn the_repository_list_holds_only_the_ev_2_flake() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
@@ -589,14 +589,20 @@ removed_by = "#243"
             .iter()
             .map(|e| (e.binary.as_str(), e.test.as_str(), e.removed_by.as_str()))
             .collect();
-        // The in_8 real-tier race (Core lead, 2026-10-12); the contracts-v0.1.44 pin removes it.
         assert_eq!(
             names,
-            [(
-                "botster-core::slow_conformance",
-                "conf::in_8_mode_checked_at_write_start_by_worker",
-                "contracts-v0.1.44 pin"
-            )]
+            [
+                (
+                    "botster-core::slow_conformance",
+                    "conf::ev_2_mandatory_and_keyed_never_dropped",
+                    "#316"
+                ),
+                (
+                    "botster-core::slow_conformance",
+                    "conf::in_8_mode_checked_at_write_start_by_worker",
+                    "contracts-v0.1.44 pin"
+                )
+            ]
         );
     }
 }

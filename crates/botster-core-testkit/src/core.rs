@@ -10,6 +10,7 @@
 
 use crate::entropy::SeededEntropy;
 use crate::net::LinkEnd;
+use crate::op_holds::SharedHolds;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -55,6 +56,39 @@ pub struct Faults {
     pub fail_handoff: bool,
     /// The hand-over that the edge holds until `release_handoff` (`hold_handoff`, Core OU-9).
     pub handoff_hold: HandoffHold,
+    /// The worker instances whose control link takes no more control bytes (`control_queue`, Core IN-6): the link edge
+    /// reports no room for them.
+    pub control_full: std::collections::BTreeSet<InstanceId>,
+    /// The starts whose worker control link the edge holds from the host's accept until `release_start` (`hold_start`, Core
+    /// LC-4, A2-1; steward ruling R-71), by instance: `None` while the hold is armed, and the link once the worker connects.
+    pub start_holds: BTreeMap<InstanceId, Option<HeldLink>>,
+}
+
+impl Faults {
+    /// Whether a `hold_start` holds `link` from the host's accept.
+    fn holds_link(&self, link: LinkId) -> bool {
+        self.start_holds
+            .values()
+            .flatten()
+            .any(|held| held.link == link)
+    }
+
+    /// The workers whose control link a `hold_start` holds: their bytes wait for the release and are no report to the host
+    /// (`edges_quiet`), as on the real tier.
+    pub fn held_workers(&self) -> Vec<ProcessIdentity> {
+        self.start_holds
+            .values()
+            .flatten()
+            .filter_map(|held| held.worker)
+            .collect()
+    }
+}
+
+/// The control link that a `hold_start` holds, and the worker on its other end once its spawn has returned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HeldLink {
+    pub link: LinkId,
+    pub worker: Option<ProcessIdentity>,
 }
 
 /// The hold of a hand-over at the edge (`hold_handoff`, `release_handoff`). While a link holds one, every hand-over on that
@@ -156,9 +190,10 @@ pub trait Spawner: Send {
     fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
-/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
+/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream. The holds of
+/// `scheduler_hold` are the host's own (op ids are numbered per host), and they draw nothing.
 #[derive(Debug, Clone)]
-struct HandleScheduler(SchedulerHandle);
+struct HandleScheduler(SchedulerHandle, SharedHolds);
 
 impl Scheduler for HandleScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
@@ -167,6 +202,14 @@ impl Scheduler for HandleScheduler {
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         self.0.with(|s| s.bound(point, max))
+    }
+
+    fn held(&mut self, ops: &[u64]) -> bool {
+        crate::op_holds::lock(&self.1).holds_any(ops)
+    }
+
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        crate::op_holds::lock(&self.1).admitted(op, fixed_timing);
     }
 }
 
@@ -247,14 +290,27 @@ impl HostEdges for SimEdges {
         let (pending, next_link) = (&mut self.pending, &mut self.next_link);
         let link_capacity = self.link_capacity;
         assert!(link_capacity > 0, "a link needs a positive queue capacity");
+        let faults = &self.faults;
         let mut connect = || {
             let (host, worker) = crate::net::link_pair(link_capacity);
             let link = LinkId(*next_link);
             *next_link += 1;
+            // An armed `hold_start` holds this link from the accept: the worker connects and writes its hello, and the host
+            // accepts no link of it until the release.
+            if let Some(held @ None) = lock(faults).start_holds.get_mut(&spec.instance) {
+                *held = Some(HeldLink { link, worker: None });
+            }
             pending.push_back((link, host));
             worker
         };
-        spawner.spawn(spec, &mut connect)
+        let spawned = spawner.spawn(spec, &mut connect);
+        if let (Ok(identity), Some(Some(held))) = (
+            &spawned,
+            lock(&self.faults).start_holds.get_mut(&spec.instance),
+        ) {
+            held.worker.get_or_insert(*identity);
+        }
+        spawned
     }
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
@@ -273,8 +329,15 @@ impl HostEdges for SimEdges {
         self.spawner.as_mut().and_then(|s| s.poll_exit())
     }
 
+    /// The first pending link that no `hold_start` holds: the links that are not held keep their order.
     fn accept_link(&mut self) -> Option<LinkId> {
-        let (link, end) = self.pending.pop_front()?;
+        let at = {
+            let faults = lock(&self.faults);
+            self.pending
+                .iter()
+                .position(|(link, _)| !faults.holds_link(*link))?
+        };
+        let (link, end) = self.pending.remove(at)?;
         self.links.insert(link, end);
         Some(link)
     }
@@ -314,6 +377,19 @@ impl HostEdges for SimEdges {
         match self.links.get_mut(&link) {
             Some(end) => end.send(bytes),
             None => Err(io::ErrorKind::BrokenPipe.into()),
+        }
+    }
+
+    /// `control_queue` (Core IN-6): no room on the link of a held instance; else the driver's own bound decides.
+    fn link_room(&self, link: LinkId) -> usize {
+        let reports = lock(&self.reports);
+        let full = reports
+            .instance_of(link)
+            .is_some_and(|instance| lock(&self.faults).control_full.contains(instance));
+        if full {
+            0
+        } else {
+            usize::MAX
         }
     }
 
@@ -431,6 +507,8 @@ pub struct Opened {
     pub reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The testkit's `Core` also signals it for its in-process workers.
     pub wake: Arc<dyn HostWake>,
+    /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted.
+    pub holds: SharedHolds,
 }
 
 /// A reader of one stored row, held apart from the harness: it reads the row as the storage edge holds it now.
@@ -518,12 +596,13 @@ impl Directories {
         };
         let faults = Arc::new(Mutex::new(Faults::default()));
         let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
+        let holds = SharedHolds::default();
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
             wake: Arc::new(SimHostWake::new(scheduler.clone())),
-            scheduler: HandleScheduler(scheduler),
+            scheduler: HandleScheduler(scheduler, Arc::clone(&holds)),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),
@@ -550,6 +629,7 @@ impl Directories {
             faults,
             reports,
             wake,
+            holds,
         })
     }
 }

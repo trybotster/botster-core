@@ -61,9 +61,11 @@ conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
-conf::a2_1_attach_state_rules
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
+# conf::a2_1_no_deadline_code_exists: steward ruling R-97 (b): the testkit worker's own deadlines (AD-7 self-exit, worker-core
+# worker.rs:940/:921) run on the injected host clock, so the step 6 advance ends the held worker. Fails at seed 0 step 7.
+# Owner: P5, the R-97 fix PR after the hold_start PR.
 conf::a2_1_no_deadline_code_exists
 conf::a2_1_not_admitted_state_is_wrong_state_sync_for_every_row
 conf::a2_1_read_screen_history_flag_and_text
@@ -144,9 +146,7 @@ conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
 conf::a5_1_testkit_is_real_core_one_worker_code_path
-conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
-conf::a5_2_reads_match_atomic_transitions
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
 conf::a5_4_hub_tests_on_testkit_under_seeds
@@ -177,10 +177,15 @@ conf::a9_2_every_attached_route_can_carry_the_minimum_output_dropped_frame
 conf::a9_3_ineligible_payload_is_never_compressed
 conf::a9_3_scripted_compression_choice_is_the_workers_only_decision
 conf::ad_1_starting_with_identity_adopts
+# conf::ad_1_starting_without_identity_is_lost: fails at seed 0 step 6 on both tiers: `identity_recorded` is true, because
+# Core writes the identity at AD-7 step 3 right after the spawn, before the hello that `hold_start` holds. Open question
+# to the lead.
 conf::ad_1_starting_without_identity_is_lost
+# conf::ad_2_lost_reasons: the testkit has no `guardian_exit` (unsupported control).
 conf::ad_2_lost_reasons
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
+# conf::am_2_fairness_bound_across_routes: R-93, owner PC; the debt is the contracts core-fence-exceptions.txt line (contracts #79).
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
 conf::dp_10_t1_keystroke_to_pty_latency_budget
@@ -199,7 +204,6 @@ conf::dp_12_no_route_ever_is_authoritatively_false
 conf::dp_12_terminal_state_focused_matches_the_event
 conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown
 conf::dp_1_host_process_never_sees_route_bytes
-conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte
 conf::dp_3_history_is_paged_within_max_history_page_bytes
 conf::dp_3_output_deflate_frames_share_no_state
@@ -310,10 +314,10 @@ conf::ev_8_shadow_cannot_answer_and_client_silent_means_no_reply
 conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
+# conf::ev_9_every_session_event_carries_instance_id: Core serves control_queue, and the id fails at step 28: steward ruling R-96, the transcript
+# lists one Activity where Core correctly posts two (Output, and Client of r1). Owner PC: the contracts transcript PR; then core-real-pending (R-57, s81).
 conf::ev_9_every_session_event_carries_instance_id
 conf::in_1_host_write_and_route_frames_share_payload_kinds
-conf::in_6_cancel_result_kinds
-conf::in_6_refused_full_wakes_on_room
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag

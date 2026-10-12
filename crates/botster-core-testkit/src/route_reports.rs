@@ -120,6 +120,11 @@ impl RouteReports {
         }
     }
 
+    /// The instance that the hello of `link` names, once the driver received it (`control_queue`).
+    pub fn instance_of(&self, link: LinkId) -> Option<&InstanceId> {
+        self.links.get(&link)?.instance.as_ref()
+    }
+
     /// The driver received `bytes` on `link` from that call.
     pub fn received(&mut self, link: LinkId, bytes: &[u8]) {
         if bytes.is_empty() {

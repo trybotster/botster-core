@@ -67,6 +67,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 struct ProcessCell {
     /// The worker-control signal (`GroupSignal::EndPayload`) was delivered and the worker has not taken it yet.
     end_payload: bool,
+    /// The worker-control signal (`GroupSignal::KillPayload`) was delivered and the worker has not taken it yet.
+    kill_payload: bool,
     /// `SIGTERM` was delivered and the worker has not taken it yet (the worker's handler ends its payload, then itself).
     terminate: bool,
     /// The worker process ended: by its own `Exit`, or by a signal of the `Process` edge.
@@ -141,16 +143,26 @@ impl ProcessTable {
     /// True while the process edge holds a report that the host has not consumed: an exit that it has not polled, or the
     /// control link of a worker that it holds (spawned or adopted) with bytes or an end of file that the host has not read. A new worker's link holds its hello,
     /// so a link that the host has not accepted yet counts too. It reads the state and changes nothing (`edges_quiet`).
+    #[cfg(test)]
     pub(crate) fn holds_reports(&self) -> bool {
+        self.holds_reports_but(&[])
+    }
+
+    /// [`ProcessTable::holds_reports`], where the control links of the `held` workers are no report.
+    pub(crate) fn holds_reports_but(&self, held: &[ProcessIdentity]) -> bool {
         let processes = lock(&self.0);
         !processes.exits.is_empty()
             || processes.connections.iter().any(EndControl::holds_for_peer)
-            || processes.links.values().any(|cell| {
-                lock(cell)
-                    .link
-                    .as_ref()
-                    .is_some_and(EndControl::holds_for_peer)
-            })
+            || processes
+                .links
+                .iter()
+                .filter(|(id, _)| !held.contains(id))
+                .any(|(_, cell)| {
+                    lock(cell)
+                        .link
+                        .as_ref()
+                        .is_some_and(EndControl::holds_for_peer)
+                })
     }
 }
 
@@ -783,8 +795,15 @@ impl Workers {
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
+    #[cfg(test)]
     pub(crate) fn edges_quiet(&self, table: &ProcessTable) -> bool {
-        !self.has_ready() && !table.holds_reports()
+        self.edges_quiet_but(table, &[])
+    }
+
+    /// [`Workers::edges_quiet`], where the control links of the `held` workers are no report: a `hold_start` holds them from
+    /// the host's accept, so their bytes wait for the release (steward ruling R-71, as the real tier's tap).
+    pub(crate) fn edges_quiet_but(&self, table: &ProcessTable, held: &[ProcessIdentity]) -> bool {
+        !self.has_ready() && !table.holds_reports_but(held)
     }
 
     /// The `Process` edge of the host of the data directory `dir` for its workers.
@@ -897,9 +916,9 @@ impl Spawner for WorkerSpawner {
         Ok(id)
     }
 
-    /// `EndPayload` and `Term` reach the worker's handlers: the worker takes them as inputs. A `Kill` ends the worker
-    /// process, and its exit is reported to the handle that spawned it. A worker of an earlier handle of the run is reached
-    /// too: the signal goes to a process, not to a handle.
+    /// `EndPayload`, `KillPayload` and `Term` reach the worker's handlers: the worker takes them as inputs. A `Kill` ends
+    /// the worker process, and its exit is reported to the handle that spawned it. A worker of an earlier handle of the run
+    /// is reached too: the signal goes to a process, not to a handle.
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
         // `signals_received`: a signal to the identity that an impostor answered for reaches that process too.
         for impostor in lock(&self.workers.impostors).values_mut() {
@@ -915,6 +934,12 @@ impl Spawner for WorkerSpawner {
                 let mut cell = lock(&cell);
                 if !cell.ended {
                     cell.end_payload = true;
+                }
+            }
+            GroupSignal::KillPayload => {
+                let mut cell = lock(&cell);
+                if !cell.ended {
+                    cell.kill_payload = true;
                 }
             }
             GroupSignal::Term => {
@@ -984,6 +1009,7 @@ impl Spawner for WorkerSpawner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ready {
     EndPayload,
+    KillPayload,
     Terminate,
     /// The link has bytes, or its peer closed it.
     Link,
@@ -1229,6 +1255,9 @@ impl Binding<SharedWorker> for WorkerEdges {
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
+        if lock(&self.cell).kill_payload {
+            self.ready.push(Ready::KillPayload);
+        }
         if lock(&self.cell).terminate {
             self.ready.push(Ready::Terminate);
         }
@@ -1320,6 +1349,10 @@ impl Binding<SharedWorker> for WorkerEdges {
             Ready::EndPayload => {
                 lock(&self.cell).end_payload = false;
                 Input::EndPayload
+            }
+            Ready::KillPayload => {
+                lock(&self.cell).kill_payload = false;
+                Input::KillPayload
             }
             Ready::Terminate => {
                 lock(&self.cell).terminate = false;
@@ -1718,8 +1751,8 @@ impl CoreApi for TestkitCore {
         self.driver.wake_handle()
     }
 
-    /// The earliest deadline of the host or of a worker: a worker's deadline (the grace of `EndPayload`) is reached only
-    /// when the host pumps at that time.
+    /// The earliest deadline of the host or of a worker: a worker's deadline (its orphan or candidate-hello deadline) is
+    /// reached only when the host pumps at that time. `stop_grace` is the host's deadline, not a worker's (R-97).
     fn next_deadline(&self) -> Option<Instant> {
         match (self.driver.next_deadline(), self.workers.next_deadline()) {
             (Some(a), Some(b)) => Some(a.min(b)),

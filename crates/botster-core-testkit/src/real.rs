@@ -195,6 +195,15 @@ struct BreakControl {
     on: bool,
 }
 
+/// `control_queue {session, on = true}` (Core IN-6).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ControlQueueArgs {
+    session: SessionId,
+    #[serde(default = "on")]
+    on: bool,
+}
+
 /// The tap of an open handle, shared with its driver.
 type SharedTap = Arc<Mutex<Tap<RealEdges>>>;
 
@@ -762,6 +771,15 @@ impl RealCoreHarness {
         }
     }
 
+    /// Core IN-6 (steward ruling R-91): the control queue of the session's worker is full (`on: true`, the default), or has
+    /// room again (`on: false`), at the tap's link edge ([`Tap::control_queue`]).
+    fn control_queue(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let ControlQueueArgs { session, on } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        lock(&tap).control_queue(row.instance, on);
+        Ok(Value::Null)
+    }
+
     /// Core OU-9, A5-2: the tap delivers the held hand-over in the next pump ([`Tap::release_handoff`]).
     fn release_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let HandoffHoldArgs {} = parse(args)?;
@@ -1245,10 +1263,13 @@ impl CoreHarness for RealCoreHarness {
                     | "release_start_at"
                     | "start_held"
                     | "route_reports"
+                    | "scheduler_hold"
+                    | "scheduler_release"
                     | "fail_next"
                     | "fail_handoff"
                     | "hold_handoff"
                     | "release_handoff"
+                    | "control_queue"
                     | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
@@ -1287,9 +1308,20 @@ impl CoreHarness for RealCoreHarness {
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
             "route_reports" if self.tapped => self.route_reports(handle, args),
+            "scheduler_hold" if self.tapped => {
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
+                crate::op_holds::hold(&holds, args)
+            }
+            "scheduler_release" if self.tapped => {
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
+                crate::op_holds::release(&holds, args, || lock(&tap).signal_wake())
+            }
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
+            "control_queue" if self.tapped => self.control_queue(handle, args),
             "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "oracle_encode" if self.tapped => self.oracle_encode(handle, args),
@@ -1584,10 +1616,13 @@ mod slow_controls {
             "release_start_at",
             "start_held",
             "route_reports",
+            "scheduler_hold",
+            "scheduler_release",
             "fail_next",
             "fail_handoff",
             "hold_handoff",
             "release_handoff",
+            "control_queue",
             "oracle_resume",
             "oracle_encode",
             "oracle_modes",
@@ -1756,6 +1791,64 @@ mod slow_controls {
             "the record outlives the Remove"
         );
         assert!(bad(ready(&mut harness, "s2")), "removed");
+        drop(core);
+    }
+
+    /// `scheduler_hold` and `scheduler_release` on the real tier (Core A5-2; steward ruling R-88, group E):
+    /// - A `Resize` of a running session to its own size has fixed timing (SZ-2, R-20), so its hold is refused.
+    /// - A held `Stop` makes no progress: the pump ends with the session `Running`, and the wake stays quiet.
+    /// - The release signals the wake, and the next pumps run the `Stop` to its end.
+    #[test]
+    fn a_held_stop_waits_for_its_release_and_the_release_wakes_the_host() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        running(&harness, core.as_mut(), "s1");
+        let same = Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        };
+        let resize = core
+            .begin(Op::Resize {
+                session: sid("s1"),
+                size: same,
+            })
+            .expect("resize");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": resize.0 })),
+            Err(ControlError::Refused(json!({ "reason": "fixed_timing" })))
+        );
+        pump_until(core.as_mut(), |_| true);
+
+        let stop = core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        pump_until(core.as_mut(), |_| true);
+        assert_eq!(state(core.as_ref(), "s1"), SessionState::Running);
+        let wake = core.wake_handle();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        assert_eq!(
+            harness.control("a", "scheduler_release", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        assert_eq!(
+            wake.wait(Duration::ZERO),
+            Wake::Woken,
+            "the release signals the wake"
+        );
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s1"), SessionState::Exited { .. })
+        });
         drop(core);
     }
 

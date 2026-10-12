@@ -313,6 +313,31 @@ impl HostEngine {
         self.now
     }
 
+    /// The control stream of `link` has room for one control message again (the driver's drain or the link edge, steward
+    /// ruling R-91): when a `cancel` of its session was refused `Full`, `SessionWritable` follows (IN-6, SV-3), keyed per
+    /// instance, so it is coalesced.
+    /// A session on this link had a `cancel` refused `Full` and waits for room (IN-6): only then is the room runnable work.
+    pub(crate) fn waits_for_room(&self, link: LinkId) -> bool {
+        self.links
+            .get(&link)
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|s| s.worker.link == Some(link) && s.worker.refused_full)
+    }
+
+    /// The room of a link whose session waits for it (`waits_for_room`, which the driver checked): the mark clears, and the
+    /// session's `SessionWritable` is posted.
+    pub(crate) fn control_room(&mut self, link: LinkId) {
+        if !self.waits_for_room(link) {
+            return;
+        }
+        let id = self.links[&link].clone();
+        let s = self.sessions.get_mut(&id).expect("waits_for_room found it");
+        s.worker.refused_full = false;
+        let instance = s.instance.clone();
+        self.queue
+            .post_keyed(Event::SessionWritable { id, instance });
+    }
+
     pub(crate) fn send_msg(&mut self, session: &SessionId, msg: HostMsg) -> bool {
         // A link whose write side failed takes nothing more (R-78 item 4).
         match self
@@ -601,6 +626,37 @@ impl HostEngine {
                 .is_some_and(|s| matches!(&s.flow, Flow::Stop(f) if f.end.is_some())),
             _ => false,
         }
+    }
+
+    /// The numbers of the ops whose progress this work makes, for `Scheduler::held` (A5-2: the scheduler defers the progress
+    /// of an operation; steward ruling R-88, group E): the op of an op step; for a session's flow, the flow's op and the ops
+    /// that wait for the flow (the `Stop` ops). Empty when the step makes no op's progress: a session with no flow, a
+    /// deadline, a `Silent`, parked route work.
+    pub fn ops_of(&self, work: &Work) -> Vec<u64> {
+        match work {
+            Work::Op(op) => vec![op.0],
+            Work::Session(id) => self.sessions.get(id).map_or_else(Vec::new, |s| {
+                let own = match &s.flow {
+                    Flow::Idle => return Vec::new(),
+                    Flow::Create(f) => Some(f.op),
+                    Flow::Start(f) => Some(f.op),
+                    Flow::Remove(f) => Some(f.op),
+                    Flow::Adopt(f) => Some(f.op),
+                    Flow::Stop(_) => None,
+                };
+                own.into_iter()
+                    .chain(s.waiters.iter().copied())
+                    .map(|op| op.0)
+                    .collect()
+            }),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether a clause fixes the timing of the pending op (R-20), so that the scheduler never defers it. An op that is not
+    /// pending has no timing to fix.
+    pub(crate) fn fixed_timing(&self, op: OpId) -> bool {
+        self.ops.get(&op).is_some_and(|p| p.fixed_timing)
     }
 
     /// The count of events posted since the last call: the `events_posted` of `PumpReport` (A2-7).
