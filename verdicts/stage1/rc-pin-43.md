@@ -295,3 +295,91 @@ The final-slot current-v1 import, applicable delta/checks, exact-final-head gate
 Earlier scope limits stay unchanged. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open integration findings; current source, completed evidence, and body) at 7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a against imported base b3cdfffbba353bf9cfc34f7d7f9b8daccc753035
+
+## Round 4 — final-slot base import and composition
+
+Head: `f16a10ba028ca3ea6b0139d58aabea7cb5e051d5`.
+Base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Tree: `67c34fba86d161521be0360ae5829e70807631a4`.
+Reviewed parent: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Previous merge base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Receipts: `msg_plugin-w_1791777459_d4e33c` and `msg_plugin-w_1791777540_819e7d`.
+The lead assigns this slot after #293. The merge has these exact reviewed/base parents and no subsequent source edit.
+Sol independently verifies both merge bases and reads the complete overlapping lock/list delta.
+
+### Independent composition audit
+
+The base changed 55 paths; the PR's own set remains eleven paths.
+Their only overlaps are Cargo.lock and core-pending.txt. Every outside-own blob equals fcc09461.
+Nine own blobs equal the reviewed head. Only the lockfile and pending-file blobs change through the import.
+The complete own patches match after removing blob-index lines and hunk headers.
+Both diffs have 281 additions and forty deletions across eleven files.
+Old full-index own-diff SHA-256: `09c99e6220d4f414f9b144dea3bd2a01da6ff9efb5853da396e03b512640d86a`.
+New full-index own-diff SHA-256: `ed3ad596a0299e63fc0a5caadf626f9b66b15e0bfb2bed649e9d7154f6d8d571`.
+The lock retains all imported botster-test-process dependencies and all nine .43 contracts source lines.
+Seven workspace tags remain .43. The eighteen own lock change lines remain identical.
+The route client, real route, real resume, and worker blobs retain their exact reviewed versions.
+No source repair, test change, private assertion, or new control enters the own delta.
+
+Sol independently applies the three-way set formula to all nine conformance files.
+The PR's parked-work removal and the base's two e3_1 removals remain removed, with no common removal.
+Pending counts compose as 412 at the old base, 411 at the reviewed head, 410 at the slot base, and 409 at the merged head.
+The real wake removal remains: 44 at both bases, 43 at both PR heads.
+The budget-held addition remains. Ledger 691 and minimum 69 remain unchanged.
+No removed identifier returns, and no unreviewed pending removal appears.
+
+The #291 import retains accepted merge e4f49504 and its ordering resolution.
+The #293 import equals accepted merge fcc09461. Sol independently verifies its exact e4f49504/029a740b parents and gated tree f2c6afb1.
+Sol reads Sol-B's complete final evidence and merge records b6b92593/f595cd23, and receipt `msg_plugin-w_1791777684_5164d0`.
+The build-root implementation remains in botster-test-process; testkit re-exports it.
+The conformance suite checks its binary and nine linked libraries before argument parsing and trial dispatch.
+Sol reads that imported interface and verifies equality with the accepted base.
+The .41-to-.43 test-support API had no delta in Round 1; this merge adds no workspace library to LINKED.
+Candidate builds retain their canonical-root directories and source-root check.
+The separate coverage guarantee, historical FLAKY misses, PC-owned fence work, and earlier Mac/bootstrap/disk scopes remain unchanged.
+This review does not accept a new coverage guarantee or broaden those evidence scopes.
+
+The imported mutation file retains the accepted narrow build_worker whole-body replacement exclusion from #293.
+Sol reads its complete delta. It covers process glue, not progress, the resume wait, or their behavior tests.
+Earlier in_8 FLAKY records remain missed and owned; this import does not turn them into catches.
+
+### Canonical check and local supplementary evidence
+
+Sol reads the complete canonical log, SHA-256
+`581086b03e571d07bddbea3b4eabe3579c7fbd043c6202c01ac9a94a2887ef07`.
+Both ancestry checks and condition 1 PASS. Condition 2 FAILS on Cargo.lock overlap.
+Condition 3 FAILS at the first raw difference, the lockfile's index line. Both condition-4 list rules PASS.
+The command exits one and result stays FAIL. Both explicit delta reviews are required; no automatic carry is used.
+
+Sol reads local-final.sh, SHA-256 `7af71c913d468de06c981a757f7b0335e4a45e1f9593e034859f768d241f0d51`.
+It exports both caps at four, unsets RUSTUP_TOOLCHAIN, and calls cargo clean before the logged checks.
+The clean has no printed numeric exit or retained raw output. Its time marker alone is not an independent clean-exit proof.
+The body retains that limit. No target-writer history beyond this record is inferred.
+Local log SHA-256: `7e8cf33965e28a8562e3e7de8174c40d8c517abcdff50bc626fbe40944948e13`.
+It names this exact head/base and reports ten command exits, all zero.
+Static results include fmt, lists, ledger-ids, taint, and clippy. Prebuild writes three candidate binaries.
+Library suites report host 332, testkit 426, worker-core 193, and Core 14 passed.
+Real route/resume tests report 26 passed. Strict seeds 0–31 report 259 passed and zero failures in 6.60 seconds.
+Strict checks 321 of 339 pending identifiers, excluding eighteen real-only cases, with four held.
+These local results are supplementary; they do not replace the exact-final-head gate.
+
+### R299-SI-4 — LOW, closed: raw diff metadata omitted from the body
+
+The initial slot body says that outside Cargo.lock only one pending hunk header differs.
+Sol independently finds two changed index lines, five changed lock hunk headers, and one changed pending hunk header.
+The canonical log prints only the first difference. Sol requests correction in `msg_plugin-w_1791777752_04bc56` and `_07ca1a`.
+Owner correction receipt: `msg_plugin-w_1791777771_bee79c`.
+Sol reads the complete published body delta. It names all metadata classes and preserves identical content/change lines.
+It also preserves the clean's unprinted-exit limit. R299-SI-4 closes without source change or new execution.
+Initial slot body SHA-256: `9752e138ea2b9ca549b9b1db0c5c615002b830af1a79f0fadbd65329161f6565`.
+Corrected body SHA-256: `ed06f2597a305a5f1b6809d030560bf186fa6a977c87e571b4ee9c6e4e1d6caa`.
+GitHub reports this exact head and imported base.
+
+Sol reads complete package final-slot delta at `92d9a2c394d28adcb3f85418f8c1710da9f9a152`.
+Package receipt: `msg_plugin-w_1791777840_e90fab`.
+Its source, all nine sets, lock composition, narrow exclusion, body correction, and retained limits match this review.
+Both delta reviews have zero open findings. The canonical check remains FAIL with these explicit delta reviews.
+The ONE completed exact-final-head gate, full mutation result, matching final body, both final verdicts, and Q7 remain due.
+This round accepts no final-slot gate result, later head, or different tree. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open integration delta findings; final evidence remains due) at f16a10ba028ca3ea6b0139d58aabea7cb5e051d5 against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
