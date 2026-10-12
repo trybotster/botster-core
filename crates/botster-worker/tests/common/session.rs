@@ -54,9 +54,10 @@ fn fifo(root: &Path, name: &str) -> PathBuf {
     path
 }
 
-/// The limit of a wait for a real worker: its connection, a frame from it, and a write to it (A11). It is the fixture's
-/// existing frame limit, now named and shared; not a contract value.
-// timer: deadline — the limit of a wait for a real worker's connection, frame or write; not a contract value.
+/// The fixture's existing frame limit, now named and shared (A11). Lead ruling (2026-10-12, B3): a test's write to a real
+/// worker's link blocks only while that worker does not read the link, so a write and a frame are the same wait. Not a
+/// contract value.
+// timer: deadline — the limit of a wait for a real worker to act on its link; not a contract value.
 const WORKER_WAIT: Duration = Duration::from_secs(20);
 
 /// Accepts the worker's connection on `listener` by `deadline` (A11). The listener is non-blocking, and each accept follows
@@ -283,7 +284,7 @@ impl Session {
             payload_guard: Some(payload_guard),
             group_guard: Some(group_guard),
         };
-        let stream = accept_within(&listener, Deadline::after(WORKER_WAIT));
+        let stream = accept_within(&listener, Deadline::cleanup());
         let (link, payload) = hello_and_launch(
             stream,
             &launch,
@@ -800,8 +801,6 @@ fn the_link_helper_keeps_every_frame_of_one_read() {
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
         .unwrap();
-    // A11: every write of a `Link` is bounded.
-    stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
     let mut link = Link {
         stream,
         decoder: FrameDecoder::new(1 << 20),
@@ -938,11 +937,8 @@ impl RouteClient {
         let HostMsg::AttachRoute { limits, .. } = attach_route(core) else {
             unreachable!("attach_route is an AttachRoute")
         };
-        // timer: deadline — the limit of a wait for a real worker's route frame; not a contract value.
-        stream
-            .set_read_timeout(Some(Duration::from_secs(20)))
-            .unwrap();
-        // A11: a write of the client's frames to the worker is bounded too.
+        // A11: a route frame from the worker and a write of the client's frames to it each wait at most `WORKER_WAIT`.
+        stream.set_read_timeout(Some(WORKER_WAIT)).unwrap();
         stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
         RouteClient {
             stream,
