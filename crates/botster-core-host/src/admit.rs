@@ -851,9 +851,11 @@ impl HostEngine {
         let req = pending.req;
         let session = pending.session.clone();
         // IN-6: a full control queue refuses the cancel before its sent or not-sent branch, and nothing changes (steward
-        // ruling R-91 Q2). The mark makes the drain that gives the stream room post `SessionWritable`.
+        // ruling R-91 Q2). The mark makes the drain that gives the stream room post `SessionWritable`. A link whose write
+        // side failed has no control queue (R-78 item 4): no room would come back, so the cancel is admitted, and a sent
+        // op completes through the link's end (IN-7).
         if let Some(s) = session.as_ref().and_then(|id| self.sessions.get_mut(id)) {
-            if s.worker.link.is_some_and(|link| !room(link)) {
+            if !s.worker.write_failed && s.worker.link.is_some_and(|link| !room(link)) {
                 s.worker.refused_full = true;
                 return CancelResult::Refused(CancelRefusal::Full);
             }

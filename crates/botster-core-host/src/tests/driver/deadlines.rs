@@ -1070,3 +1070,102 @@ fn a_refused_cancel_whose_room_comes_back_in_a_spent_pump_is_more() {
     rig.pump();
     assert_eq!(writable(&rig.drain_events()), 1);
 }
+
+fn link_room(rig: &Rig, room: Option<usize>) {
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .link_room = room;
+}
+
+/// The request number of the last op that the host sent on link 1.
+fn last_request(rig: &Rig) -> u64 {
+    rig.host_frames(LinkId(1))
+        .iter()
+        .filter_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op { req, .. }) if *k == FrameType::HOST_MSG => Some(req),
+            _ => None,
+        })
+        .last()
+        .expect("an op was sent")
+}
+
+/// Sends a write whose send fails: the link's write side closes, and its read side stays (R-78 item 4).
+fn fail_write_side(rig: &mut Rig) {
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .fail_send
+        .push(io::ErrorKind::BrokenPipe);
+    text_write(rig, "b");
+    rig.settle();
+    rig.drain_events();
+    assert!(!rig.mock.lock().unwrap().links[&LinkId(1)].closed_by_host);
+}
+
+/// IN-6, SV-3, R-78 item 4 (#307 R307-SI-1): a cancel refused `Full`, then a send that fails. The write side takes no control
+/// message again, so the refusal's mark retires: the bytes that the driver dropped are not a drain, no `SessionWritable`
+/// follows, and the link's room is no work in a pump with no budget left (TM-6). The read side stays: the worker's `Done`
+/// still completes the write.
+#[test]
+fn a_failed_write_side_retires_a_full_refusal_with_no_session_writable() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    let write = text_write(&mut rig, "a");
+    rig.settle();
+    rig.drain_events();
+    let req = last_request(&rig);
+    link_room(&rig, Some(0));
+    assert_eq!(
+        rig.driver.cancel(write),
+        CancelResult::Refused(CancelRefusal::Full)
+    );
+    fail_write_side(&mut rig);
+    link_room(&rig, None);
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent spends the budget");
+    assert!(!report.more, "a failed write side waits for no room");
+    assert_eq!(writable(&rig.run_out()), 0);
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Input(InputResult {
+                outcome: WriteOutcome::Written,
+                payload_bytes_written: 1,
+                pty_bytes_written: 1,
+                detail: String::new(),
+            })),
+        },
+    );
+    assert!(rig.run_out().iter().any(
+        |e| matches!(e, Event::Completed { op, result: OpResult::Ok(OpOutput::Input(r)) } if *op == write && r.outcome == WriteOutcome::Written)
+    ));
+}
+
+/// IN-6, R-78 item 4: a link whose write side failed has no control queue, so a `cancel` there is not refused `Full`, even
+/// when the link edge reports no room. No room would come back to wake it.
+#[test]
+fn a_cancel_on_a_failed_write_side_is_not_refused_full() {
+    let mut rig = Rig::new(limits(|l| l.max_sessions = 4));
+    run_session(&mut rig, "s1", LinkId(1));
+    let write = text_write(&mut rig, "a");
+    rig.settle();
+    rig.drain_events();
+    fail_write_side(&mut rig);
+    link_room(&rig, Some(0));
+    assert_eq!(rig.driver.cancel(write), CancelResult::Admitted);
+    assert_eq!(writable(&rig.run_out()), 0);
+}
