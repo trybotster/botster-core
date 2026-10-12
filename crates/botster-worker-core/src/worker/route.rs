@@ -691,8 +691,9 @@ impl Worker {
         self.settle_routes();
     }
 
-    /// Receives every complete frame of the route's reader, in order (TS-3): each input frame, applied or refused, advances
-    /// `input_rev{client}` now, on receipt, whatever room the route has (IN-4, IN-10). The frames wait in `received` for
+    /// Receives every complete frame of the route's reader, in order (TS-3): each client input, applied or refused, advances
+    /// `input_rev{client}` now, on receipt, whatever room the route has, and its record is made (IN-4, IN-10, ST-7). A paste's
+    /// or a file's begin, chunks and abort are not input (steward ruling R-102). The frames wait in `received` for
     /// `apply_route`. A frame that cannot be decoded ends the receipt: nothing after it is a frame.
     fn receive_route(&mut self, now: Instant, id: RouteId) {
         loop {
@@ -868,8 +869,8 @@ impl Worker {
         self.end_route(id, reason);
     }
 
-    /// The receipt of one complete client input frame, applied or refused: `input_rev{client}` advances, and the activity
-    /// carries its route (IN-4). An ignored extension frame is not input.
+    /// The receipt of one client input, applied or refused: `input_rev{client}` advances, and the activity carries its route
+    /// (IN-4). An ignored extension frame is not input, nor is a paste's or a file's begin, chunk or abort (R-102).
     fn client_received(&mut self, id: RouteId) {
         let input_rev = self.input.client_received();
         self.report(&WorkerMsg::Observed {

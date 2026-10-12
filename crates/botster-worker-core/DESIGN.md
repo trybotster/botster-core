@@ -346,6 +346,11 @@ Rejected:
   - Each sequencing error (R-5: no open paste, or another op) is refused `refused` with zero effect, and the open paste
     stays as it is.
   - A closing route applies no input, so a paste that is open at the close writes nothing.
+- **A paste is one client input, received at its commit** (steward ruling R-102). Only the commit advances
+  `input_rev{client}`, reports `ClientInput` and makes the input record (`receipt.rs`). `paste_begin`, `paste_chunk` and
+  `paste_abort`, applied or refused, do none of these: an aborted paste leaves no trace in the facts. A commit that is
+  refused for a sequencing error is one client input too: its record has `kind: paste`, an empty payload and
+  `not_written{refused}` at once. A file (DP-5b) follows the same rule at `file_commit`.
 - **The open paste is outside the route's input bound.** `max_paste_bytes` bounds it. Its bytes count in the read
   allowance from the commit, when they wait at the admission point.
 - **The commit is one transaction** (AM-2, TS-5d: contiguous). A route input carries an `InputPayload`. At its start, the
@@ -370,3 +375,44 @@ Rejected:
 - `botster-core-testkit`: `send_with_descriptor`, the tagged `recv`, the worker binding, and the PTY read budget.
 - `botster-core-link`: `HostMsg::AttachRoute` gets `limits: AppliedRouteLimits` (PR1, the correction above), and
   `route::terminal_format`, which names a snapshot format on the wire as `{name lowercase}/{version}+raw`.
+
+## ReadFacts (ST-7; P5; steward rulings R-101, R-102)
+
+- **The log** (`worker/facts.rs`, one per instance, made at the launch): the input records of client and host input in one
+  order, the client tail, and the time of the last client input. Only the worker has them at one point of its ordering
+  (AM-2), so `ReadFacts` is answered by the worker at once (`model.rs` `read_facts`).
+- **A record at receipt.** A host write's record is made when its `WriteInput` comes (`input.rs` `on_write_input`). A
+  client input's record is made in the same call that advances `input_rev{client}` (`route.rs` `client_input`). Its state
+  is `pending`, and its `pty_bytes` is null.
+- **What a client frame is** (`receipt.rs`, one function for each mapping, no catch-all):
+  - one client input: `bytes`, `text`, a key, the mouse, focus, a query reply, and a paste's or a file's commit;
+  - not input (no `rev` step, no `Activity`, no record): a paste's or a file's begin, chunks and abort (R-102);
+  - a refused input's record ends at once with its IN-2 reason, not the wire reason (R-101 Q2): `not_writable`, `not_ready`
+    and `refused` are `Refused`; `too_large` is `PayloadTooLarge`; `unsupported{what}` is `Unsupported{Other}`; a refusal at
+    the admission point keeps `SessionEnded` or `Stopping` apart.
+- **Completion is an appended status update** with a new cursor (`input.rs` `end_record`); the record is never edited. The
+  state comes from the IN-2 outcome (`record_end`): `Partial` and `Failed` are `partial` with the exact PTY bytes, 0
+  included (R-101 Q1); `Unknown` is `unknown` with null PTY bytes. A kind that the worker cannot write is
+  `NotWritten(Unsupported{what})` in the result and the record, never `Internal` (R-101 Q3). The end of a client input
+  reports `Observation::ClientInputEnded{route}`, and the host raises the keyed `Activity{Client(route)}` edge again (EV-6).
+- **Inputs that never start:** a host write that the adoption fence drops ends `cancelled` with 0 PTY bytes; a client
+  input that waits in a closing route's `received` queue is discarded and ends `cancelled` with 0 PTY bytes. An input at
+  the admission point ends at its turn, as before.
+- **The cursor** is `ordinal << 29 | seq` (R-101 follow-up): the 24-bit ordinal of `LaunchSpec.cursor_ordinal` (the host's
+  durable counter of the data directory) and the sequence number of the entry. An adoption keeps both, so a cursor read
+  before it reads incrementally after it. A cursor of another ordinal is a `gap`. Each record that has not ended keeps one
+  sequence number for its status update, so an end always has one. When no record can be made, a host write is
+  `NotWritten(Refused)` with exact zero, and a client frame is refused `refused` with no `rev` step; `ReadFacts` still
+  answers.
+- **Retention:** at most `input_events_kept` entries, and at most `input_events_bytes` bytes of the list as JSON, the form
+  in which the link carries it. The oldest entry goes first. The newest record and its status update are never dropped: a
+  record that would not leave room for its status update is cut to the longest payload that does, then to its minimal
+  form, with `payload_truncated`.
+- **Time:** `at` and `age_ms` are milliseconds on the worker's own clock, from the worker's start (the first `now` that it is
+  given). Before any client input, `age_ms` counts from that start (R-101 Q4, Q5). They are not comparable with the unix
+  `at` of events (TM-1).
+- **The client tail** keeps the last `input_tail_bytes` PTY bytes that client input wrote, exactly; `tail_complete` turns
+  false at the first byte that it drops.
+- **Prior art:** old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` has no `ReadFacts`, no input records and no client tail
+  (`git grep` for `input_records`, `InputRecord`, `ReadFacts` and `client_tail` finds nothing). No prior art applies.
+
