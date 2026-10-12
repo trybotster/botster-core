@@ -24,7 +24,7 @@ That red gate is not acceptance evidence.
 The implementer supplied READY #327 at the reviewed head. The PR body contains the required prior-art note and states HIGH.
 The reviewer checked the corrected Linux pool gate on `msa1`. All ten steps report PASS, and the gate exits 0.
 The gate names base `3e655eff46d36f8c337339a1a17d401c8c662594` and the reviewed head.
-The gate runs all nine new sys, machine, testkit, and zero-start-time tests successfully.
+The gate runs all ten new sys, machine, testkit, and zero-start-time tests successfully.
 Mutation results: 21 total, 18 caught, zero missed, zero timeouts, and three unviable.
 The slow mutation stage catches the one mutant missed by the default stage.
 The fuzz step has no changed crate with a decoder harness. It is not SKIPPED.
