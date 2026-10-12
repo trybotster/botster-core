@@ -35,6 +35,11 @@ Both affected reaper tests pass. The PR body cites the log, and the verdict reco
 The source review has no open finding. The exact-head Linux gate passes all ten steps with no missed mutants or timeouts.
 The package needs a combined-head delta with #327's testkit ExitFailure arm after the process signature change.
 
+#330 round 3 source delta at `99209ea598aec0c182f35a1645b2a938d2f7d8cc`: CLEAN.
+The head imports `644f632f194f62ad7fe14e66482ee01083706e30` and adapts #327's ExitFailure arm to the identity-only process edge.
+The prior Linux and Mac evidence remains scoped to `572924b29bf4fca3d6a8c76d45fc486c0c070b70`.
+The lead ordered no separate member gate. The integration delta and delivery gate remain due.
+
 ## Review authority
 
 - The package brief is `~/botster-sessions/shared/core-stage1/brief-part-b.md`.

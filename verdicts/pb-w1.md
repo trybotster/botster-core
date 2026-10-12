@@ -1,5 +1,39 @@
 # PB-W1: worker process exit status
 
+## Current-base source delta: round 3
+
+Date: 2026-10-12. PR: #330. Tier: HIGH.
+Head: `99209ea598aec0c182f35a1645b2a938d2f7d8cc`.
+Tree: `1ab9f5a0d3a6a0dfb040ea06b385078bea778495`.
+Imported base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Previously reviewed member: `572924b29bf4fca3d6a8c76d45fc486c0c070b70`.
+
+VERDICT: CLEAN
+
+This is a source delta verdict. The reviewer built nothing locally and ran no execution job.
+The imported base is an ancestor of this head.
+The merge is `befb21878c974c974b579e2e11b54d83b179eb34`, followed by the ExitFailure adaptation.
+
+The added and removed source lines of #330 remain identical in 23 of its 24 changed files.
+The remaining file, testkit `worker.rs`, adds the required adaptation to #327's ExitFailure arm.
+The arm calls `Processes::end(self.id)` and then `self.ended(true)`.
+`Processes::end` still queues the worker's identity once and wakes the host.
+`ended(true)` still closes the link and endpoint and drops the payload through the existing cleanup path.
+The adaptation removes only the worker status that the host never reads.
+The real driver still returns an error for ExitFailure, so R-106's non-zero worker exit remains intact.
+
+The imported #327 failure injection and tests remain present.
+The host's identity-only exit classification and control-link drain remain unchanged.
+The current-base sys code retains #327's zero-start-time test alongside #330's unchanged reaper edits.
+The imported drain, route, and conformance changes do not add a worker status consumer.
+No new mutation exclusion or invented exit status enters this delta.
+
+The reviewer read the complete PR body at this head. It retains the HIGH tier, prior art, and old-head evidence citations.
+The known #327 argument conflict is now resolved by this source delta.
+The previous Linux and Mac logs remain evidence for the previous head; they are not a gate for this new head.
+The lead ordered no separate member gate. The integration delta, delivery gate, and final merge checks remain due.
+No package finding remains open.
+
 ## Current verdict: round 2
 
 Date: 2026-10-12. PR: #330. Tier: HIGH.
