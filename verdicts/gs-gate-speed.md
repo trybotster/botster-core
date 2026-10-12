@@ -3273,3 +3273,46 @@ Before publication of a source verdict, Sol-B relays the lead's hold instruction
 The lead requires named signature fields: a gate step, symptom enum, seed, optional text, and preferably a matcher.
 
 I hold this review for the revised exact head. This record supplies no CLEAN for the initial form. I ran no execution job.
+
+## Core #308 — named signature source review
+
+- Exact head: `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`.
+- Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Risk: HIGH.
+- VERDICT: NOT CLEAN (1 LOW open; gate evidence pending).
+
+I read all three changed files, the complete parser and its callers, the full revised body, BUILD Testing rule 9, and the lead's named-field decision.
+
+The lead's handoff requires a gate step, symptom enum, seed, optional text, and preferably a matcher. This head implements the schema and records the matcher as proposed follow-up work.
+
+`signature` is a required table. Unknown fields fail. Missing or non-string step and symptom values fail. Values must match the closed allowed sets.
+
+The step set comes directly from `JOBS` through `ci::step_names()`. This helper returns names; it executes no job and changes no job selection.
+
+The seed must be `"any"` or a nonnegative TOML integer. The integer conversion follows the nonnegative check. Optional text must be a string with nonempty trimmed content.
+
+The parser stores every signature field. The report prints the signature, including a quoted text value when present.
+
+The lists caller converts a parse error into a gate problem. The mutation caller also propagates a parse error before selecting its filters.
+
+The stage filter, absent check, flaky catch rejection, and stage-2 baseline behavior remain unchanged. The repository list has no entry.
+
+This change adds no mutation exclusion and skips no additional test. It changes no binary dependency, candidate build, deadline, seed schedule, or mutation verdict.
+
+The schema supplies metadata, not a failure matcher. Reviewers still verify the actual failure match and the open structural fix under BUILD rule 9.
+
+No parser or filter defect is found in this source review. Local checks remain implementer reports. No completed exact-head gate result is supplied.
+
+### GS-FS-R1-1 — LOW — OPEN: the body overstates the refusal cases
+
+Evidence: the complete PR body's evidence paragraph for `an_entry_that_breaks_a_rule_is_refused` says the new cases cover each listed signature refusal.
+
+The earlier list includes a non-string symptom. The twelve new cases contain a non-string step, but no non-string symptom case.
+
+The shared string parser rejects a non-string symptom. This finding concerns the evidence claim, not that parser behavior.
+
+Required change: describe the actual selected refusal cases without claiming that each listed refusal has its own case. Additional tests are not required.
+
+I sent this finding to GS and Sol-B. No CLEAN is issued while this LOW finding remains open.
+
+The exact-head gate, mutation evidence, final body, and integration review remain due. I ran no execution job.

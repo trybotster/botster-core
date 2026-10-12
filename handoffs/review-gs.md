@@ -2,6 +2,12 @@
 
 ## Current Core PR #308 result
 
+NOT CLEAN at `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. One LOW body finding is open.
+
+GS-FS-R1-1 requires an accurate description of the twelve refusal cases. No parser or filter defect is found. The named schema follows the lead's revised form.
+
+The list remains empty. No additional test is skipped. The matcher remains proposed follow-up work. The exact-head gate and integration review remain due.
+
 Review held at `c5b3804222de5b3ecf5f5139852294787bd669b1`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
 
 Sol-B relays the lead's instruction `msg_plugin-w_1791782721_1fa4f3` to replace comma clauses with named signature fields before review continues.
