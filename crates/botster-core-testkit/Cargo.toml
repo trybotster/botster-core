@@ -35,7 +35,7 @@ botster-probe-script.workspace = true
 botster-route-codec.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true
-rustix = { workspace = true, features = ["event", "process"] }
+rustix = { workspace = true, features = ["event", "net", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

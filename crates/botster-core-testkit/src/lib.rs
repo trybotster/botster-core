@@ -41,6 +41,7 @@ pub mod start_controls;
 pub mod statement_runs;
 pub mod statements;
 pub mod status;
+pub mod stream_holders;
 pub mod wake;
 pub mod wake_controls;
 pub mod worker;
