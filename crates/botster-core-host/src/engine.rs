@@ -175,6 +175,9 @@ pub struct HostEngine {
     pub(crate) next_capture: u64,
     pub(crate) next_route: u64,
     pub(crate) next_instance: u64,
+    /// The next cursor ordinal (steward ruling R-101 Q6): one above the registry's counter at open, and one above every
+    /// ordinal that this host reserved. It never goes back, whatever a reservation's write result was.
+    pub(crate) next_ordinal: u64,
     pub(crate) next_req: u64,
     /// The monotonic time of the last `pump` (TM-1: the host passes it; Core reads no clock). `None` before the first one.
     pub(crate) now: Option<Instant>,
@@ -221,6 +224,7 @@ impl HostEngine {
             next_capture: 1,
             next_route: 1,
             next_instance: 1,
+            next_ordinal: 1,
             next_req: 1,
             now: None,
             unadopted: registry_ids,

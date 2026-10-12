@@ -27,9 +27,9 @@ use std::time::Instant;
 /// The bits of the sequence number in a cursor (R-101 follow-up). The ordinal is above them.
 const SEQ_BITS: u32 = 29;
 /// The bits of the ordinal: every cursor stays below 2^53, the largest integer that every JSON reader keeps exact.
-pub(super) const ORDINAL_BITS: u32 = 24;
+const ORDINAL_BITS: u32 = botster_core_link::msg::CURSOR_ORDINAL_BITS;
 /// The largest ordinal.
-pub(super) const MAX_ORDINAL: u64 = (1 << ORDINAL_BITS) - 1;
+const MAX_ORDINAL: u64 = botster_core_link::msg::MAX_CURSOR_ORDINAL;
 /// The largest sequence number.
 const MAX_SEQ: u64 = (1 << SEQ_BITS) - 1;
 const _: () = assert!(ORDINAL_BITS + SEQ_BITS <= 53);

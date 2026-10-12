@@ -64,6 +64,8 @@ pub struct StartFlow {
 pub enum StartPhase {
     /// Draws the token (AD-6).
     Token,
+    /// Reserves the instance's cursor ordinal in the registry (steward ruling R-101 Q6), before anything runs.
+    RowOrdinal,
     /// AD-7 step 1: the row `Starting` with the instance and the token.
     RowStarting,
     PostStarting,

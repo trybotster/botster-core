@@ -21,6 +21,18 @@ pub fn row_key(id: &SessionId) -> String {
 
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
+/// The key of the cursor ordinal counter (steward ruling R-101 Q6): the highest ordinal that a `Start` reserved in this data
+/// directory, in decimal. It is outside `ROW_PREFIX`, as the host epoch's row is (DESIGN.md "The cursor ordinal").
+pub const ORDINAL_KEY: &str = "meta/cursor-ordinal";
+
+/// The next cursor ordinal after the counter row `counter` (1 with no row), or `None` when the row is not a number.
+pub fn next_ordinal(counter: Option<&[u8]>) -> Option<u64> {
+    let Some(bytes) = counter else {
+        return Some(1);
+    };
+    let last: u64 = std::str::from_utf8(bytes).ok()?.parse().ok()?;
+    Some(last.saturating_add(1))
+}
 
 /// How a session ended: one of the two ends that Core reaches. A type of this crate, so that every match on it is total and
 /// no fallback is needed: Core never posts `Lost(Other)` (AD-2; steward ruling R-35, correction `c3ed727`).
