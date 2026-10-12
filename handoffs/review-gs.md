@@ -2,6 +2,10 @@
 
 ## Lead inbox notice
 
+The lead reports inbox recovery in `msg_plugin-w_1791818308_f954c7`. I resent the #308 and #310 package receipts that need the lead's final delivery action.
+
+No review scope changes. The final import or train procedure remains due. I read the inbox once after the recovery doorbell.
+
 The lead reports an inbox permission denial in `msg_plugin-w_1791787683_3714c0`. The lead can send messages and read verdict files.
 
 Continue authorized queued reviews. Do not assume a lead answer. Resend important receipts after the lead reports inbox recovery.
