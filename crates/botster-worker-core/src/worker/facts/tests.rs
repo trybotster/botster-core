@@ -576,3 +576,137 @@ fn an_overflowing_first_input_reports_gap_on_every_read() {
     assert!(facts.read(t0, Some(pending.next_cursor)).gap);
     assert!(facts.read(t0, Some(done.next_cursor)).gap);
 }
+
+fn host_write(facts: &mut Facts, t0: Instant, b: &[u8]) -> RecordId {
+    facts
+        .received(t0, InputSource::Host, Content::Payload(&bytes(b)))
+        .unwrap()
+}
+
+/// Steward ruling R-117: one client input, then host writes past `input_events_kept`. The list keeps the record of the
+/// current client `rev` and its status update, and the newest host record and its status update, over the count bound,
+/// and every read is `gap`.
+#[test]
+fn the_current_client_record_and_the_newest_host_record_are_both_kept() {
+    let t0 = start();
+    let mut facts = Facts::new(1, &limits(2, u64::MAX), t0);
+    let client_id = facts
+        .received(t0, client(), Content::Payload(&bytes(b"a")))
+        .unwrap();
+    facts.ended(client_id, InputRecordState::Written, Some(1));
+    let after_client = facts.read(t0, None).next_cursor;
+    for b in [b"b", b"c", b"d"] {
+        let id = host_write(&mut facts, t0, b);
+        facts.ended(id, InputRecordState::Written, Some(1));
+    }
+    let read = facts.read(t0, None);
+    let [InputRecordEntry::Record(c), InputRecordEntry::StatusUpdate(cu), InputRecordEntry::Record(h), InputRecordEntry::StatusUpdate(hu)] =
+        read.records.as_slice()
+    else {
+        panic!("both protected pairs: {:?}", read.records);
+    };
+    assert_eq!(
+        (&c.source, &c.payload),
+        (&client(), &Some(HexBytes(b"a".to_vec())))
+    );
+    assert_eq!(cu.updates, c.cursor);
+    assert_eq!(
+        (&h.source, &h.payload),
+        (&InputSource::Host, &Some(HexBytes(b"d".to_vec())))
+    );
+    assert_eq!(hu.updates, h.cursor);
+    assert!(
+        read.gap,
+        "older host records were dropped, and the list is over the count bound"
+    );
+    assert!(facts.read(t0, Some(after_client)).gap);
+    assert!(
+        facts.read(t0, Some(read.next_cursor)).gap,
+        "the count overflow itself"
+    );
+}
+
+/// Steward ruling R-117: before the first client input only the newest record is protected; a pending client record stays
+/// protected while host writes pass it, and its status update joins it when it ends. A later client record takes over the
+/// protection.
+#[test]
+fn a_pending_client_record_stays_protected_until_a_later_client_record() {
+    let t0 = start();
+    let mut facts = Facts::new(1, &limits(2, u64::MAX), t0);
+    for b in [b"h", b"i"] {
+        let id = host_write(&mut facts, t0, b);
+        facts.ended(id, InputRecordState::Written, Some(1));
+    }
+    let hosts = facts.read(t0, None);
+    assert_eq!(
+        hosts.records.len(),
+        2,
+        "only the newest pair before any client input"
+    );
+    assert_eq!(
+        record(&hosts.records[0]).payload,
+        Some(HexBytes(b"i".to_vec()))
+    );
+    let first = facts
+        .received(t0, client(), Content::Payload(&bytes(b"a")))
+        .unwrap();
+    for b in [b"j", b"k"] {
+        let id = host_write(&mut facts, t0, b);
+        facts.ended(id, InputRecordState::Written, Some(1));
+    }
+    facts.ended(first, InputRecordState::Written, Some(1));
+    let read = facts.read(t0, None);
+    let payloads: Vec<_> = read
+        .records
+        .iter()
+        .map(|e| match e {
+            InputRecordEntry::Record(r) => r.payload.clone(),
+            _ => None,
+        })
+        .collect();
+    let a = Some(HexBytes(b"a".to_vec()));
+    let k = Some(HexBytes(b"k".to_vec()));
+    assert_eq!(payloads, [a.clone(), k, None, None], "{:?}", read.records);
+    let second = facts
+        .received(t0, client(), Content::Payload(&bytes(b"b")))
+        .unwrap();
+    facts.ended(second, InputRecordState::Written, Some(1));
+    let read = facts.read(t0, None);
+    assert_eq!(read.records.len(), 2, "{:?}", read.records);
+    assert_eq!(
+        record(&read.records[0]).payload,
+        Some(HexBytes(b"b".to_vec()))
+    );
+}
+
+/// Steward ruling R-117 with R-116 item 3: a host record beside the protected client pair is cut so that the list stays
+/// within `input_events_bytes`, the room of the client record's later status update included. Nothing older is dropped,
+/// so there is no `gap`.
+#[test]
+fn a_newest_host_record_leaves_room_for_the_protected_client_pair() {
+    let t0 = start();
+    let bound = 1280;
+    let mut facts = Facts::new(1, &limits(64, bound), t0);
+    let client_id = facts
+        .received(t0, client(), Content::Payload(&bytes(&[7; 200])))
+        .unwrap();
+    let host = host_write(&mut facts, t0, &[9; 256]);
+    assert!(facts.list_len() <= bound, "{} > {bound}", facts.list_len());
+    facts.ended(client_id, InputRecordState::Written, Some(200));
+    facts.ended(host, InputRecordState::Written, Some(256));
+    let read = facts.read(t0, None);
+    assert_eq!(read.records.len(), 4, "{:?}", read.records);
+    assert_eq!(
+        record(&read.records[0]).payload,
+        Some(HexBytes(vec![7; 200]))
+    );
+    let h = record(&read.records[1]);
+    assert!(h.payload_truncated);
+    assert!(h
+        .payload
+        .as_ref()
+        .is_some_and(|p| !p.0.is_empty() && p.0.len() < 256));
+    let len = serde_json::to_vec(&read.records).unwrap().len() as u64;
+    assert!(len <= bound, "{len} > {bound}");
+    assert!(!read.gap);
+}
