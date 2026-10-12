@@ -3602,3 +3602,55 @@ I read the complete integration verdict at `5c99bdb6fd6eff692ab45e044af42e4f2578
 Sol-B reports CLEAN on the same exact #310 head and source/gate base. The source and completed gate conclusions agree with the package review.
 
 No finding changes. The initial integration receipt is complete. The authorized final import or train procedure remains due. No #306 retry is authorized.
+
+## Train 3 — #310 and #308 source deltas
+
+- Exact train head: `3435a6d2ce981ec5c06a888ba907667938f50137`.
+- Train tree: `787fc74f540d554f8e28070456d3cc5feeaa19b2`.
+- Current v1 base: `080987829a2e2245a7ea97606020400392c974d6`.
+- #310 delta verdict: CLEAN (source delta only; train gate pending).
+- #308 delta verdict: NOT CLEAN (1 HIGH open).
+
+The lead assigns these deltas in `msg_plugin-w_1791818862_17a9a6`. The train merges #310, #312, #308, then #309.
+
+I read the merge ancestry, both complete member merge deltas, the final own files, the pin changes, and affected tier/helper context.
+
+Static comparisons show both member patches are preserved after index lines and hunk positions are removed. All four #310 files are byte-identical to its accepted member.
+
+All three #308 files are also byte-identical to its accepted member. Textual preservation does not close the list interaction described below.
+
+### #310 shared helper delta
+
+The resolver reads the contracts pin from the current lock. The train changes that pin from .43 to .44 without changing the package name or source layout.
+
+The resolver does not hardcode the old revision. The retained slow test compares its canonical result with Cargo metadata on the delivered train.
+
+The production lists check still obtains the contracts checkout from Cargo metadata. The byte-copy check and real metadata test remain selected.
+
+The extracted parser, xtask slow feature, and slow-module filter remain unchanged. The train adds no #310 mutation exclusion.
+
+No #310 source delta finding remains. This verdict covers #310 only. Sol-B owns the combined train review, and the train gate remains due.
+
+### GS-FS-T3-1 — HIGH — OPEN: the .44 pin leaves the obsolete in_8 entry active
+
+Evidence: train Cargo.lock pins contracts-v0.1.44 at `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+
+The train retains #308's in_8 known-flaky entry with `removed_by = "contracts-v0.1.44 pin"`. The repository-list test still requires that entry.
+
+The accepted removal trigger is now met. I read the contracts transcript delta from .43 to this exact .44 commit.
+
+That delta adds the R-74 held-write setup and input-queue fence before the tested write. It carries the entry's named structural fix.
+
+The stale entry continues to exclude this exact real-tier test from mutant runs. It also retains the old signature for re-gate policy review after its removal trigger.
+
+The earlier #308 acceptance explicitly required removal through the .44 pin. The combined train must preserve that condition even though the member files merge unchanged.
+
+Required change: remove the in_8 entry on the delivered train head. Update the repository-list assertion and comment to require the empty list.
+
+Preserve the named signature parser and report format. Obtain delta review and run the single train gate on the repaired exact head after source findings close.
+
+Sol-B independently reports the same interaction as T3-I2 MEDIUM. I classify it HIGH because the delivered gate retains an obsolete exclusion and re-gate signature.
+
+Both reviews require the same closure. I sent the finding to GS and Sol-B and asked the lead for the concrete frozen-train repair.
+
+No train gate result is accepted. I ran no build, test, gate, diagnostic, mutation job, or executable base check.

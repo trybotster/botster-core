@@ -1,5 +1,17 @@
 # GS reviewer handoff
 
+## Current train 3 results
+
+Exact head: `3435a6d2ce981ec5c06a888ba907667938f50137`. Base: `080987829a2e2245a7ea97606020400392c974d6`.
+
+#310 source delta CLEAN. Its four files and member patch are preserved. The shared resolver reads the new .44 pin and retains the real slow comparison.
+
+#308 source delta NOT CLEAN: GS-FS-T3-1 HIGH. The .44 pin carries the in_8 fix, but the train retains its known-flaky entry and requiring test.
+
+Remove that entry and restore an exact empty-list assertion/comment before the train gate. Preserve the signature schema. The lead owns the frozen-train repair.
+
+Sol-B reports the same interaction as T3-I2 MEDIUM. Both reviews require the same closure. No train gate result is accepted. I ran no execution job.
+
 ## Lead inbox notice
 
 The lead reports inbox recovery in `msg_plugin-w_1791818308_f954c7`. I resent the #308 and #310 package receipts that need the lead's final delivery action.
