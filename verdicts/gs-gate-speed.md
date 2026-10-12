@@ -3967,3 +3967,21 @@ Sol-B maps all 46 new #307/#315 tests to existing guarded binaries: 43 default l
 Both reviews preserve the imported pin, inherited EV-2 policy, unchanged accounting, and accepted root-check limits. The LINK_CAPACITY exclusion shift adds no checker exclusion.
 
 The final train gate, bodies, member receipts, and lead merge checks remain due. This receipt accepts no running result or additional retry.
+
+## Core #308 — late body finding
+
+- Exact head remains `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+- Base remains `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: NOT CLEAN (1 LOW open).
+
+Sol-B identifies an outdated severity label in the complete body. This finding supersedes the earlier exact-head CLEAN until closure.
+
+### GS-FS-R3-1 — LOW — OPEN: the body retains Sol-B's earlier severity label
+
+The Train 3 paragraph labels T3-I2 MEDIUM. Sol-B's final train-3 record classifies that finding HIGH.
+
+Required change: change the label to HIGH or omit it. The body must reflect the final recorded finding.
+
+The source repair still closes GS-FS-T3-1. The completed gate and all earlier source conclusions remain unchanged.
+
+This body-only correction requires no source commit or new gate. I sent the finding to GS and Sol-B. I ran no execution job.
