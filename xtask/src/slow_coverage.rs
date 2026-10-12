@@ -722,46 +722,30 @@ mod slow_tests {
         let pending = ids(&["conf::pending_id"]);
         let unrun = "botster-core tests::runs_only_under_slow: only the slow features build it, and the slow filter \
                      does not select it, so no tier runs it";
-        // The fixture's binaries have no build-root test: the presence check names each binary of each tier.
-        let found = check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap();
-        let starts: Vec<&str> = found
-            .iter()
-            .map(|line| line.split(" the build-root").next().unwrap())
-            .collect();
-        assert_eq!(
-            starts,
-            [
-                unrun,
-                "default tier: botster-core does not list",
-                "slow tier: botster-core does not list",
-                "slow tier: botster-core::slow_conformance does not list",
-            ]
-        );
-        // The root test of each binary, as the macros make it. The copies get it at run time: the fixture's tracked
-        // sources may not contain the name (`cargo xtask built-in`).
-        {
-            use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
-            let lib = dir.path().join("src/lib.rs");
-            let mut source = std::fs::read_to_string(&lib).unwrap();
-            source.push_str(&format!("\n#[test]\nfn {TEST_NAME}() {{}}\n"));
-            std::fs::write(&lib, source).unwrap();
-            let harness = dir.path().join("tests/slow_conformance.rs");
-            let source = std::fs::read_to_string(&harness).unwrap();
-            let selected = "println!(\"selected: test\");";
-            assert_eq!(source.matches(selected).count(), 1);
-            std::fs::write(
-                &harness,
-                source.replace(
-                    selected,
-                    &format!("{selected} println!(\"{TEST_NAME}: test\");"),
-                ),
-            )
-            .unwrap();
-        }
-        assert_eq!(
-            check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap(),
-            [unrun]
-        );
+        // The fixture has no build-root test: no test or trial with that name is made outside the macros (pair-common,
+        // #306). So every check also names each binary of each tier, on the real nextest lists; `checked` asserts those
+        // lines and returns the others.
+        let checked = |pending: &BTreeSet<String>, proofs: &[RealProof]| -> Vec<String> {
+            let found = check(dir.path(), &target, &packages, pending, &[], proofs).unwrap();
+            let (presence, other): (Vec<String>, Vec<String>) =
+                found.into_iter().partition(|line| {
+                    line.starts_with("default tier: ") || line.starts_with("slow tier: ")
+                });
+            let starts: Vec<&str> = presence
+                .iter()
+                .map(|line| line.split(" the build-root").next().unwrap())
+                .collect();
+            assert_eq!(
+                starts,
+                [
+                    "default tier: botster-core does not list",
+                    "slow tier: botster-core does not list",
+                    "slow tier: botster-core::slow_conformance does not list",
+                ]
+            );
+            other
+        };
+        assert_eq!(checked(&pending, &[]), [unrun]);
 
         let lib = dir.path().join("src/lib.rs");
         let source = std::fs::read_to_string(&lib).unwrap();
@@ -772,40 +756,21 @@ mod slow_tests {
             binary: "botster-core".into(),
             test: test.into(),
         };
-        let unselected = check(
-            dir.path(),
-            &target,
-            &packages,
-            &pending,
-            &[],
-            &[proof("tests::runs_only_under_slow")],
-        )
-        .unwrap();
+        let unselected = checked(&pending, &[proof("tests::runs_only_under_slow")]);
         assert_eq!(unselected.len(), 2, "{unselected:?}");
         assert!(unselected[1].ends_with(
             "the slow filter does not select the test, so the slow tier does not run it"
         ));
         std::fs::write(&lib, source.replace("mod tests", "mod slow_tests")).unwrap();
-        assert_eq!(
-            check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap(),
-            Vec::<String>::new()
-        );
+        assert_eq!(checked(&pending, &[]), Vec::<String>::new());
         // Renamed, the filter selects it, so a proof line may name it.
         assert_eq!(
-            check(
-                dir.path(),
-                &target,
-                &packages,
-                &pending,
-                &[],
-                &[proof("slow_tests::runs_only_under_slow")]
-            )
-            .unwrap(),
+            checked(&pending, &[proof("slow_tests::runs_only_under_slow")]),
             Vec::<String>::new()
         );
 
         assert_eq!(
-            check(dir.path(), &target, &packages, &ids(&[]), &[], &[]).unwrap(),
+            checked(&ids(&[]), &[]),
             [
                 "botster-core::slow_conformance [pending-real] conf::pending_id: only the slow features build it, and it \
                  is ignored; only a listed trial of botster-core::slow_conformance may be ignored there"
