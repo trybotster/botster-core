@@ -40,6 +40,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         payload: None,
         spawned: None,
         exit: None,
+        watch_failed: false,
         drain: None,
         pty_write: None,
         pty_resized: None,
@@ -95,11 +96,11 @@ fn a_control_link_eof_closes_the_link() {
 }
 
 /// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The edge's
-/// drain is bounded (`Drain`): the count that the program held when it was asked, then one flushing read, then at most
-/// the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
-/// only an asked drain.
+/// drain is the real driver's (`Drain`, R-108 (1)): the count that the program held when it was asked, then a flushing
+/// read, again until a read finds nothing. Output that comes while it drains is read before `PtyDrained` (no byte bound,
+/// R-108 (2)), and `PtyDrained` answers only an asked drain.
 #[test]
-fn the_edge_drain_is_bounded_by_the_asked_count() {
+fn the_edge_drain_reads_until_a_read_finds_nothing() {
     let (mut edges, _peer, worker, now) = fixture(8);
     let script = serde_json::from_value(serde_json::json!({"program": [
         {"print": {"bytes_hex": "616263"}}, {"hold": {}}
@@ -119,8 +120,8 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
     // No drain is asked: the edge reads output while it waits.
     assert_eq!(edges.ready(now, &worker), 1);
     assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
-    // The drain is asked while output waits. Output that comes before the flushing read is found by it; output that comes
-    // after the count measured once after that read waits.
+    // The drain is asked while output waits. Output that comes before a flushing read is found by it, also after the first
+    // flushing read found bytes.
     let held = control.output_unread();
     edges.perform(now, Action::DrainPty);
     control.write_once(b"later");
@@ -140,13 +141,10 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
             other => panic!("{other:?}"),
         }
     }
-    assert_eq!(drained.len(), held + b"later".len());
-    assert_eq!(
-        control.output_unread(),
-        b"more".len(),
-        "a writer cannot extend the drain"
-    );
-    // The rest is read with no drain, and no `PtyDrained` follows it.
+    assert_eq!(drained.len(), held + b"later".len() + b"more".len());
+    assert_eq!(control.output_unread(), 0, "the drain read the whole tail");
+    // Output after the drain is read with no drain, and no `PtyDrained` follows it.
+    control.write_once(b"after");
     while control.output_unread() > 0 {
         assert_eq!(edges.ready(now, &worker), 1);
         assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));

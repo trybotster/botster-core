@@ -218,7 +218,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
         h.waiting_payload();
         let mut output = Vec::new();
         while output.len() < b"ready".len() {
-            h.driver.read_pty_chunk();
+            h.driver.read_pty_chunk().unwrap();
             let Some(Input::PtyOutput(bytes)) = h.driver.inputs.pop_front() else {
                 panic!("queued program bytes must remain readable at bound {bound}");
             };
@@ -227,7 +227,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
             assert!(h.driver.inputs.is_empty());
         }
         assert_eq!(output, b"ready");
-        h.driver.read_pty_chunk();
+        h.driver.read_pty_chunk().unwrap();
         assert!(!h.driver.pty_readable);
         assert!(h.driver.inputs.is_empty());
     }
@@ -434,7 +434,7 @@ fn pty_events_resume_reads_after_would_block() {
         assert_eq!(&bytes[..count], expected);
     };
     marker(&mut fifos[0], b"ready\n");
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
     // The test reads the link as a host does: the worker reports the program's output (Core 6.2), and a link that nobody
@@ -489,41 +489,188 @@ fn pty_events_resume_reads_after_would_block() {
 #[test]
 fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     let mut h = Harness::new();
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.waiting_payload();
     h.driver.pty_readable = false;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.driver.pty_readable = true;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(
         h.driver.inputs.pop_front(),
         Some(Input::PtyOutput(b"ready".to_vec()))
     );
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
-    assert_eq!(h.driver.drain_left, Some(0));
-    h.driver.read_pty_chunk();
+    // A drain whose read finds nothing is complete; `PtyDrained` follows in the next read step.
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
+    assert_eq!(h.driver.drain, Some(Drain::Done));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
     h.driver.payload.as_ref().unwrap().signal_group(9);
     h.driver
         .exits
         .1
         // timer: deadline — the production exit watch must observe the group kill.
         .recv_timeout(Duration::from_secs(10))
-        .unwrap();
+        .unwrap()
+        .expect("the exit watch observed the group kill");
     h.driver.pty_readable = true;
     h.driver.perform(Action::ReapPayload).unwrap();
     assert!(!h.driver.pty_registered);
     assert!(!h.driver.pty_readable);
     assert!(h.driver.payload.is_none());
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
+}
+
+/// A31, R-108, R-108-E1: a killed payload's unread tail is read whole by the driver's drain, also the part that the PTY's
+/// count left out. The payload writes the largest unread tail that its OS holds (the measurement of R-108-E1: on Linux more
+/// than the count, which sees at most 4095 bytes; on macOS at most 1024 bytes, all counted) and a title, and nothing is
+/// read until its marker. Then its group is killed, and after the exit the drain (`DrainPty`, then reads until
+/// `PtyDrained`) must give every byte that the payload wrote.
+#[test]
+fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
+    const TITLE: &[u8] = b"\x1b]0;T\x1b\\";
+    let n = if cfg!(target_os = "linux") {
+        4096
+    } else {
+        1000
+    };
+    let mut h = Harness::new();
+    let ready = h.root.path().join("ready");
+    let made = botster_test_process::OwnedChild::spawn(
+        std::process::Command::new("/usr/bin/mkfifo").arg(&ready),
+    )
+    .unwrap()
+    .status();
+    assert!(made.success());
+    let mut reader = std::fs::File::from(
+        rustix::fs::open(
+            &ready,
+            rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap(),
+    );
+    let guard = payload_guard::PayloadGuard::new(h.root.path());
+    let script = format!(
+        "{}/usr/bin/head -c {n} /dev/zero | /usr/bin/tr '\\0' a; printf '\\033]0;T\\033\\\\'; /bin/echo queued > '{}'; read answer",
+        guard.prefix(),
+        ready.display()
+    );
+    h.own(guard);
+    h.driver
+        .spawn(&PayloadSpec {
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
+            env: std::collections::BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+        reader.as_fd(),
+        rustix::event::PollFlags::IN,
+    )];
+    // timer: deadline — bounds the program's marker, which it writes after its whole output.
+    let limit = rustix::event::Timespec {
+        tv_sec: 10,
+        tv_nsec: 0,
+    };
+    assert!(
+        rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0,
+        "the program's marker did not come: the PTY holds less than {n} unread bytes"
+    );
+    let mut marker = [0; 64];
+    let count = reader.read(&mut marker).unwrap();
+    assert_eq!(&marker[..count], b"queued\n");
+    let mut expected = vec![b'a'; n];
+    expected.extend_from_slice(TITLE);
+    let counted = h.driver.payload.as_ref().unwrap().pending_output().unwrap();
+    if cfg!(target_os = "linux") {
+        assert!(
+            counted < expected.len(),
+            "the count leaves part of the tail out on Linux: {counted} of {}",
+            expected.len()
+        );
+    }
+    h.driver.payload.as_ref().unwrap().signal_group(9);
+    // The test waits on the driver's own poll for the production exit wake (`EXIT`), under one deadline. On macOS a dying
+    // leader waits for its terminal to drain (R-108-E1), so there the driver reads at each PTY readiness while the test waits,
+    // as its loop does. On Linux the exit comes without reads, so nothing is read before `DrainPty`, and the drain must read
+    // the whole tail, also the part that the count left out.
+    let read_while_waiting = !cfg!(target_os = "linux");
+    // `spawn` assumes the new PTY readable. The test clears that assumption, so only a PTY event on the poll sets it.
+    h.driver.pty_readable = false;
+    let mut output = Vec::new();
+    let mut events = Events::with_capacity(16);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut exited = false;
+    let mut saw_pty_event = false;
+    while !exited {
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .expect("no exit after the kill");
+        // timer: deadline — the one bounded wait for the production exit wake after the group kill.
+        if io_decisions::poll_interrupted(h.driver.poll.poll(&mut events, Some(left))).unwrap() {
+            continue;
+        }
+        for event in &events {
+            match event.token() {
+                // R-106: only a status from the exit watch is the payload's exit; a failed watch fails the test.
+                EXIT => match h.driver.exits.1.try_recv() {
+                    Ok(Ok(_status)) => exited = true,
+                    Ok(Err(failed)) => panic!("the exit watch failed: {failed:?}"),
+                    Err(_) => {}
+                },
+                PTY => {
+                    saw_pty_event = true;
+                    h.driver.pty_readable = true;
+                }
+                _ => {}
+            }
+        }
+        if read_while_waiting && !exited {
+            while h.driver.pty_readable && h.driver.pty_registered {
+                h.driver.read_pty_chunk().unwrap();
+            }
+            while let Some(input) = h.driver.inputs.pop_front() {
+                match input {
+                    Input::PtyOutput(bytes) => output.extend(bytes),
+                    other => panic!("{other:?}"),
+                }
+            }
+        }
+    }
+    if !read_while_waiting {
+        assert!(
+            saw_pty_event,
+            "a PTY event came on the poll before the exit"
+        );
+    }
+    h.driver.perform(Action::DrainPty).unwrap();
+    let mut reads = 0;
+    loop {
+        h.driver.read_pty_chunk().unwrap();
+        reads += 1;
+        assert!(reads < 1000, "the drain did not end");
+        match h.driver.inputs.pop_front() {
+            Some(Input::PtyOutput(bytes)) => output.extend(bytes),
+            Some(Input::PtyDrained) => break,
+            Some(other) => panic!("{other:?}"),
+            None => {}
+        }
+    }
+    assert_eq!(output.len(), expected.len(), "bytes lost by the drain");
+    assert_eq!(output, expected);
 }

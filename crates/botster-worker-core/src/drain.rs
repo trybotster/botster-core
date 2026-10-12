@@ -1,24 +1,24 @@
 //! The drain of the PTY at the payload's exit (`Action::DrainPty`), as one decision that a driver advances after each read.
-//! The testkit edge drives it now. The real driver adopts it with audit finding A31 (#163 part B); until then the real
-//! driver's drain reads only the count, without the flushing read. That is the open A31 defect: the two drains differ
-//! until A31 lands (BUILD.md: a behavior that differs between them is an edge bug).
+//! Both drivers drive it: the testkit edge and the real driver (audit finding A31, R-107, R-108), so the two drains are the
+//! same (BUILD.md: a behavior that differs between them is an edge bug).
 
 /// The drain of the PTY that `Action::DrainPty` asks for at the payload's exit: the output written before the exit is read
-/// before the exit is reported (EV-4, ST-5), and output that a remaining process of the group writes later cannot hold the
-/// exit back.
+/// before the exit is reported (OU-7 "lossless", EV-4, ST-5).
 ///
-/// The count of the PTY (`FIONREAD`) can leave out output that the terminal has not moved to its read buffer yet. A
-/// nonblocking read moves it before it reports that no byte is left. So the drain reads the count, then reads until a read
-/// finds nothing or the end of the output. If that flushing read finds bytes, the drain reads at most the count measured
-/// once right after it, so a process that keeps writing cannot extend the drain.
+/// The count of the PTY (`FIONREAD`) can leave out output that the terminal has not moved to its read buffer yet: on Linux
+/// it counts only the line discipline's read buffer (at most 4096 bytes), and more output waits in the flip buffers. A
+/// nonblocking read moves that output before it reports that no byte is left. So the drain repeats a counted part and then
+/// a flushing read, and it ends only when a read finds nothing or the output ends (`EIO` or EOF, on either OS: R-108-E1). A count is
+/// only the size of the next reads, never a reason to stop: the drain has no byte bound (R-108 (1), (2)).
+///
+/// A process that holds the PTY and keeps writing after the payload's exit keeps the drain going. The contract does not say
+/// when such a tail ends (R-108 (3), Core Amendment 24), so the drain does not stop it early.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Drain {
-    /// The bytes still to read of the count taken when the drain was asked.
+    /// The bytes still to read of the last count.
     Counted(usize),
-    /// The count is read. The next read flushes, and it ends the drain unless it finds bytes.
+    /// The count is read. The next read flushes: it ends the drain if it finds nothing.
     Flush,
-    /// The bytes still to read of the count measured after the flushing read.
-    Flushed(usize),
     /// The drain is complete: `PtyDrained` is due.
     Done,
 }
@@ -35,13 +35,14 @@ impl Drain {
     /// The most bytes that the next read takes, within the driver's read bound `chunk`.
     pub fn want(self, chunk: usize) -> usize {
         match self {
-            Drain::Counted(left) | Drain::Flushed(left) => left.min(chunk),
+            Drain::Counted(left) => left.min(chunk),
             Drain::Flush | Drain::Done => chunk,
         }
     }
 
     /// The drain after a read that found `n` bytes (0: nothing, or the end of the output, which completes the drain).
-    /// `measure` gives the count of the PTY; it is called only after a flushing read that found bytes.
+    /// `measure` gives the count of the PTY; it is called only after a flushing read that found bytes, and it gives the size
+    /// of the next counted part.
     pub fn after_read<E>(
         self,
         n: usize,
@@ -51,12 +52,8 @@ impl Drain {
             _ if n == 0 => Drain::Done,
             Drain::Counted(left) if n < left => Drain::Counted(left - n),
             Drain::Counted(_) => Drain::Flush,
-            Drain::Flush => match measure()? {
-                0 => Drain::Done,
-                left => Drain::Flushed(left),
-            },
-            Drain::Flushed(left) if n < left => Drain::Flushed(left - n),
-            Drain::Flushed(_) | Drain::Done => Drain::Done,
+            Drain::Flush => Drain::asked(measure()?),
+            Drain::Done => Drain::Done,
         })
     }
 }
@@ -66,7 +63,7 @@ mod tests {
     use super::*;
 
     /// Reads like the driver: `reads` gives the bytes that each read finds (0: nothing or the end), `measures` the count
-    /// after the flushing read. Returns the bytes that the drain read and the reads it made.
+    /// after each flushing read that found bytes. Returns the bytes that the drain read and the reads it made.
     fn drain_with(
         pending: usize,
         reads: &[usize],
@@ -86,62 +83,101 @@ mod tests {
                 })
                 .unwrap();
         }
+        assert!(reads.next().is_none(), "every read was made");
         assert!(measures.next().is_none(), "every measure was used");
         (total, made)
     }
 
-    /// A31: output that the count left out (still in the terminal's flip buffer) is read: after the counted bytes, the
-    /// flushing read finds it, and the count measured once after that read bounds the rest.
+    /// A31, R-108 (1): output that the count left out (still in the terminal's flip buffer) is read. After the counted bytes,
+    /// a flushing read finds it, the count after that read sizes the next part, and only a read that finds nothing ends the
+    /// drain.
     #[test]
     fn a_drain_reads_the_output_that_its_count_left_out() {
         let chunk = 8;
-        // The count saw 3 bytes; 4 more were not counted. The flushing read finds 2, and the count after it the other 2.
-        let reads = [3, 2, 2];
-        let (total, made) = drain_with(3, &reads, &[2], chunk);
-        assert_eq!(total, reads.iter().sum::<usize>());
-        assert_eq!(
-            made,
-            reads.len(),
-            "the drain ends when the measured count is read"
-        );
-        // A count of 0 still makes the flushing read; a count of 0 after it ends the drain.
-        let reads = [2];
-        let (total, made) = drain_with(0, &reads, &[0], chunk);
-        assert_eq!((total, made), (2, reads.len()));
+        // The count saw 3 bytes; 4 more were not counted. The flushing read finds 2, the count after it the other 2, and
+        // the next flushing read finds nothing.
+        let reads = [3, 2, 2, 0];
+        assert_eq!(drain_with(3, &reads, &[2], chunk), (7, reads.len()));
+        // A count of 0 still makes the flushing read. A count of 0 after a read that found bytes is a flushing read again.
+        let reads = [2, 3, 0];
+        assert_eq!(drain_with(0, &reads, &[0, 0], chunk), (5, reads.len()));
         // A flushing read that finds nothing ends the drain at once.
         assert_eq!(drain_with(3, &[3, 0], &[], chunk), (3, 2));
+        assert_eq!(drain_with(0, &[0], &[], chunk), (0, 1));
+    }
+
+    /// A31, R-108 (1): a tail of many times the count is read whole. The model is Linux's master: the count sees at most
+    /// 4096 bytes (the line discipline's read buffer), the rest waits in the flip buffer, and a read moves the next 4096
+    /// into the read buffer when it is empty.
+    #[test]
+    fn a_tail_of_many_counts_is_read_whole() {
+        const READ_BUFFER: usize = 4096;
+        for tail in [0, 1, READ_BUFFER, READ_BUFFER + 1, 16 * 1024, 60 * 1024 + 7] {
+            for chunk in [1000, READ_BUFFER, 64 * 1024] {
+                let (mut flip, mut buffer) = (tail, 0usize);
+                let fill = |buffer: &mut usize, flip: &mut usize| {
+                    let moved = (READ_BUFFER - *buffer).min(*flip);
+                    *buffer += moved;
+                    *flip -= moved;
+                };
+                fill(&mut buffer, &mut flip);
+                let mut drain = Drain::asked(buffer);
+                let mut read = 0;
+                while drain != Drain::Done {
+                    if buffer == 0 {
+                        fill(&mut buffer, &mut flip);
+                    }
+                    let found = buffer.min(drain.want(chunk));
+                    buffer -= found;
+                    read += found;
+                    drain = drain.after_read(found, || Ok::<_, ()>(buffer)).unwrap();
+                }
+                assert_eq!(read, tail, "tail {tail}, chunk {chunk}");
+            }
+        }
     }
 
     /// Each read moves the drain by exactly the bytes it found: a short read leaves the rest of the count, a read of the whole
-    /// count moves to the next step, and a read of 0 ends the drain.
+    /// count moves to the flushing read, a flushing read that finds bytes moves to the count measured after it, and a read
+    /// of 0 ends the drain.
     #[test]
     fn a_read_moves_the_drain_by_the_bytes_it_found() {
-        let after = |drain: Drain, n: usize| {
+        let after = |drain: Drain, n: usize, measured: usize| {
             drain
-                .after_read(n, || Ok::<_, std::convert::Infallible>(4))
+                .after_read(n, || Ok::<_, std::convert::Infallible>(measured))
                 .unwrap()
         };
-        assert_eq!(after(Drain::Counted(5), 2), Drain::Counted(3));
-        assert_eq!(after(Drain::Counted(5), 5), Drain::Flush);
-        assert_eq!(after(Drain::Counted(5), 0), Drain::Done);
-        assert_eq!(after(Drain::Flush, 1), Drain::Flushed(4));
-        assert_eq!(after(Drain::Flushed(5), 2), Drain::Flushed(3));
-        assert_eq!(after(Drain::Flushed(5), 5), Drain::Done);
-        assert_eq!(after(Drain::Flushed(5), 0), Drain::Done);
+        assert_eq!(after(Drain::Counted(5), 2, 9), Drain::Counted(3));
+        assert_eq!(after(Drain::Counted(5), 5, 9), Drain::Flush);
+        assert_eq!(after(Drain::Counted(5), 0, 9), Drain::Done);
+        assert_eq!(after(Drain::Flush, 1, 4), Drain::Counted(4));
+        assert_eq!(after(Drain::Flush, 1, 0), Drain::Flush);
+        assert_eq!(after(Drain::Flush, 0, 4), Drain::Done);
+        assert_eq!(after(Drain::Done, 3, 4), Drain::Done);
+        assert_eq!(Drain::Counted(5).want(3), 3);
+        assert_eq!(Drain::Counted(2).want(3), 2);
+        assert_eq!(Drain::Flush.want(3), 3);
     }
 
-    /// A31: a process that keeps writing cannot hold the exit back: past the count, the drain reads at most one flushing
-    /// read and the count measured once after it.
+    /// The count after a flushing read is read only when that read found bytes, and its failure is the drain's failure.
     #[test]
-    fn a_writer_that_keeps_writing_cannot_extend_the_drain() {
+    fn only_a_flushing_read_that_found_bytes_measures_and_its_failure_is_returned() {
+        let failing = || Err::<usize, &str>("count failed");
+        assert_eq!(Drain::Flush.after_read(2, failing), Err("count failed"));
+        assert_eq!(Drain::Flush.after_read(0, failing), Ok(Drain::Done));
+        assert_eq!(Drain::Counted(5).after_read(5, failing), Ok(Drain::Flush));
+    }
+
+    /// R-108 (2), (3): the drain has no byte bound. A writer that keeps the PTY busy keeps the drain going; when that tail
+    /// ends is Core Amendment 24's question, so the drain does not stop it early.
+    #[test]
+    fn a_writer_that_keeps_writing_keeps_the_drain_going() {
         let chunk = 8;
-        let (pending, measured) = (5, 6);
-        let endless = [chunk; 64];
-        let (total, made) = drain_with(pending, &endless, &[measured], chunk);
-        assert!(total <= pending + chunk + measured, "{total}");
-        assert!(
-            made < endless.len(),
-            "the drain ended while the writer still wrote"
-        );
+        let mut drain = Drain::asked(5);
+        for _ in 0..1000 {
+            let found = drain.want(chunk);
+            drain = drain.after_read(found, || Ok::<_, ()>(chunk)).unwrap();
+            assert_ne!(drain, Drain::Done, "no byte bound ends a busy drain");
+        }
     }
 }
