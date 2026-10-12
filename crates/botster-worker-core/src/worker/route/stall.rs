@@ -92,8 +92,9 @@ impl Worker {
         if route.stall.state(route.queued) != (mark, true) {
             return;
         }
-        // The droppable frames that are not started are dropped (OU-3b). A started frame is completed (OU-4).
-        let started = usize::from(route.written > 0);
+        // The droppable frames that are not started are dropped (OU-3b). A started frame is completed (OU-4): a frame with
+        // written bytes, or with a write out (the transport can accept its bytes).
+        let started = usize::from(route.written > 0 || route.writing);
         let mut kept = route.queue.split_off(started.min(route.queue.len()));
         kept.retain(|frame| {
             let keep = frame.kind != Kind::Droppable;
