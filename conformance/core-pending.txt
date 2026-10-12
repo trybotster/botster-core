@@ -146,8 +146,6 @@ conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
 conf::a5_1_testkit_is_real_core_one_worker_code_path
-# conf::a5_2_deferred_completion_keeps_slot_until_polled: step 10 expects PendingLimit with pending_ops 2, but only the Stop $a holds a slot then (steps 1 and 3 polled the Create and Start completions; EV-5(a)). Core admits the Create ({"ok":4}, E1 c0c86a58, seed 0); FakeCore frees slots at the same poll (fake structural, not run). Steward ruling R-92: the transcript changes to pending_ops 1 (P6 contracts PR); the id un-pends after the pin that contains it.
-conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
@@ -187,6 +185,7 @@ conf::ad_1_starting_without_identity_is_lost
 conf::ad_2_lost_reasons
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
+# conf::am_2_fairness_bound_across_routes: R-93, owner PC; the debt is the contracts core-fence-exceptions.txt line (contracts #79).
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
 conf::dp_10_t1_keystroke_to_pty_latency_budget
@@ -315,10 +314,10 @@ conf::ev_8_shadow_cannot_answer_and_client_silent_means_no_reply
 conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
+# conf::ev_9_every_session_event_carries_instance_id: Core serves control_queue, and the id fails at step 28: steward ruling R-96, the transcript
+# lists one Activity where Core correctly posts two (Output, and Client of r1). Owner PC: the contracts transcript PR; then core-real-pending (R-57, s81).
 conf::ev_9_every_session_event_carries_instance_id
 conf::in_1_host_write_and_route_frames_share_payload_kinds
-conf::in_6_cancel_result_kinds
-conf::in_6_refused_full_wakes_on_room
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag
