@@ -74,6 +74,8 @@ The completed train gate passes all ten steps. All three DP-2 proofs pass. The l
 
 Sol-B owns the combined final evidence receipt. The lead owns the final train record, base-tree check, and verified push. I ran no execution job.
 
+Sol-B completes combined and #304 final CLEAN at `67f04019a3199de0562ec28e9969fb44aa3ea6f3`. I read both complete artifacts. The lead's merge checks remain due.
+
 Train 1 source delta CLEAN at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, current v1 base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
 
 The #304 patch and proof sources preserve the reviewed member. The pending list retains exactly the v1, #301, and #304 removals.

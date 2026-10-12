@@ -3409,3 +3409,13 @@ I read the complete amended #304 body. The frozen member remains `37e5ee32d326f5
 Its train section records head `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, tree, base, review receipts, and the completed train gate.
 
 The stated DP-2 proof results and gate counts match the reviewed log. The composed-proof limit remains. No finding changes.
+
+### Sol-B final train receipt
+
+I read both complete artifacts at `67f04019a3199de0562ec28e9969fb44aa3ea6f3`: `verdicts/stage1/train-1.md` and `verdicts/stage1/gs-dp2-real-proof.md`.
+
+Sol-B accepts the combined train and #304's final evidence on the same exact train head, tree, base, and completed gate.
+
+Sol-B records all member receipts and verifies the mutation catches against their citations and normal PASS results. No #304 or combined finding remains.
+
+The lead's base update, gated-tree verification, and verified push remain due. This receipt claims no completed merge. I ran no execution job.
