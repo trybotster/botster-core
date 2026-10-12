@@ -35,6 +35,6 @@ HIGH (rule 3: the shared driver). Implementer: PC (sess-…0178). Package review
 ### Notes (not findings)
 
 - **The scope is wider than the table.** At this head, 34 `await_control pty_queued` steps in 28 ids take the new path, not only the six in the table. Examples are `a2_2`, `am_2`, `dp_5`, `e4_1` (3), `ev_8` (6), `in_2_partial`, `in_6_cancel`, `in_7` and `st_7` (7). The change can only end a wait earlier, when the control already matches, so no id gets a weaker check. The gate ran the whole corpus. The table's label ("the ids it covers") reads as the full set, but it is the audit's list of race sites.
-- **Main moved.** Main is now `3641e29c`. Since `8aaee62d` it changed `fence_lint.rs`, `fence_lint/written.rs` (#94), `BUILD.md`, rulings and transcripts. None of these is a path of this PR. This is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head.
+- **Main moved.** Main is now `e5709067`. Since `8aaee62d` it changed `fence_lint.rs`, `fence_lint/written.rs` (#94), `BUILD.md`, rulings and transcripts. None of these is a path of this PR. This is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head.
 
 CLEAN on `3da4b6877813e74fc368bdc58018ff353a141dbf`.
