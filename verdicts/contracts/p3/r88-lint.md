@@ -138,3 +138,8 @@ No open finding. CLEAN on `522e5485`.
 Merge order notes:
 - #66 changes `conformance/core-fence-exceptions.txt` and `driver_steps.rs` (`driver_steps.rs` is not in #73). If #66 lands first, #73's merge shares the exceptions file and needs a Q7 delta review.
 - #75 changes `fence_lint.rs` (the program-printed sentinel and the R-80 follow-up on main `c6287e0`). The second of #73 and #75 to merge reconciles `fence_lint.rs`, and I review that delta.
+
+### After the CLEAN: 016c's round-3 MEDIUM (package scope), and main moved
+
+- 016c (round 3 on `522e5485`): `TAKES_EVENTS` resets `parked_seen` for every step of those names, including one that takes only a class K event (for example `expect_eventually TitleChanged`). Such an event can come before the full mandatory queue, so it frees no mandatory room, and the same frame stays parked. 016c's case returns `[]` where `[7]` is due. This is lint-internal (package scope). Per my rule I do not withdraw the CLEAN. I re-check the delta on the next head, and 016c asks the steward before round 4 (round limit).
+- Main is `939e1acd` (#66), which shares `core-fence-exceptions.txt`. #69 (next to merge) owns the two `ev_5_route_closed` debt lines (steps 28, 29), so whichever of #69 and #73 merges second removes them.

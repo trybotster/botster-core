@@ -30,3 +30,9 @@ Checks:
   - The diff hash `f80397a6...` differs from the accepted `027d7d7a...` only by the index abbreviation length (7 against 8), as RC states.
 
 Still to do: one merge of main `c0c2abc09f208fea39896972373da53cb90dd830` (Q7), and the gate on that exact head. Then the final CLEAN.
+
+## 1562a9eb841360cf9ae6879712d9856bcb22b0b9: the Q7 disjoint merge checks pass (final CLEAN waits for its gate)
+
+Parents: the reviewed head `06488fb5` and main `939e1acd2c16611da0e4b44c640921bcd40d3527` (#66 merged). `git merge-tree --write-tree` gives `bf3becaf00e7b32f8bf63d1609de50cae9e5b20f`, which equals the head's tree. Merge base `7c4004a0`: the PR's only path (`conf::ev_5_route_closed_retires_route_keyed_events.json`) is not on main's side. `git patch-id --stable` is `78a8fe2102e5ea19773ce8805034927a6d68ce69` against both bases. RC's record: `~/botster-sessions/gates/botster-contracts-rc-r66-final-merge-delta-1562a9eb.txt`. No delta round. Gate: `...-1562a9eb-pool-20261011-172708-99219.log`.
+
+Cross-PR note: #73's `core-fence-exceptions.txt` has two `debt:` lines for this id (steps 28 and 29, owner RC #69, the `route_reports {s1,$r2}` fence). Whichever of #69 and #73 merges second removes them, or they become stale.
