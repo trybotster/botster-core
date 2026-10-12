@@ -544,11 +544,12 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     };
     let mut h = Harness::new();
     let ready = h.root.path().join("ready");
-    assert!(std::process::Command::new("/usr/bin/mkfifo")
-        .arg(&ready)
-        .status()
-        .unwrap()
-        .success());
+    let made = botster_test_process::OwnedChild::spawn(
+        std::process::Command::new("/usr/bin/mkfifo").arg(&ready),
+    )
+    .unwrap()
+    .status();
+    assert!(made.success());
     let mut reader = std::fs::File::from(
         rustix::fs::open(
             &ready,
