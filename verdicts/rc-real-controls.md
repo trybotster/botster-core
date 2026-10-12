@@ -2839,3 +2839,98 @@ This CLEAN covers the exact source head and completed source evidence. Sol-C's m
 Applicable train delta reviews, combined review when required, final train gate, final receipts, and Q7 remain due before merge.
 This verdict accepts no later head or different source tree.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — completed integration source receipt
+
+Integration message: `msg_plugin-w_1791787373_98b2b8`.
+Integration verdict: `44742efea6f308f2d621437a69cd664632c13cb8`, Round 2 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+It is CLEAN at `54805661b93f7acc7c548d0a429d429247c54255`, with tree `02831589acd6254eb42b6bf68b4e8a35cf10ef4f` and base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The source, nine removals, completed READY gate, and all three body closures match package receipt `779edadce8641e4cbcd8d2cb0588c06b1c0dc697`.
+Both source reviews have zero open findings. Print-history support remains separate.
+Applicable train reviews, final train gate, final receipts, and Q7 remain due before merge.
+The reviewer runs no execution job.
+
+
+### Core #309 — source repair and documentation review
+
+VERDICT: NOT CLEAN (exact-head evidence pending).
+Current head: `b920da760a8a643b199765d0a69f78533a9b3e45`.
+Source tree: `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+Imported source base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Gate-time reference of the completed repair gate: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Repair READY: `msg_plugin-w_1791787116_f1d5fd` at `1c17cb1b87e1815b717f7259c967b1ceef2237de`.
+Documentation update: `msg_plugin-w_1791787418_dbda54`.
+Open package source/body findings: 0. Completed exact-head evidence remains due.
+
+The reviewer reads the complete repair delta and both later documentation deltas.
+Only three files change after the repair head: DESIGN.md and comments in frame_fit.rs and msg.rs.
+No code changes after 1c17cb1b. The reviewer verifies the current published body's exact head.
+
+RC-R100-1 — HIGH, closed in source and behavior tests.
+Field::Mods counts both key and mouse modifier vectors as payload.mods.
+Its upper bound is twelve bytes per modifier plus brackets; exact sizing uses the same JSON serializer.
+The new public regression refuses oversized key and mouse lists with that field and proves the running link still answers reads.
+The bound test covers all eight modifier variants. The tightness test covers the longest modifier.
+No normalization or new modifier semantics enter this fix.
+
+RC-R100-2 — MEDIUM, closed in the tests.
+The private session-map and route-map assertions are removed.
+Create proves successful reuse of the refused ID through the public call.
+Attach observes no boundary AttachRoute, no public event, and successful admission of a fitting attach.
+The recorded sent messages and closed links are boundary observations, not private subject state.
+The Start guard test retains a setup seam that changes a stored request. It asserts the public refusal, not stored state.
+Its comment explains that ordinary public calls cannot store that oversized request after the admission checks.
+
+RC-R100-3 — HIGH, closed in source and the queued-setter regression.
+Launch sizing now uses the largest admitted size, a full longest color profile, and the longest known size policy.
+The check reserves those values before Created setters can store them.
+The regression queues SetColorProfile and SetSizePolicy before Start, then reads the sent Launch at the worker boundary.
+It verifies the setter values and decodes that Launch through the shared decoder at its initial bound.
+No test asserts the private session row after the setters.
+
+RC-R100-4 — LOW, closed in the body.
+The completed repair gate uses be95ef13 as its reference. The branch's imported source base remains ae49bbec.
+The body names these values separately and claims no import of the gate reference.
+
+RC-R100-I1 — HIGH, source fix verified; owner: integration review.
+Create, Start, and Created notification-policy Launch checks now use DEFAULT_MAX_PAYLOAD, the receiver's initial one-MiB bound.
+Other messages retain the host's derived bound. The worker's initial decoder and later rebound remain unchanged.
+The regression admits a worst-case Launch exactly at the initial bound and refuses one extra argv byte.
+The admitted Launch decodes through the shared worker frame decoder. Sol-C's matching closure remains its responsibility.
+
+RC-R100-I2 — LOW, documentation correction verified; owner: integration review.
+Integration message: `msg_plugin-w_1791787268_0cb2d2`.
+The old documentation claims no allocation. Message construction clones values, and HexBytes serialization allocates its hex string.
+The correction states that the counter retains no encoded output buffer and that the complete slow path still allocates.
+The reviewer verifies DESIGN.md, encoded_len's comment, and the published body correction.
+This review requests no allocation optimization or new measurement.
+
+RC-R100-5 — LOW, closed in current documentation and body.
+The initial repair summary retains the obsolete approximate forty-byte refusal slack for all messages.
+The worst Launch now includes a full palette and longest policy, so its conservative refusal slack can be several kilobytes.
+The corrected module comment, DESIGN.md, and body distinguish that Launch scope from the approximate forty-byte Op/AttachRoute scope.
+The body names size, color profile, and size policy. The repair is documentation only.
+
+The reviewer reads the completed 1c17cb1b gate as historical repair evidence.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-r100-frame-check-1c17cb1b-pool-20261011-233045-37276.log`.
+Log SHA256: `59310f88a49b1935c9c8fa98ba97406e4f1a36f7f8726d4f51aa30c4a75909bc`.
+Its header names 1c17cb1b and gate reference be95ef13. All ten steps pass in 433.7 seconds.
+Jobq exits zero after 443 seconds; the wrapper exits zero after 444 seconds on msa1.
+The default suite reports 1934 passes. The slow suite reports 616 passes. Held-full runs three budget IDs at 32 seeds.
+All 65 raw catch identities equal 65 unique citations. Every cited test has a normal PASS. No FLAKY token exists.
+The run reports 73 mutants, 65 caught, eight unviable, no miss, and no timeout. Stage 2 is not needed.
+The eight unviable replacements request Default values for types that do not implement Default.
+They cover OpId, AppliedRouteLimits, ColorProfile, SpawnRequest, two Field-vector constructions, and two LaunchSpec constructions.
+No new exclusion hides the repaired behavior. The configuration equals the previously reviewed configuration byte for byte.
+The earlier two Field::upper multiplication reversals fail their tightness test; the earlier red gate remains recorded.
+This historical gate does not replace completed evidence for the current exact head.
+
+The supplementary local log names 1c17cb1b, reports all printed exits zero, strict seeds 0-31 with 259 passes, and 82 real tests under nextest.
+Its clean time marker still has no numeric clean exit or independent raw clean proof.
+The old libtest thread-count observation is separately scoped; the gate uses nextest, and no known-flaky gate claim follows.
+The ae208483 documentation gate was stopped by the implementer. It supplies no accepted completed result.
+The b920da76 gate remains pending. The reviewer reads no running output.
+Completed current-head evidence, matching final body, both exact-head verdicts, and applicable train acceptance remain due.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
