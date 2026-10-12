@@ -2303,3 +2303,58 @@ Preserve the status update; suppress completion Activity for a closed route. Add
 Owner notice msg_plugin-w_1791840187_af296e; integration notice msg_plugin-w_1791840187_791121.
 Formal inspection is NOT CLEAN with two open findings. The complete review remains in progress.
 No gate acceptance or reviewer execution job occurs. Continue independent source and evidence review. Never poll.
+
+## #320 package inspection 2
+
+The inspected source remains db97736b. P5 reports unpushed local fixes for RF-PC-2 and RF-PC-3; no READY is accepted yet.
+RF-PC-4 / R320-SI-4 MEDIUM opens: receipt.rs and session::next_ordinal lack their required decoder fuzz harnesses.
+Plan section 8 step 9 requires capped stable properties and registration in the existing landing fuzz selection.
+RF-PC-5 / R320-SI-5 MEDIUM opens: valid facts windows or client tails can exceed the derived private-link bound.
+Worker send_frame emits nothing when Done(Facts) exceeds that bound, so the read cannot complete.
+Required transport design must cover the complete facts response, protected escaped sources, tail, and the fixed-cap case.
+No configuration refusal or required-facts truncation is approved. No reproduction job runs.
+Sol confirms both new findings. Owner notice: msg_plugin-w_1791840532_ef65d8. Integration notice: msg_plugin-w_1791840532_744818.
+The package inspection has five open MEDIUM findings. RF-PC-1 LOW remains closed.
+
+Parent gate hash feee573c268ce087164b5fa7e3693b825e1ea05995181c0707b95260e44e4c83 is independently verified.
+All ten steps PASS, total 531.6s, job/wrapper 0 after 545s, queued 1s. Default 2147/0, slow 694/0, strict 299/0.
+Mutants 196: 159 caught, 37 unviable, 0 missed, 0 timeout. All 159 raw catches match citations and ordinary PASS names.
+No FLAKY line occurs. Baseline passes. link_decoder 6383953 and msg_decoder 3407587 cases each run 61s without a reported crash.
+Those harnesses do not cover the two missing decoder paths. No current-head acceptance is inferred.
+All 18 own pending removals pass testkit; 17 pass the real slow suite. The cost id stays real-pending.
+The unrelated 29 passing pending-real ids receive no new status removal. The body preserves its 18/17/1 scope and parent gate limits.
+Local parent checks record exact head, clean status, cargo clean exit 0, both caps 4, stable toolchain override unset, and strict seeds0-31.
+The reviewer reads all new test files and complete merge resolution for 7f762e51.
+The merge preserves record/wire/held fields, NotReported no-frame outcome, R-100 worst ordinal, and DP-6 activity restoration on 0da.
+
+R320-Q3 asks whether the last client record also needs protection after a newer host record.
+Lead relays it to the steward; no expected result is invented. Receipt: msg_plugin-w_1791840541_a8918b.
+Complete review remains in progress. No reviewer execution job runs. Never poll.
+
+The reviewer reads complete Sol-C #319 delta and combined train-9b source records at d76d87f3982c87a03a96bb15ace15f456532cc8a.
+They match package 681d098d on train 3e4b3ab8, tree fe770044, base 2d8e8acc, and zero source findings.
+The exact train gate, single final receipt, and lead Q7 remain due. No train execution or merge is claimed.
+
+Lead receipt msg_plugin-w_1791840620_b832c8 supplies R-117 from contracts main 8a2e6ae6.
+RF-PC-6 MEDIUM opens: later host writes can remove the record that set unchanged client.rev.
+R-117 protects that client record and the unified newest record, each with its update, at most four entries.
+Drop only unprotected entries. Keep the protected set over either count or byte bounds, and set gap for either overflow.
+The ruled client-then-host test and the kept=2/four-protected case are required. No contracts/id/control change is needed.
+
+The reviewer corrects RF-PC-5's preliminary small-paste example after Sol identifies invalid default cross-limits.
+The published record uses Sol's valid tail case: defaults except max_snapshot_bytes=1024 and input_tail_bytes=4MiB.
+The link bound is 7MiB, while the full tail is 8MiB as hex. The source failure and transport requirement remain.
+
+Lead receipt msg_plugin-w_1791840833_8bc509 holds further #320 inspections until one head has all fixes and tests.
+P5 must send the combined READY to both reviewers. R320-Q4 asks the steward about the over-cap transport case.
+The reviewer stops source inspection now. The verdict supplement saves only the five findings already communicated.
+The current body text equals the earlier body, but GitHub names unreviewed 3ed8bf18. No correction is accepted.
+All nine three-way conformance set formulas pass for merge 7f762e51. No ST-7 id is a minimum id.
+The .44 exception list and live audit have no ST-7 entry. Earlier real probes remain local and supplementary.
+Wait for the combined READY or lead decision doorbell. Never poll. No reviewer execution job runs.
+
+Lead receipt msg_plugin-w_1791840875_a81170 answers R320-Q4 through an A26 amendment.
+A26 will add ceilings: input_tail_bytes 64MiB, input_events_bytes 256MiB, max_route_tag_bytes 4KiB.
+P5 drafts it after the #320 READY; Sol reviews it. #320 leaves the over-cap case unchanged until A26.
+RF-PC-5 can close on the derived max-bound repair plus a test. Corrected READY remains due.
+The reviewer records the decision without accepting any unreviewed correction or new configuration refusal.
