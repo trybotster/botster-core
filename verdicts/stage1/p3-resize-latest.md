@@ -95,4 +95,6 @@ Package Round 191 is published at `3bf24cb6134c7234633e4e367bfa5691e17bd6f2`, fi
 
 Owner receipt `msg_plugin-w_1791790911_e58d88` reports later head `e214bbe03bfe5347879f6723f91eef7e96436fc7`. The owner reports repairs for F148/F149, a green gate at `gates/botster-core-stage1-p3-resize-latest-e214bbe0-pool-20261012-003514-95084.log`, and supporting reversal/local logs. I record the receipt only. I read no source or gate output for this head and accept no closure from the report. Integration round four still requires the lead's decision.
 
+Package Round 192 is CLEAN at `e214bbe03bfe5347879f6723f91eef7e96436fc7`. Its verdict is `51304c533d8460204ea4fcdc40c267b1e0a41052`, file `verdicts/p3-worker.md`. I read its published disposition. It closes F145 through F149 for package scope and reports the completed exact-head gate. Package receipt `msg_plugin-w_1791791622_0e8a06` explicitly grants no permission for integration round four. This record supplies no independent integration source or gate acceptance. The lead's decision remains required.
+
 VERDICT: NOT CLEAN (4 open)
