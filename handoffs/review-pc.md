@@ -2190,7 +2190,17 @@ Contracts #100 is independently verified MERGED at 49ff52d218ea55afae1fc120ddfb9
 Its list contains pty_queued. The separate route-fence change must add route_frames_taken before reliance on its wait.
 Final body without added LF: a0c173944b0ea479572145c236f38c3c1a0aaaf3426b3838d5f77ecaeaa9175e.
 Final body with one added LF: a34789079ab414b91f7d174c33e7e36536d14bfcb18677b22ffa56c04b720c29.
-Formal Round 2 is CLEAN on fabbf66c with zero open package findings. The gate remains scoped to unchanged code on parent d1aa7334.
+The four earlier findings close on fabbf66c. Round 2 remains NOT CLEAN due to CQ-RFT-5 below.
+The gate remains scoped to unchanged code on parent d1aa7334.
 Matching formal integration repair verdict remains due. Current-base compile, final slot/import/check/delta reviews/gate/receipts/Q7 remain due.
 No future contracts head, pin, later source, status removal, specific retry, or completed merge is accepted.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Sol notice msg_plugin-w_1791837054_078357 adds R319-SI-3, package alias CQ-RFT-5 MEDIUM.
+The reviewer independently reads current v1 3e655eff slow_coverage::presence and confirms that new tests/props.rs lacks the required root macro.
+PC must add botster_test_process::built_in_test!(); and retain both decoder harnesses, with corrected-head coverage evidence.
+This is an existing B13 requirement. The old-base gate predates its presence check and cannot detect the omission.
+Premature package CLEAN cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c is superseded after this complete source read.
+No terminal package CLEAN from that commit was sent to the lead. Round 2 is NOT CLEAN with one open finding.
+All four earlier source/body findings remain closed. PC and Sol receive the correction before any terminal lead receipt.
+Wait for PC's completed correction receipt. No reviewer execution job runs. Never poll.

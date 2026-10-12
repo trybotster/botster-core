@@ -163,7 +163,7 @@ Both preserve the initial gate, empty fuzz selection, and earlier evidence scope
 No additional integration finding occurs. No correction is accepted before its completed READY and delta reviews.
 Wait for the correction doorbell. Never poll. No reviewer execution job runs.
 
-## Round 2: VERDICT: CLEAN (0 open; repair and text delta)
+## Round 2: VERDICT: NOT CLEAN (1 open; repair and text delta)
 
 Reviewed head: `fabbf66cdaccedd942b8cedea824c763bd7bfa7a`.
 Source merge base: `080987829a2e2245a7ea97606020400392c974d6`.
@@ -303,17 +303,37 @@ Body SHA-256 without an added line feed: `a0c173944b0ea479572145c236f38c3c1a0aaa
 Body SHA-256 with one added line feed: `a34789079ab414b91f7d174c33e7e36536d14bfcb18677b22ffa56c04b720c29`.
 These labels preserve the parent gate, RED repair history, FLAKY outcomes, and local/scratch evidence limits.
 
-### CLEAN scope and next step
+### Review scope and next step
 
-All four package findings are closed. No new source, body, or supplied-record finding remains open.
+The four earlier package findings are closed. CQ-RFT-5 below remains open.
 The only change from gated parent `d1aa7334` to reviewed head `fabbf66c` is the inspected design text.
 All code, tests, dependencies, conformance files, facade, and gate files are byte-identical between those heads.
 The parent gate supplies unchanged-code evidence; it is not an execution on `fabbf66c`.
 No exact-head gate on `fabbf66c` or final current-base import is claimed.
-The matching complete formal integration repair verdict remains due.
+CQ-RFT-5 must close before package CLEAN. The matching complete formal integration repair verdict remains due.
 After both CLEANs, PC must supply the required current-base compile check before FINAL-READY.
 The lead's final slot, current-base import/base check, applicable delta reviews, exact final gate, final receipts, and Q7 remain due.
 The contracts fence, kernel-state list addition, and later Core pin remain separate work with owner PC.
 No later head, new status removal, specific retry, or completed merge is accepted here.
 No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
 Wait for the doorbell. Never poll.
+
+### CQ-RFT-5 / R319-SI-3: MEDIUM, open — new property binary lacks the required build-root test
+
+Location: `crates/botster-core-testkit/tests/props.rs`.
+Sol source notice: `msg_plugin-w_1791837054_078357`.
+The reviewer reads current base `3e655eff46d36f8c337339a1a17d401c8c662594`, `xtask/src/slow_coverage.rs:195` and its callers.
+Its existing `presence` check requires the build-root test in every listed default and slow binary.
+The test must run and must not be ignored. The check explicitly requires `botster_test_process::built_in_test!();` for a libtest binary.
+The new `tests/props.rs` binary has both decoder tests but no root macro.
+Its old source base predates this coverage check. The READY gate therefore cannot detect this current requirement's violation.
+The missing test leaves the new binary outside the required B13 build-root verification.
+
+Required change: add the existing `botster_test_process::built_in_test!();` macro to `tests/props.rs`.
+Retain both decoder harnesses. Supply the corrected exact head and the applicable marker/coverage evidence.
+This is an existing coverage requirement, not a new check or an R-115 freeze exception.
+The reviewer proves the omission from source and runs no test or reproduction.
+
+Package commit `cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c` published CLEAN before the reviewer read Sol's new finding.
+That premature CLEAN is superseded. No terminal package CLEAN from that commit was sent to the lead.
+Round 2 remains NOT CLEAN with CQ-RFT-5 open. The four earlier closures and their evidence scopes remain valid.
