@@ -1599,3 +1599,66 @@ Both design CLEANs cover bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2
 The matching design receipt condition closes. This approves no source head or execution result.
 The repaired-head review, retained reversals, revised both-OS facade proof, completed gate, and final acceptance remain due.
 No execution job runs. Wait for the repaired-head READY. Never poll.
+
+Matching R-78 revision 4 design receipt pushed: fa6e008ec6e80305c1fd27272d2a2b23296cb36a.
+The worktree is clean. Both current design CLEANs are verified. Source and completed evidence remain due. Never poll.
+
+## #291 Round 2: source repairs close; two evidence findings
+
+READY msg_plugin-w_1791763632_cc997f. Head 8ac717c7d94560bf1f82a5975bb45162ba0b88da, imported base f6025aed4cdf7da836e835e0040fc128b7e8f32f, gate base 3aacc58d086e55a6b186165ccf9001e2618e2869.
+R78-PC-1/2 close in reviewed source. The nonblocking drain handles Done and RouteClosed after Exited and closes at would-block.
+The known-gone probe guard and both-order no-probe assertions are present. R78-D5's held-frame backpressure rule is checked.
+The first more is v1's expression; only the settle-time more adds draining. The old redundant-term gate stays RED.
+The current gate passes ten steps: default 1822, slow 600, 60 caught mutants, zero missed, two unviable, no FLAKY.
+All 60 raw caught identities match the named citations and normal PASS records.
+Both new A5-4 tables have 690 ids, with zero cell mismatches. Testkit 230→230, no changes; real 205→203, six changes.
+Lead msg_plugin-w_1791764208_171fa2 attributes ST-6 step17 ne[1,1] to the accepted controlled plain-f6025aed timing witness.
+The own diff changes no model-feed or capture path; the pinned transcript reaches no new loss branch before step17. This meets the lead's condition.
+R78-PC-3 MEDIUM: IN-9 modes_read_at_write_start PASS→INCONCLUSIVE, seed4 step8 step_timeout, has no baseline witness.
+The lead keeps this flip as a merge blocker. PC owns diagnosis; a plain-v1 failure or accepted controlled exact-signature witness is required.
+R78-PC-4 MEDIUM: 1ff reversals and three revised Mac t13 records used targets/pc after another worktree, without a Cargo clean.
+The body confirms B13 and marks those records historical and unvalidated. The lead requires replacement logs after recorded clean or per-root builds.
+R78-PC-5 LOW closes: the reviewer reads the corrected body count of 11 driver test functions.
+Verdict NOT CLEAN (2 open), verdicts/pc-r78-stopping.md Round 2. No source defect remains; evidence blocks CLEAN.
+No pending change or rerun-to-PASS is allowed. No reviewer execution job runs. Wait for the evidence doorbell. Never poll.
+
+## #290 repaired head review in progress
+
+READY msg_plugin-w_1791763810_2709b7. Head c542a9fd93be950cb77522257b1b4e3741920a52, imported base f6025aed, gate base 3aacc58d.
+The SIGTERM tests now use signal/poll_exit. The unused getters and size field are removed; the getter audit is checked.
+F283-PC-1 closes in source. Both remaining changed test files are byte-identical to the earlier reviewed head.
+The gate passes ten steps: default 1799, slow 597, eight caught mutants with matching normal PASS citations, no FLAKY.
+A LOW remains pending correction: the body and new resize comment claim worker-model/ReadScreen coverage from a host-forwarding test.
+Sol-B independently states that resizes_of_one_session_reach_the_worker_in_begin_order proves host forwarding/order only.
+The separate worker size-op gap remains. Removal of unobservable program state supplies no new worker resize proof.
+The reviewer sent PC the correction in msg_plugin-w_1791764101_58a319. No final package verdict on this head is issued yet.
+
+## #291 Round 2 evidence closure
+
+R78-PC-4 closes with replacement records after recorded cargo clean on exact head 8ac717c7.
+The reversals fail 8/1/1/10/1 tests, then the restored source passes 320/320.
+The prebuild manifest identifies the candidate binaries. Three Mac facade runs PASS within the same sole-worktree build sequence.
+The old shared-target records remain historical and unvalidated.
+R78-PC-3 closes with the accepted 23bl(A) controlled IN-9 reproduction on plain f6025aed plus scratch diff 0151f1ec.
+The raw result matches step 8 step_timeout. Both embedded patches match the supplied diff.
+The delayed mode output widens an existing order; the unchanged acknowledgement does not fence the worker's PTY read.
+Focus off yields NotWritten(NotReported). Step 6 can discard that early completion before step 8 waits for it.
+No event-order trace or uninstrumented-v1 failure witness is claimed. The raw failure remains INCONCLUSIVE.
+The corrected rule-9 record hash is 8ff1d2f6c28b09ad680e74f3ee7753815fcf26c1c21c6308fa70fc997a4d7cf8.
+Lead case receipt msg_plugin-w_1791764762_105387 accepts the signature. PC owns the R-88 held-write contracts PR under R-74.
+Sol's matching acceptance e72d7d01dc22a5eac71d57ea2e3f63c53fa32028 is read and publication is verified.
+No package source or evidence finding remains. The current body check and final-slot reviews remain due before merge.
+
+## #290 Round 2 package CLEAN
+
+Head cc491863b4143d37a3e9586eb1848db0bb9c3a5f changes only one comment from gated parent c542a9fd.
+F283-PC-1 closes: SIGTERM tests observe signal/poll_exit, and the dead size getter, field, and state-only test are removed.
+The remaining getters have runtime callers. The earlier rewritten observable tests remain unchanged.
+F283-PC-3 LOW closes: the corrected comment and body state host forwarding/order coverage only.
+The separate worker size-operation gap remains. This PR supplies no new worker resize proof.
+The corrected body hash is cd7a429129a2f833163c3ff27faa585b90697737106bd96c7ea2c4ae821bf328.
+The c542a9fd gate passes ten steps, with default 1799, slow 597, and all eight caught mutants matched to normal PASS citations.
+This parent gate supports the source after a comment-only change. It is not an exact-final-head gate or final-slot approval.
+Verdict CLEAN, zero open package findings, in verdicts/pc-f283-observable.md Round 2.
+Sol-B's matching integration disposition, final slot import, final delta review, exact-final-head gate, and Q7 remain due.
+No reviewer execution job runs. Never poll.

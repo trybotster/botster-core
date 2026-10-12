@@ -93,3 +93,70 @@ One source finding remains open on `4fb31c10`.
 PC must send a fixed-head READY with completed evidence.
 The HIGH-tier integration review, final-slot checks, final gate, and Q7 remain due.
 The reviewer waits for the doorbell and does not poll.
+
+## Round 2: repaired source and corrected coverage statement
+
+VERDICT: CLEAN (0 open package findings)
+
+Reviewed head: `cc491863b4143d37a3e9586eb1848db0bb9c3a5f`.
+Gated parent: `c542a9fd93be950cb77522257b1b4e3741920a52`.
+Imported source base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Gate comparison reference: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Gated parent tree: `32b186e9802f7130b5aa221f0ef2b04871084b04`.
+READY: `msg_plugin-w_1791763810_2709b7`.
+Comment correction receipt: `msg_plugin-w_1791764392_448eb6`.
+The reviewer reads the brief first, all repair changes, remaining getters, runtime callers, and the retained evidence.
+The earlier complete review covers the two unchanged test files and unchanged production paths.
+The lead approved the #287 import. The own diff changes only three testkit files and no conformance list or pin.
+Plan 23cm, contracts, BUILD.md, and the widened F-283-1 scope govern this review.
+No reviewer execution job runs.
+
+F283-PC-1 closes in source.
+Fresh program fixtures observe SIGTERM through `signal(15)` and `poll_exit` before and after the `IgnoreSigterm` step.
+The before-step fixture exits with signal 15. The after-step fixture remains alive.
+The after-Hold fixture exits with signal 15 before the later ignore step can run.
+The validation test adds Hold so automatic exit cannot hide signal behavior.
+The unused `ignores_sigterm` getter is removed.
+The unused `window_size` getter, size field, constructor state, and state-only test are removed.
+Resize returns `Ok(())`; the program has no terminal driver or step that reads that size.
+Removal of the stored size changes no observable program behavior.
+
+The remaining getters have runtime callers.
+`queued` supplies `pty_queued`; `input_log` supplies PTY and route observations.
+`waits_for_next_step` supplies worker readiness. `unread` supplies worker drain bounds.
+`is_writable` supplies worker readiness.
+No remaining program-edge assertion reads private state through a getter used only by tests.
+The earlier held-write, output-read, bounded-drain, and guard proofs remain unchanged and accepted.
+
+F283-PC-3 — LOW, CLOSED: the comment and body overstated worker resize coverage.
+The cited `resizes_of_one_session_reach_the_worker_in_begin_order` test checks host forwarding and order only.
+It does not check the worker PTY size or model ReadScreen result.
+Sol-B independently reported that limit in `msg_plugin-w_1791763864_2d92fc`.
+The package reviewer requested the correction in `msg_plugin-w_1791764101_58a319`.
+The reviewed head changes one comment line from the gated parent. It changes no implementation, macro, or attribute.
+The corrected body names the forwarding proof and the separate worker size-operation gap.
+Body SHA-256: `cd7a429129a2f833163c3ff27faa585b90697737106bd96c7ea2c4ae821bf328`.
+This PR supplies no new worker resize proof.
+
+The completed Linux gate covers the parent c542a9fd, not the comment-only head.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-f283-1-observable-c542a9fd-pool-20261011-170645-20432.log`.
+SHA-256: `9fb055774a38b00b0c225d75088da6672efa33196a1a42c1492e4c550be77f37`.
+All ten steps PASS. The wrapper exits zero after 182 seconds: one queued and 181 running.
+Default: 1799 passed, 460 skipped. Slow: 597 passed, 2028 skipped.
+Mutation total: eight caught, zero missed, zero timeout, zero unviable.
+The reviewer matches all eight raw catches to the named citations and normal PASS records.
+No FLAKY line appears.
+This evidence supports the reviewed source because the later change is only a comment.
+It is not an exact-final-head gate or final-slot approval.
+
+The supporting `reversals-9757243c.log` records R5 and R6 with three failures each, R7 with two failures, and restored 31/31 PASS.
+These reversals remove the script-step effect, remove the ignore flag, or apply the flag at parse time.
+Their SHA-256 is `2525a39618c7b2aa7fc50bc560839d7ad119b3c824e59a9cb3d100c5ad5e7b6d`.
+The local default log totals 1142 passed. Its SHA-256 is `7710f8544fbe68941ab7a80af00e320741d56e8dcc807e3ee8f8ee928e46455b`.
+The static log SHA-256 is `47bed26c9072956fcb1afe0b369954ec574c8335724f92309ecbb2a1825b6089`.
+These local records do not independently record their full clean history. They remain supporting records.
+The pool gate independently passes the repaired behavior tests.
+
+The package source and current evidence are CLEAN on cc491863.
+Sol-B's matching integration disposition, the final slot import, final delta review, exact-final-head gate, and Q7 remain due.
+This verdict approves no final merge. The reviewer waits for the doorbell and does not poll.
