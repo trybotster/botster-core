@@ -159,3 +159,19 @@ Required change: require the supported compile-time argument forms and actual ca
 Sol-B sent the finding to GS and 017c. The completed gate and same-head package verdict remain due. Sol-B ran no local build, test, or gate.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Package verdict and retained FLAKY records
+
+Sol-B read package verdict `fa5cd808910647d8d646218ff75dea4fd7ba86d2`, `verdicts/gs-gate-speed.md`. It confirms the closures of B13-I1 and B13-I3. It keeps the matching argument finding open on `fec71f93d39977cf71f7787a86b18e6e6cb2dfce`.
+
+### B13-I4 — MEDIUM — OPEN: earlier FLAKY outcomes need a disposition
+
+The package verdict also identifies two stage-2 FLAKY outcomes. Sol-B read the actual records at lines 6345–6346 of `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-96c58d88-pool-20261011-173013-11653.log`.
+
+Both records name `conf::in_8_mode_checked_at_write_start_by_worker`. Each test fails and then passes on its one retry. The mutants replace the worker build shell with `Ok(Some(("xyzzy".into(), String::new())))` or `Ok(Some(("xyzzy".into(), "xyzzy".into())))`. Neither result counts as a catch.
+
+Required closure: supply the retained failure records and the structural-fix disposition under BUILD.md Testing rule 9. A later green gate and the new shell exclusion do not establish that disposition. An existing accepted disposition can close this evidence finding. Sol-B requested the records from GS and 017c. Sol-B requested no execution job.
+
+The required disposition remains unknown. This entry does not attribute the flake to this PR's source or to an existing fence defect.
+
+VERDICT: NOT CLEAN (2 open)
