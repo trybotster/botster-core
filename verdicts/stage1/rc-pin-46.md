@@ -148,3 +148,34 @@ This verdict accepts no later head, future #313 composition, PC fix, new control
 I ran no build, test, gate, measurement, mutation run, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW; import source delta only)
+
+
+## Round 3: #316 source fit on train 7b
+
+- Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+- Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Frozen member: `f1ac08b998f15f062f123a996e2688344c33c3ba`.
+- Lead request: `msg_plugin-w_1791836260_4fe40f`.
+- Package delta: `9ac22d233b6bfec7f49f07edcd74f8ec490e4ea9`, complete train-7b section in `verdicts/rc-real-controls.md`.
+- Reviewed delta: all six member paths and their fit with the list check, route member, and FIFO test.
+
+I read the complete same-head package delta. It matches the exact train identity and retains zero findings, including LOW findings.
+Every #316 own blob equals its reviewed frozen member. The dependency pin, A22 lists, and narrow IN-8 signature remain unchanged.
+The final pending and real-pending files equal the member, with 388 and 38 IDs. No new removal or entry appears.
+A22_1 remains pending and outside real-pending. Core still constructs no RouteAdopted.
+The re-entry rule preserves all existing membership restrictions. It changes no pending rule or ledger source.
+The real-pending file contains no re-entry tag, so that rule creates no exemption or new status in this composition.
+#302's code and list changes are already in the base through #311. Its insertion changes no tree.
+The merge drops #302's obsolete pending comment above dp_3_route_codec because #311 already removed that pending ID.
+The ID remains in real-pending. Its current-pin proof requirement remains unchanged.
+The FIFO test repair changes no pin, control, contract driver, or A22 field use.
+No #316 source or body finding appears. Earlier LOW closures remain applicable.
+
+All conformance formulas pass after each merge. #302 has two merge bases; I verify its nine formulas against both.
+The combined record will preserve all 45 comparisons and other member reviews.
+The lead's successful pre-checks remain reports. No completed train gate is supplied.
+The combined review, exact-head gate, one final train receipt, and lead merge verification remain due.
+I ran no build, test, gate, measurement, mutation run, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; #316 train-7b source delta only)
