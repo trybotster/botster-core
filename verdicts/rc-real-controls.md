@@ -3708,3 +3708,91 @@ Both reviews close RC-R100-6 and retain zero open source findings, including LOW
 The pure-function check, encoded Cancel term, unchanged helper body, body hash, local evidence, and remaining scope conditions match.
 Applicable train and combined reviews, final train-6 gate, final receipts, and equal-tree merge verification remain due.
 No later head, specific retry, or final gate is accepted. The reviewer runs no execution check.
+
+
+### Core #316 — contracts .46 pin package review, round 1
+
+VERDICT: CLEAN (0 open, including LOW).
+Exact head: `0844f9dfadee637197d1bbbfc4ea5dcd7c951325`.
+Tree: `e6e94ec9c9294fc10a21ac23252ba386c759598a`.
+Base and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+READY message: `msg_plugin-w_1791831789_2c5b59`.
+This review accepts package source and initial evidence at this exact head. It supplies no future train FINAL.
+
+The reviewer reads all six changed files and the .44-to-.46 dependency differences.
+Seven direct workspace dependencies use contracts-v0.1.46; the lock changes only nine contracts source records.
+The commit is `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`; the tag object is `b82ff81fa5909064281784d8a9e10acf73936251`.
+The reviewer reads the tag annotation and final41 manifest. A22 is frozen there. A23, A24, and A25 remain candidates.
+The tag excludes contracts #91 and its unserved pty_output_written control. No new or changed control appears in this pin.
+The controls document, BUILD.md, and shared job-common.sh equal their .44 versions.
+The probe, route codec, and test-support source have no changes.
+
+A22 makes RouteAdopted.route_tag and owner optional, with absent serialization for None and an empty string for Some(empty).
+The schemas follow that type change. Core constructs no RouteAdopted on this base; only the queue matches the event.
+The new public transcript checks absent, empty, and nonempty tags across adoption and detach. It asserts no private subject state.
+The ledger copy exactly matches the pinned 692 Core IDs. Only a22_1 joins the pending set, now 404 IDs.
+Every other conformance file retains its base content. Real-pending stays at 34 IDs; minimum stays at 69 IDs.
+The retained strict run confirms that a22_1 fails as expected. The implementer reports step 25, where the missing adoption events are required.
+#313 owns event construction, optional-tag adaptation, and the later removal from pending. This review accepts none of that future implementation.
+The body names either merge order with #313 and requires an explicit correction after composition.
+
+The driver now clones bindings only for pty_input reads. The same helper detects those reads before and after the step.
+Input-log retention and let propagation remain outside the optional before-bindings branch. The change preserves their decision order.
+The reviewer reads the changed active transcripts: twenty-one receive readiness or title fences. No Core transcript is edited by this PR.
+The new unheld-order lint joins the existing held-order lint and retains bounded order enumeration.
+The imported exceptions name the am_2 debt and dp_4 exception under R-93. They introduce no terminal model or invented expected bytes.
+Fifteen IDs lose their final exception; all are already active. No real-pending ID loses an exception.
+Eleven real-pending IDs already lack exceptions at .44 and remain pending for their recorded owner reasons.
+No additional removal follows from this pin.
+
+The EV-2 known-flaky entry is removed because .46 contains #89's await_title TB fence before Stop.
+R107-SI-2 requires removal in the pin to .45 or later; A31 is not its dependency.
+The final list contains only the real IN-8 test with the recorded step-6 step_timeout signature, any seed.
+The reviewer reads R-111 at contracts `b8f8de1c48aad909a5453b87f33c2e0076f9ffe6`.
+R-111 authorizes this exact entry, names PC, places the structural fix in the contracts driver, and permits one fresh gate.
+Its kernel-state re-check does not belong in Core or the probe. This PR changes neither.
+Removal PR #321 is OPEN and DRAFT at `5a4dd4d9021974f6df8fa4344442993dfb09e12c`.
+Its body records the lead's placeholder request and later pin/removal work after PC's driver fix is tagged.
+The current .46 pin does not carry that fix, so its removal trigger is not satisfied.
+The repository-list test names exactly this one entry. Production parsing and mutation filtering are unchanged.
+The existing five-field schema stores the signature in diagnosis; #308's future structured signature requires a composition review.
+The entry affects mutation selection only. Normal slow tests and an unmutated Stage 2 baseline still run it.
+Any unmutated failure stays RED. Stage 1 exit still requires an empty list.
+Every .cargo/mutants.toml exclusion and the mutation configuration equal the accepted base; earlier exclusion reviews retain their scopes.
+
+The reviewer independently reads the retained RED and GREEN gate records.
+Initial GREEN gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-46-0844f9df-pool-20261012-115709-55550.log`.
+Verified SHA256: `e9bbd089dc393c27718d1c3e7928e16d7157f4408f3c63ecf2eb3b6052792cfb`.
+The header names this exact head and base. Both parallelism caps are four. All ten steps PASS.
+CI steps total 146.7 seconds; Jobq exits zero after 314 seconds; the wrapper exits zero after 315 seconds on msa1.
+Default tests pass 1957 cases; slow tests pass 633 cases. EV-2 and IN-8 have normal PASS results on both tiers.
+Lists check 692 ledger IDs, 404 pending IDs, and 34 real-pending IDs. Strict conformance checks 317 of 334 pending transcripts.
+Seventeen real-only transcripts do not run there. Four held IDs retain their status. Three budget IDs run at all thirty-two seeds.
+Twenty-six of thirty-four real-pending IDs pass; those passes authorize no new removal here.
+The mutation step lists no mutant in this source difference and starts no mutation run.
+The fuzz step reports no changed crate with a decoder harness and starts no fuzz run. These are explicit scopes, not behavioral proofs.
+The default seed set is 0–31; the slow seed is zero. No full-seed real-tier claim follows.
+
+Earlier RED head: `c34bfe9f77af0d852d79520ac7cde1341f0aa9a2`, with the same base.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-46-c34bfe9f-pool-20261012-114054-42334.log`.
+Slow fails with IN-8 at seed zero, step 6, step_timeout. The first seven steps pass; mutants and fuzz do not run.
+Jobq exits one after 462 seconds; the wrapper exits one after 463 seconds. That RED stays historical.
+The new head and authorized fresh gate do not rewrite that result. This verdict grants no additional retry.
+
+The reviewer reads strict.sh and the retained strict-c34bfe9f log. The script unsets RUSTUP_TOOLCHAIN and sets both caps to four.
+It records a quiet clean marker without a separate numeric clean exit, the exact earlier head/tree, and no tracked difference.
+Fmt, lists, ledger, six known-flaky tests, prebuild, and strict exit zero; strict passes 264 tests at seeds 0–31.
+The four held IDs pass under their held rules. No unheld pending ID changes state.
+The contracts fence-lint record names the exact .46 commit and reports 99 passes, zero failures, and exit zero.
+The isolated macOS IN-8 record passes one case on c34bfe9f and exits zero. It supplies no Linux diagnosis or full-seed proof.
+These local records retain their worktree and clean-history limits. The pool gate uses its own tree.
+
+RC-PIN46-1 — LOW — closed before this verdict.
+The initial body called c34bfe9f the current head in Checks item 1.
+Correction `msg_plugin-w_1791831935_dcb92c` calls it the earlier check head before the new entry.
+The reviewer reads the complete corrected body and verifies exact UTF-8 SHA256 `86f7dc94df55c4a413dbd70e455a08364af3d425f12e565e4b5a8ade66d3a358`.
+The published source head remains unchanged. Prior art, evidence, dependency counts, pending scope, and future composition responsibilities are stated.
+
+A matching integration verdict, any required train and combined reviews, final gate receipts, and equal-tree merge verification remain due.
+This CLEAN accepts no later head, #313/#308 composition, future control, PC driver fix, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
