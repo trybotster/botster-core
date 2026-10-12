@@ -43,3 +43,16 @@ The PR changes no transcript, so the checklist does not apply.
 - **#102 conflicts with this PR.** `git merge-tree --write-tree 62a3398c a038119f` (#102's CLEAN head) reports `CONFLICT (content)` in `crates/botster-core-conformance/src/driver.rs`. Both change `control_matches`: #102 adds the dispatch to the route endpoint, and this PR removes the bindings clone. Whichever lands second needs a resolution by hand that keeps both: the `routed` dispatch of #102, and `matches(expected, Some(&got), bindings, &NoSchemas).is_ok()` without the clone. Then it needs my review of the resolution and a gate.
 
 CLEAN on `62a3398c04e8de25682bd8257651a4861f99057b`.
+
+## Resolution review and Q7 receipt: main merge 9bb30d06200e8f4599547c48649d3cfafa55dfbf
+
+- **The parents** are the CLEAN head `62a3398c` and main `9f67150a`. Main contains #102 (`a038119f` is an ancestor).
+- **The conflict.** The commit tree `438793a9` differs from `git merge-tree --write-tree` of the parents (`2f4db052`) only in the conflict hunk of `driver.rs` `control_matches`. The resolution keeps both sides:
+  - #102's `routed` dispatch to the route endpoint, with the harness for every other control;
+  - #103's call `matches(expected, Some(&got), bindings, &NoSchemas).is_ok()` with the R-112 (2) comment, and no clone of the bindings.
+- **The patch-id.** The diff from main has the same 5 paths as #103. Without `driver.rs`, its stable patch-id `52984aed` is equal to the patch-id of `62a3398c` against its base `5ce2cff1`. In `driver.rs`, the added and removed lines (61) are identical to #103's own. Only the context lines differ, because #102's dispatch is now around the hunk.
+- **016c** checked the same resolution and found no finding.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-gs-r112-driver-copies-9bb30d06-pool-20261012-143912-332.log`, sha256 `faa2a5bb992a359a0a56f3a9dc98d60bedd9f02b24b6f36104414b0c7a85ce65`. All ten steps PASS. Mutants: 53 tested, 52 caught, 1 unviable. Ledger 2552. Exit 0 after 548 s on msa1, base main `9f67150a`.
+- **Main** is still `9f67150a`, so main fast-forwards to `9bb30d06`.
+
+Q7 receipt given for `9bb30d06200e8f4599547c48649d3cfafa55dfbf`.
