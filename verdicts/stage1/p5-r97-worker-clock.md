@@ -144,3 +144,33 @@ After #301 merges, this PR still needs the final slot, current-base import/check
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 1 supplement — steward correction to AD-7 condition
+
+Reviewed source remains `cd0a468873fc9c318b5002a640d5c6b753007a35`, stacked base `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+Lead receipt: `msg_plugin-w_1791779127_e7d8f0`.
+The lead names contracts main `ad19a75ae6444f0786ca9ea2a4f5adb7b731d527` and closes the AD-7 acceptance condition.
+I read the corrected R-97 item 4 at that exact contracts commit.
+
+AD-7 is real-only and has never run on the testkit, which has no `wait_worker_exit` control.
+The AD-7 portion of item 4 now applies only on the real tier.
+#303 changes no real-tier implementation for this id; the id stays real-only.
+A testkit form needs a separate control and remains separate work.
+The two required unit tests remain: injected-time isolation and exclusion of worker deadlines from `next_deadline()`.
+The earlier source/gate review covers both tests on the reviewed head.
+
+I read the complete lead-named `evidence/p5-hold/r303-compare.log`.
+Its SHA256 is `5de5beb0c7774c32c391da3e5a4d2787b4d797ddb43d3adbfe1e8cfe1240fe81`.
+It records a clean of 6320 files and 1.9 GiB, then one worktree writer.
+Its compared heads are #301 `403bbf689cc9f745a9552cc518374a6a8f2cdb32` and repair `955ca290737453265d7eb4622c5e998abbe0c84f`.
+Each forced testkit AD-7 trial uses seeds 0–31 and ends at `UNSUPPORTED_CONTROL op=wait_worker_exit`.
+This supports the corrected testkit scope. It does not report a real-tier AD-7 PASS.
+The lead explicitly accepts this disposition. The AD-7 evidence condition closes by that ruling and disposition.
+
+This supplement accepts no source or gate at the repair head, which is not yet reviewed here.
+R303-SI-1 and R303-F1 remain open on the reviewed head.
+The original raw comparison provenance condition also remains unresolved in this review.
+Repair READY and its applicable source, evidence, body, and package review remain due.
+I ran no execution job.
+
+VERDICT: NOT CLEAN (2 open)
