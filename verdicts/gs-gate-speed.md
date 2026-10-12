@@ -3481,3 +3481,36 @@ The lead records the train fast-forward in its handoff. GitHub reports #304 MERG
 The local remote-tracking v1 ref names that same head and tree `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`, which equals the reviewed gated tree.
 
 The frozen member and all final receipts remain unchanged. No finding remains for #304. This completes the GS review record for this merge.
+
+## Core #308 — completed exact-head gate acceptance
+
+- Exact head: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`.
+- Source merge base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Recorded gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- VERDICT: CLEAN (0 open on this exact head and supplied gate).
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-flaky-signature-2ac0be6f-pool-20261011-224550-12724.log`.
+
+I read the completed header, lists accounting, tier results, mutation records, and final exits. I read the complete updated PR body.
+
+All ten steps PASS in 440.5 seconds on MS-A1. The default tier passes 1,914 tests. The slow tier passes 616 tests.
+
+The in_8 transcript passes in both tiers. The known-flaky entry does not hide its normal slow execution.
+
+Mutation stage 1 reports 27 mutants: 25 caught, 2 unviable, 0 missed, and 0 timeout. Stage 2 does not run because stage 1 misses none.
+
+Static log analysis matches all 25 raw catch lines to the 25 citation lines. Each named catcher has a normal PASS. No FLAKY result appears.
+
+The two unviable outcomes are the default-value replacements in signature and parse. The log does not count either as a catch.
+
+The fuzz step reports no changed decoder-harness crate. The job and wrapper exit 0 after 590 seconds, with 110 seconds queued and 480 seconds running.
+
+Both LOW findings are closed. The named schema and authorized in_8 entry retain their reviewed scope. No source or supplied-evidence finding remains.
+
+The lists step explicitly records gate base be95ef13 and merge base ae49bbec. Static Git ancestry confirms the gate base is not an ancestor of this head.
+
+This completed gate therefore supplies initial exact-head evidence. It does not satisfy the current-base merge condition or validate a later imported head or train.
+
+The lead must apply the authorized import or train procedure and obtain the required final evidence on its exact delivered head.
+
+The matcher remains proposed follow-up work. This approval supplies no failure attribution or retry authorization. I ran no execution job.

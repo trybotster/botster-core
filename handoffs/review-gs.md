@@ -2,6 +2,14 @@
 
 ## Current Core PR #308 result
 
+CLEAN at `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, source base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open findings: 0.
+
+The completed exact-head gate passes all ten steps. Mutants: 25 caught, 2 unviable, 0 missed, 0 timeout, no FLAKY. Both in_8 tiers pass.
+
+The gate records newer base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, which is not an ancestor of this head. Current-base import or train evidence remains due.
+
+The integration verdict remains due. This CLEAN accepts no later source import or train. I ran no execution job.
+
 Current reviewed head: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
 
 The lead authorizes one in_8 known-flaky entry. It preserves ordinary slow and baseline execution. Its removal trigger is the contracts-v0.1.44 pin.
