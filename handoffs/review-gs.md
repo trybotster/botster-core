@@ -10,6 +10,8 @@ The gate records newer base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, which is
 
 The integration verdict remains due. This CLEAN accepts no later source import or train. I ran no execution job.
 
+Sol-B exact-head CLEAN is published at `f0326d32b5d1416aae9b9208a840ad6a79327f4a`. I read the complete verdict. The initial integration receipt is complete.
+
 Current reviewed head: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
 
 The lead authorizes one in_8 known-flaky entry. It preserves ordinary slow and baseline execution. Its removal trigger is the contracts-v0.1.44 pin.

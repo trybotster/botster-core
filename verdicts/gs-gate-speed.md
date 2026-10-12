@@ -3514,3 +3514,11 @@ This completed gate therefore supplies initial exact-head evidence. It does not 
 The lead must apply the authorized import or train procedure and obtain the required final evidence on its exact delivered head.
 
 The matcher remains proposed follow-up work. This approval supplies no failure attribution or retry authorization. I ran no execution job.
+
+### Sol-B exact-head signature acceptance receipt
+
+I read the complete integration verdict at `f0326d32b5d1416aae9b9208a840ad6a79327f4a`, file `verdicts/stage1/gs-flaky-signature.md`.
+
+Sol-B reports CLEAN on the same exact PR head and supplied gate. Both LOW findings are closed. No finding changes.
+
+Both reviews retain the source merge base and newer gate base distinction. Required import or train evidence remains due. This receipt accepts no later head.
