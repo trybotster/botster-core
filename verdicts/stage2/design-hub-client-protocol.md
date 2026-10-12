@@ -190,3 +190,72 @@ No design finding remains open. The code review must check these rules in the im
 VERDICT: CLEAN (design only; 0 open).
 This receipt approves no bootstrap, daemon, client implementation, execution evidence, or completed story.
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 4: spawn operation store delta
+
+Reviewed artifact SHA256: `7c047360aed84d69f36a4320a52f8dd1c65ef67e468e08550e79da8b3ca24359`.
+PC supplies this replacement for revision 4 in msg_plugin-w_1791848576_c2b9b1.
+Scope: section 7, its header, and its section 8 dispositions.
+The earlier routing design findings D1 through D4 remain closed.
+The Round 3 CLEAN remains scoped to its exact artifact and does not approve this later store delta.
+
+The proposed label delta 9707c49a was withdrawn under the lead's hold.
+Sol-B stopped that review and published no verdict on the withdrawn proposal.
+The interim 227957c4 note referred S2-D4 to the steward.
+The first revision 4 hash 1fb28922 contained reason placeholders; PC supersedes it with this reviewed artifact.
+
+Sol-B reads the revised section, R-120, HC Amendment 2 A.7b, HC EN-7b, and P5's operation-store and restore sections.
+P5 artifact SHA256 at this read: `846ac726355e20c57d7caad66dba6b92cfbbebd69f0657cbd13d6028ecd847f7`.
+The lead handoff records the steward's S2-D4 order and P5's ownership of the durable operation store.
+This store records the spawn operation; Core remains the owner of the session registry.
+
+The write order follows the steward's disposition.
+P5's store makes the starting operation durable before the owner begins Create.
+The Hub still waits for successful Completed{Create} before answering accepted and beginning Start.
+The protocol layer uses P5's store API and adds no reserved label or second session registry.
+R-120 supplies interrupted for a starting record with no row, with no create retry.
+R-120 supplies internal for the specified synchronous Start refusal, followed by Remove if the row remains Created.
+The explicit Created-row recovery cases follow the steward's order.
+
+### S2-PC-D5 — MEDIUM — Recovery leaves a stale starting record unchanged after Start
+
+Evidence: section 7 Restore, row "any other state | any | none".
+Running and asynchronous StartFailed update Core's row before the Hub's later operation-record write becomes durable.
+The Hub can stop between those two writes.
+At restore, Core can therefore show Running, Exited, or Lost while the durable operation record still says starting.
+The table leaves that record unchanged because Core's row is the truth.
+Core's row does not itself update the separate operation record.
+Such a record can stay pending forever; EN-7b prohibits retention from removing it.
+Before A26 candidate 3, the proposed primary record of the StartFailed reason can also be missing after that interruption.
+
+P5's daemon design already lists this post-Created case under Q5 instead of prescribing no action.
+PC's table must retain that open dependency or supply the agreed recovery action.
+
+Required change: reconcile the operation record with each post-Created Core state during recovery.
+Preserve a durable pending record only while its operation can still finish.
+Define the terminal result when the original failure reason cannot be recovered; obtain a steward disposition if needed.
+Keep recovery incomplete, with the specified busy response, until the required record updates are durable.
+Do not invent a successful spawn or an original failure reason from an Exited or Lost row alone.
+
+### S2-PC-D6 — MEDIUM — Removal at Released violates operation retention and disagrees with P5
+
+Evidence: section 7 Removal of records; P5 section 4a; HC EN-7b.
+PC deletes a spawn operation record at Core Released after Remove, regardless of its retention age.
+P5 deletes terminal records only after operation_retention_seconds and never evicts pending records.
+These are different removal rules for the same store.
+
+The new internal-fault path illustrates the defect: write failed{internal}, then Remove the Created row.
+PC's removal rule can delete that terminal operation record immediately at Released.
+A client resolving its admitted operation within the retention window can then receive not_found.
+EN-7b defines that result as proof of non-admission after recovery, which is false for this record.
+The selected minimum identifiers omit a separate durable-read proof, but the new store design must preserve its stated contract.
+
+Required change: keep the operation record's retention independent of the session row's removal.
+At Released, remove the session view and its directory without deleting an unexpired operation record.
+Use P5's finite max_operation_records bound and typed busy refusal for new records.
+Align PC and P5 on one retention rule. Preserve every pending record until its terminal disposition is durable.
+
+VERDICT: NOT CLEAN (two new MEDIUM findings, D5 and D6; earlier findings remain closed; R-120 is applied).
+This review supplies no implementation or gate approval.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
