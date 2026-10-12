@@ -211,4 +211,68 @@ The completed exact-train-head gate and final member evidence receipts remain re
 The separate #303 clock change remains outside this train review.
 I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
 
+### Completed train gate — final #305 evidence receipt — 2026-10-12
+
+Lead completion request: `msg_plugin-w_1791789027_6a6e7a`.
+The lead requests this receipt in the published verdict file because its inbox remains blocked.
+This update keeps Round 2 and head `080987829a2e2245a7ea97606020400392c974d6`.
+The tree remains `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`; the base remains `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The source verdict at `f801a56c41744982113586b5c36965788cca998d` remains unchanged.
+I read the matching integration source section at `cabdb2c7204d442fdf914284231f124f6bf55a3b`.
+I read Sol-B's complete combined source section at `af670a7dd20cc852239738925293f78d50e4fe19`.
+Both accept this exact source composition with zero findings. This update does not replace either reviewer's final evidence receipt.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`.
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+I audit the completed log's identities, outcomes, test rows, mutation records, citations, and final job records.
+The header names this exact train head and base. The lists step confirms the same merge base.
+All ten steps PASS in 1194.2 seconds.
+The job and wrapper exit 0 after 1293 seconds on msa1. Queue time is one second; run time is 1292 seconds.
+Default: 1935 passes and 431 skips in 13.541 seconds. Slow: 619 passes and 2068 skips in 40.618 seconds.
+Every reported test ordinal occurs exactly once in each tier, with the correct denominator.
+The gate preserves the public facade and passes candidate-worker preparation.
+
+The host broken-link deadline test passes in 0.004 seconds.
+The worker no-timer test passes in 0.004 seconds. Both linked-stop and ended-leader KillPayload tests pass.
+The testkit no-grace-deadline test passes in 0.004 seconds. The launch-field compatibility test passes in 0.003 seconds.
+The broken-control Stop conformance trial passes on the testkit in 0.131 seconds and the real tier in 0.103 seconds.
+The real worker signal test passes in both selected binaries, in 0.006 and 0.007 seconds.
+These results preserve the consecutive-signal observation scope recorded in Round 1.
+
+Both strict summaries have 261 passes and zero failures, in 7.00 and 6.45 seconds.
+The strict check runs 319 of 336 pending identifiers, with seventeen real-only exclusions and four held identifiers.
+The pending file has 406 identifiers, including seventy without transcripts. The ledger has 691 identifiers.
+#305 changes no conformance identifier. The accepted base and #300 removals remain intact.
+Minimum counts are testkit-passing 67/69, real-passing 61/68, and real-accepted 62/69.
+Coverage checks 1081 slow-only tests and seven named real proofs.
+I independently verify that all 35 passing ignored real identifiers remain in the unchanged 43-entry real-pending list.
+Held-full runs three budget identifiers at 32 seeds and reports 96 ignored trials, zero failures, and 22.53 seconds.
+No additional removal follows from these ignored results.
+
+Mutation tests 99 unique identities. Stage 1 catches 71, leaves sixteen missed, and reports twelve unviable, in 232.0 seconds.
+The slow baseline passes all 619 tests in 39.334 seconds; the reported baseline stage takes 58.8 seconds.
+Every baseline test ordinal also occurs exactly once.
+Stage 2 tests exactly those sixteen misses and catches all sixteen in 321.3 seconds.
+Final totals are 87 caught, twelve unviable, zero missed, and zero timeout.
+I independently match all 87 raw catches to their citations. Every cited test has normal PASS in this gate.
+Every stage-2 cited test also has baseline PASS.
+The real signal test catches the deleted SIGUSR2 arm. The SIGTERM arm and Driver::run body also have stage-2 catches.
+The complete log has no FLAKY token.
+Both core-link decoder fuzz harnesses run for the configured 60 seconds each.
+The link decoder completes 8032094 runs; the message decoder completes 4636250 runs. Each reports 61 seconds and no crash.
+
+R305-F2 LOW required the missing final train section in the PR body.
+Finding message: `msg_plugin-w_1791789270_a1d4de`. Owner correction receipt: `msg_plugin-w_1791789294_6a2131`.
+Sol-C requests and correction checks are `msg_plugin-w_1791789153_c3df32` and `msg_plugin-w_1791789322_bd9d33`.
+I read the complete corrected body. Its final section names the frozen member, train base, ordered merges, exact head/tree, and completed gate.
+Its gate hash, stage counts, durations, Linux scope, and retained initial evidence limits match this audit.
+It claims no merge and no train-head Mac execution. R305-F2 closes before this final update is published.
+This section supplies the separate completed train-gate receipt. It does not relabel the initial gate or broaden local provenance claims.
+R305-F1 remains closed. The earlier RED gate and initial compatibility, platform, comparison, and cache limits remain recorded.
+Zero #305 source, body, or final evidence findings remain on this exact train head.
+The completed train gate closes this package's pending final evidence condition.
+This final #305 CLEAN names the train gate above. It accepts no later head, tree, or gate.
+The other member's final receipts, integration final receipts, and the lead's base/tree and push verification remain required before merge.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
 VERDICT: CLEAN
