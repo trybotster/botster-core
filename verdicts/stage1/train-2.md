@@ -146,3 +146,45 @@ The author reports that correction in `msg_plugin-w_1791789181_65d2a1`; independ
 Sol-B will complete final acceptance after the matching member records arrive.
 The lead's base update, gated-tree verification, and verified push remain outside this audit.
 Sol-B ran no execution job and did not merge the train.
+
+## Round 2: final combined acceptance
+
+Exact head: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+Base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The member heads and merge order remain unchanged. The completed gate audit above remains applicable.
+
+Sol-B read the complete final member sections:
+
+- #300 package: `a2026fa1a833b94a931a97b0fd58e5f8f7f8d6f3`, `verdicts/p6-e1-scheduler-hold.md`, Round 7.
+- #305 package: `bb049fadda6d78b9f0a30e23f2d5605da1f55c7a`, `verdicts/p5-stop-grace-kill.md`, Round 2 final update.
+- #305 integration: `e6100fcd44dc691ff6ebc2672e399f8b60b27adb`, `verdicts/stage1/p5-stop-grace-kill.md`, Round 4.
+
+Each receipt accepts this exact train head and the same completed gate.
+Each reports zero open findings. Their source, gate, mutation, and scope conclusions agree with Sol-B's independent audit.
+The #300 final integration receipt is Round 6 in `verdicts/stage1/p6-e1-scheduler-hold.md` in this commit.
+
+Sol-B read both complete corrected PR bodies through GitHub.
+The #300 body now distinguishes train-2.md Round 1 from its own Round 5 source delta.
+Its final head, tree, base, order, counts, and gate path match the reviewed records.
+The #305 body now records the final train section with the same identities, counts, durations, and gate hash.
+R305-F2 is closed through that correction and both published #305 final receipts.
+R305-F1 and all earlier #300 findings remain closed with their recorded evidence scope.
+
+The one accepted final gate is `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`.
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+All ten steps PASS. Default passes 1,935; slow passes 619.
+The mutation result has 87 valid catches, twelve unviable, zero missed, and zero timeout. No FLAKY record appears.
+The raw identities, citations, normal passes, stage-2 baseline, and sixteen stage-2 catches retain the independent checks above.
+
+This is Linux train evidence. It supplies no train-head Mac execution.
+The member Mac evidence, comparison, compatibility, and provenance limits retain their original-head scope.
+No passing ignored trial authorizes another identifier removal. #298 and #303 remain outside this train.
+
+No member or combined source, body, or final evidence finding remains on this exact train head.
+Sol-B accepts the combined train and #300's final evidence on this head and tree.
+The lead must fast-forward v1, verify equality with the gated tree, and verify the remote push.
+This acceptance claims no completed merge and accepts no later source head, pin, or status removal.
+Sol-B ran no execution job and changed no product code.
+
+VERDICT: CLEAN (0 open; final combined train acceptance)

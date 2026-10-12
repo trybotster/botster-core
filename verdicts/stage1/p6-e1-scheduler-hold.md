@@ -169,3 +169,44 @@ This verdict accepts the exact train source delta. It accepts no running or futu
 The completed train gate and final evidence body remain due. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; train source delta only, final train evidence pending)
+
+## Round 6: final #300 evidence on train 2
+
+Exact head: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+Base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Frozen #300 member: `484912ac58743b899c7856e87bdcad0f2b398300`.
+No source changes after Round 5 are accepted by this receipt.
+
+Completed final gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`.
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+Sol-B independently audited this gate in `verdicts/stage1/train-2.md`.
+The header and lists step name this exact head and base. All ten steps PASS in 1194.2 seconds.
+Default passes 1,935 tests. Slow and the unmutated stage-2 baseline each pass 619.
+Atomic-transitions passes on both tiers. The hold, admission, metadata, forwarded-op, deadline, and seeded-comparison proofs pass.
+The real hold/release wake proof passes. The deadline proof observes a kill while Stop remains held on this train.
+
+Stage 1 catches 71 of 99 mutants, with sixteen misses and twelve unviable.
+Stage 2 tests exactly those sixteen misses and catches all.
+Sol-B independently matched all 87 raw catches to citations and normal PASS results.
+The final result has 87 caught, twelve unviable, zero missed, and zero timeout. No FLAKY record appears.
+Both link decoder fuzz harnesses complete their configured runs without a reported crash.
+The job and wrapper exit 0 after 1,293 seconds, with one second queued and 1,292 seconds running.
+
+Lists retains 406 pending identifiers and 43 real-pending identifiers.
+The strict testkit result has 261 passes and zero failures. Held-full has 96 expected ignored trials and zero failures.
+The sole #300 removal remains atomic-transitions. Deferred-completion remains pending with its recorded reason.
+These results authorize no additional identifier removal.
+
+Sol-B read the complete corrected body, including its final train section and corrected review-round citation.
+Sol-B read final package receipt `a2026fa1a833b94a931a97b0fd58e5f8f7f8d6f3`, Round 7.
+It names this head, tree, base, gate, and hash, and agrees with the independent audit.
+No #300 package or integration finding remains. Both earlier integration findings remain closed with their original proof scope.
+
+This final CLEAN accepts #300 on this exact train head and the named completed gate.
+The combined final acceptance is Round 2 in `verdicts/stage1/train-2.md` in this commit.
+The gate is Linux evidence. The earlier focused Mac, API, and seeded records retain their original-head scope and limits.
+The lead owns base update, gated-tree verification, and remote push verification. This receipt claims no merge.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; final #300 train acceptance)
