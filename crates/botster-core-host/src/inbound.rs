@@ -419,6 +419,8 @@ impl HostEngine {
             session: entry.session.clone(),
             instance: entry.instance.clone(),
             route,
+            // Steward ruling R-104 (contracts `main` `2fa8ce2d`): Core amendment A21 makes both tags `Option<String>`, in
+            // `RouteClosed`'s serde form. Until the pin PR that takes A21, an absent tag posts as the empty string.
             route_tag: entry.route_tag.clone().unwrap_or_default(),
             owner: adopted.owner.clone().unwrap_or_default(),
             client: adopted.client.clone(),

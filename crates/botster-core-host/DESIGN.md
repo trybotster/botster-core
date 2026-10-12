@@ -494,8 +494,9 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
      `ParkedRoute::Adopted` behind the parked route events. A record consumed after the post is registered at once. A
      `Lost` row registers none.
   3. `RouteAdopted{session, instance, route, route_tag, owner, client}` posts from the parked queue (EV-5b, EV-6). An
-     absent tag is the empty string. A route that was `Stalled` arms its close step at this post (add at post), unless a
-     later event of the route waits (`route_stall_posted`).
+     absent tag is the empty string until the pin PR that takes Core amendment A21 (steward ruling R-104: both tags
+     become `Option<String>`). A route that was `Stalled` arms its close step at this post (add at post), unless a later
+     event of the route waits (`route_stall_posted`).
   4. The row is done (`adoption_done`: the `Adopt` op completes, or `AdoptAll` counts the row) after its state posted, all
      `routes` records were consumed (or the link ended), and each `RouteAdopted` posted.
   The worker sends a route's reports only after its `RouteId`, which follows the state, so every report of the route parks
