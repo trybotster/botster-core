@@ -1804,3 +1804,30 @@ The merge tree ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be equals the reviewed and 
 The Q7 receipt and equal-tree merge condition close. #291 review work is complete, with zero open findings.
 The older failure, attribution, and platform limits stay recorded. #290's final-slot review remains due when the lead assigns it.
 The reviewer owns no build target to clean. No execution job runs. Wait for the next authorized doorbell. Never poll.
+
+## #307 control queue: complete Round 1 NOT CLEAN
+
+READY msg_plugin-w_1791780222_a9016a assigns head 614cc30dabd59a7d8d5a770ff0eb74991bb240cb.
+Source base is e4f495040a80b524a7ac9accba95272d5c2594fa. GitHub and gate base are fcc09461cb0c0de4ef067c160f24d205f0f65c30.
+The lead assigns package reviewer 0179 and Sol. The reviewer sends its UUID before review.
+The binding brief is read first. This review covers all 19 changed files, the body, the import, and completed evidence.
+Verdict: NOT CLEAN (2 open), recorded in verdicts/pc-control-queue.md Round 1.
+CQ-PC-1 MEDIUM: a fatal send clears out but retains refused_full, so the failed write side can post SessionWritable or room-related more.
+The finding follows from source. Sol independently records the same finding as R307-SI-1. No reviewer reproduction runs.
+CQ-PC-2 MEDIUM: the 4096-byte estimate does not meet R-91's largest non-input frame term.
+Lead receipt msg_plugin-w_1791780836_98917e and R-100 dispose the sizing question: use header + link_frame_bound and state it in DESIGN.md.
+No new CoreLimits fields enter v1. The oversize-at-call checks remain the separate RC PR. No further steward request is due.
+PC reports CQ-PC-1 repair 973507ab9e7268165a38cde9d85f4032878f9b64. The report is outside READY 614cc30d and closes no finding here.
+The exact-head Linux gate passes all ten checks in 626.5 seconds on MS-A1. The job and wrapper exit zero.
+Gate SHA-256 dedecaad1a1e92ced19f86f88c26c3710f97a976caa5f912ec35223e1537dde8 matches the retained client copy.
+All 45 raw catches match named citations and normal PASS records. All 13 first-stage misses match the second-stage catches.
+The 12 unviable outcomes are build failures. No FLAKY record appears. Both link decoders complete their fuzz runs.
+The earlier c48446bc gate's seven misses remain recorded. The current gate catches the six testkit mutations; source removes the redundant predicate.
+The local 614cc30d record reports 336 host, 52 link, 427 testkit, 192 worker tests and strict conformance 260 PASS at seeds 0-31.
+The eb37555a seed evidence reports both IN-6 ids PASS at strict testkit seeds 0-31 and real seeds 0-7, eight real passes each.
+Those local seed records precede the current mutation-test change. The current gate passes both ids in both tiers.
+The import retains both sides' driver and worker fields. The independent three-way set check finds 408 expected and actual pending ids.
+Only the two IN-6 ids leave pending. Eight other conformance text blobs match the source base. EV-9 and R-93 debt remain pending.
+Live body hash is c312c5822dca598e58fdfe71f9cfe629cfba0078c15b2d56b37589b121338144. Its sizing claim must change with CQ-PC-2.
+No later head is accepted. PC must send a combined READY with both repairs and completed evidence. No merge is approved.
+No reviewer build, test, gate, mutation, reproduction, or executable base-check job runs. Wait for the doorbell. Never poll.
