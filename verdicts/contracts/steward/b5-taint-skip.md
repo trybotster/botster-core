@@ -41,3 +41,13 @@ Fix: run `cargo fmt --all` and commit. Then gate the new head. No other change i
 - **The note on step 2** (name a `.rs`/`.ts`/`.js` file under `amendments/` or `verdicts/` in BUILD.md) stays a note. It is not a finding of this PR.
 
 My finding F1 is closed. CLEAN on `b65e0f6ba8fe7d6338a800fddc4d6410097d5d3e`.
+
+## Q7 receipt: base merge 1b922004a90ea987687f418e8a02709b71eade62
+
+- **The parents** are main `3d590705` and the reviewed head `b65e0f6b`. Tree `8b0be14a` is equal to `git merge-tree --write-tree` of the parents.
+- **The diff from main** is `xtask/src/taint.rs` only. Its stable patch-id `e60e15ba` is equal to the patch-id of the reviewed head against its base `11b2a5a8`.
+- **The paths are disjoint.** Main since `11b2a5a8` changed only the three `st_6b` transcripts and `docs/steward-rulings.md`.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-detached-1b922004-1b922004-pool-20261012-125241-89227.log`, with sha256 `d14844ea25c8a3c8834e5608306211630f0065e13003bdf0492b53b66f0f2e2f`. All ten steps PASS, exit 0 after 444 s on msa1, base main `3d590705`.
+- **Main since then** is `e5709067`. `3d590705..e5709067` changes only `docs/steward-rulings.md`, so the steward's rulings-only merge on top of it needs no new gate.
+
+Q7 receipt given for `1b922004a90ea987687f418e8a02709b71eade62`.
