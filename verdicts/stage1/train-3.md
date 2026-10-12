@@ -201,3 +201,12 @@ The lead must still publish the train and verify the merged tree and remote refs
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; train 3d source and completed final gate)
+
+## Later member remediation: #308's T3-I2
+
+T3-I2 HIGH is repaired on #308 replacement head `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+It imports `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, which contains the .44 pin.
+The replacement removes the obsolete IN-8 entry and its requiring assertion while retaining the inherited EV-2 entry.
+Sol-B's complete source, body, package, and completed-gate receipt is Round 4 in `verdicts/stage1/gs-flaky-signature.md` in this commit.
+This records member remediation only. It does not accept abandoned train 3 head 3435a6d2 or change any RED gate result.
+Train 3d's separate #310 acceptance remains unchanged. #308's later delivery procedure remains due.

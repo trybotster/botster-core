@@ -118,3 +118,77 @@ This delta accepts no train gate and remains NOT CLEAN. The earlier LOW findings
 Sol-B ran no execution job.
 
 VERDICT: NOT CLEAN (1 HIGH open)
+
+## Round 4: conflicting current-base import and stale-entry repair
+
+Exact head: `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+Tree: `ad063c73dfdb177b66ca6d9cb8d0392a51c1d47e`.
+Imported and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Previous accepted member: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, based on `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Merge `95b3b14cf47dc3aa54d3ff0adc57dcc6628f1e60` joins that member and the current base.
+The next commit removes the stale IN-8 entry and updates the repository-list assertion.
+
+Sol-B reads the merge objects, both conflict resolutions, follow-up, complete own delta, and full body.
+Canonical report: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-flaky-signature-base-merge-check-2ac0be6f-to-c3bd7fcd.log`.
+Sol-B reads the complete report. Ancestry and condition 4 PASS; conditions 1, 2, and 3 FAIL.
+The conflicts affect ci/known-flaky.toml and xtask/src/known_flaky.rs.
+This manual delta review covers their resolutions. It does not relabel the canonical FAIL as PASS.
+
+The three-way list has no base entry, the member's IN-8 entry, and the current base's EV-2 entry.
+Sol-B independently parses the merged list and verifies that it initially contains both entries.
+The final head removes IN-8 and retains only EV-2.
+Every pre-existing EV-2 field equals the imported base: binary, test, diagnosis, owner RC, and removal by #316.
+Its added signature is `{ step = "slow", symptom = "step_timeout", seed = "any", text = "step=71 limit=step_timeout" }`.
+Those fields match the failure signature already recorded in the base diagnosis and the retained train 4 failure.
+The required table adds no exclusion beyond the accepted base entry.
+
+**T3-I2 HIGH is CLOSED on this repaired replacement head.**
+The .44 pin is present. The obsolete IN-8 entry and the assertion that required it are absent.
+The repository test retains the base's EV-2 test name and checks its exact binary, test, and #316 removal trigger.
+The comment states the IN-8 retirement and temporary EV-2 scope.
+This closes the same defect as package GS-FS-T3-1.
+The abandoned train 3 head remains unaccepted; this repair supplies no acceptance for its old composition.
+
+Sol-B independently compares the parser, signature reader, removal syntax, report, filters, and other tests with the accepted member.
+All known_flaky source outside the repository-list test block is byte-identical.
+The CI source blob equals the accepted member blob. Only the three approved own paths differ from the imported base.
+No pin, conformance set, timeout, profile, mutation exclusion, or product path changes in the own delta.
+The schema still supplies no automatic log matcher. It authorizes no specific retry.
+Ordinary slow results remain outside the mutation-stage exclusion. Stage 1 exit still requires an empty list.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-flaky-signature-c3bd7fcd-pool-20261012-111432-79517.log`.
+SHA256: `2b8515fdfacfb6b37e7e37797c5fe6071044910623ffc362fb848b6210b168fd`.
+Sol-B reads the exact identity, base accounting, changed tests, raw mutation results, citations, summaries, and exits.
+Gate and merge base both equal the imported base. All ten steps PASS in 444.6 seconds.
+Default passes 1,957 tests; slow passes 633 tests. Strict conformance passes 264 with zero failure.
+The parser cases and current repository-list test PASS. The contracts-checkout comparison passes in 0.122 seconds.
+IN-8 passes default in 0.182 seconds and real slow in 0.132 seconds.
+EV-2 passes default in 0.190 seconds and real slow in 0.119 seconds.
+Those ordinary passes remove no further entry and establish no new EV-2 structural repair.
+
+Stage 1 tests 27 mutants: 25 caught, two unviable, zero missed, and zero timeout.
+Sol-B independently matches all 25 unique raw catch identities to citations. Every catcher has a normal PASS.
+Stage 2 does not run because stage 1 misses none. Unviable results supply no catch evidence.
+No runtime FLAKY or INCONCLUSIVE result appears. Fuzz reports no changed decoder-harness crate.
+The job and wrapper exit 0 after 517 seconds on msa1, with one second queued and 516 seconds running.
+
+**B308-I2 — LOW — historical severity label. CLOSED.**
+The initial updated body labels Sol-B's T3-I2 MEDIUM; the final train 3 record classifies it HIGH.
+Sol-B requests the correction in `msg_plugin-w_1791829866_252cbd`.
+GS corrects the body in `msg_plugin-w_1791829882_af9636`. Sol-B independently reads the full corrected body.
+It now records T3-I2 HIGH. The source head remains unchanged, and no new gate is required for the prose correction.
+
+Sol-B reads package source and gate receipt `3797ce1721d466ca19a71cc6d242d0ee56e7f664`, its complete #308 import section.
+The package reviewer then holds that CLEAN for the same body correction.
+Sol-B reads the superseding receipt `83b5b8876f1df382e849fa91ac2d3425610f4690`, its complete body-closure section.
+It closes the package LOW finding and restores CLEAN on this same exact head and base.
+Both reviews agree on the source, gate, HIGH closure, and body correction.
+
+The full body records the import, union, signature metadata, stale-entry retirement, canonical FAIL, and completed gate.
+The local Mac results remain owner reports and include five base_merge timeouts; they supply no broad green result.
+All earlier LOW findings remain closed. No source, body, or supplied-evidence finding remains on this exact head.
+The lead owns the next slot or train, its applicable delta and final gate, and merge/tree/push verification.
+This receipt accepts no later pin, entry removal, head, completed merge, or additional retry.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; resolved import, stale-entry repair, and completed exact-head evidence)
