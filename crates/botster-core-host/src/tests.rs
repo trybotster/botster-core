@@ -192,8 +192,13 @@ impl World {
             .filter_map(|key| key.strip_prefix(crate::session::ROW_PREFIX))
             .map(sid)
             .collect();
+        let mut engine = HostEngine::new(cfg, registry_ids);
+        // As `HostDriver::open` does.
+        engine.next_ordinal =
+            crate::session::next_ordinal(rows.get(crate::session::ORDINAL_KEY).map(Vec::as_slice))
+                .expect("the counter row is a number");
         World {
-            engine: HostEngine::new(cfg, registry_ids),
+            engine,
             now: start,
             unix: 1_000_000,
             rows,
@@ -745,6 +750,7 @@ mod frame_fit;
 mod lifecycle;
 mod losses;
 mod queue_pressure;
+mod read_facts;
 mod ready;
 mod registry;
 mod remove;

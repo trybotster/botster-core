@@ -94,6 +94,9 @@ struct ProcessCell {
     model_log: ModelLog,
     /// The worker machine itself, for reading its live model between pumps (`oracle_resume`).
     worker: Option<SharedWorker>,
+    /// The JSON byte size of the `input_records` list of the last `ReadFacts` answer that the worker sent on its link
+    /// (`input_records_cost`, Core ST-7, 9B). It is measured at the link boundary, never in the worker (steward ruling R-14.3).
+    records_cost: Option<u64>,
 }
 
 /// The worker machine, shared with its process cell. The sim is its only writer; a control reads it between pumps.
@@ -804,6 +807,21 @@ impl Workers {
             .is_some_and(|(cell, _)| !lock(cell).ended)
     }
 
+    /// The JSON byte size of the `input_records` list of the last `ReadFacts` answer that the worker process `identity` sent
+    /// on its link (`input_records_cost`), or `None` before any.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run.
+    pub(crate) fn input_records_cost(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<Option<u64>, String> {
+        lock(&self.run_processes)
+            .get(&identity)
+            .map(|(cell, _)| lock(cell).records_cost)
+            .ok_or_else(|| format!("the process {identity:?} is not a worker of this run"))
+    }
+
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
     /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
@@ -966,6 +984,7 @@ impl Spawner for WorkerSpawner {
             link,
             link_open: true,
             outbound: VecDeque::new(),
+            sent: FrameDecoder::new(u32::MAX),
             written: 0,
             payload: None,
             spawned: None,
@@ -1167,6 +1186,8 @@ struct WorkerEdges {
     link_open: bool,
     /// Bytes of `LinkSend` that the link has not taken yet, in order.
     outbound: VecDeque<u8>,
+    /// The frames of `LinkSend`, read for `input_records_cost` only.
+    sent: FrameDecoder,
     /// The bytes of `LinkSend` written so far (`Input::LinkWritten`).
     written: u64,
     payload: Option<ScriptedProgram>,
@@ -1199,6 +1220,33 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
+    /// Reads the frames of a `LinkSend` as the link carries them, and keeps the JSON size of the `input_records` list of each
+    /// `ReadFacts` answer (`input_records_cost`). It changes nothing that the link carries and adds no wait.
+    fn measure_sent(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let took = self.sent.push(rest);
+            // The decoder takes bytes up to the end of a frame, and each complete frame is taken below; after a refusal it
+            // takes everything. So every push takes a byte, and the loop ends.
+            assert_ne!(took, 0, "the frame decoder took no byte of a LinkSend");
+            rest = &rest[took..];
+            while let Ok(Some(frame)) = self.sent.next_frame() {
+                if frame.kind != FrameType::WORKER_MSG {
+                    continue;
+                }
+                if let Ok(WorkerMsg::Done {
+                    result: OpResult::Ok(OpOutput::Facts(facts)),
+                    ..
+                }) = WorkerMsg::decode(&frame.payload)
+                {
+                    let cost = serde_json::to_vec(&facts.input.input_records)
+                        .map_or(0, |v| v.len() as u64);
+                    lock(&self.cell).records_cost = Some(cost);
+                }
+            }
+        }
+    }
+
     /// Keeps a route stream that the link delivered, under a new id for the machine.
     fn keep_descriptor(&mut self, descriptor: crate::net::Descriptor) -> DescriptorId {
         let end = descriptor
@@ -1641,6 +1689,7 @@ impl Binding<SharedWorker> for WorkerEdges {
             // Queued; the write is its own input (`Ready::Flush`), as the real driver writes when the socket takes bytes.
             Action::LinkSend(bytes) => {
                 if self.link_open {
+                    self.measure_sent(&bytes);
                     self.outbound.extend(bytes);
                 }
             }

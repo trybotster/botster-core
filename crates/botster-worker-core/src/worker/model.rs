@@ -20,6 +20,7 @@ use botster_route_codec::prelude::HexBytes;
 use botster_terminal_ghostty::{
     ClipboardLocation, EncodeError, History, ModeFlags, SnapshotError, Terminal, TerminalEvent,
 };
+use std::time::Instant;
 
 /// The model of a launched session.
 pub(super) struct Model {
@@ -315,6 +316,43 @@ impl Worker {
         OpResult::Ok(OpOutput::Modes(Modes {
             flags: model.modes(),
             model_rev: self.model_rev,
+        }))
+    }
+
+    /// `ReadFacts` (ST-7): the model's facts and the input facts, all taken here, at one point of the worker's ordering
+    /// (AM-2). The size is the model's, with the launch's cell size.
+    pub(super) fn read_facts(&self, now: Instant, after: Option<InputCursor>) -> OpResult {
+        let (Some(model), Some(facts)) = (self.model.as_ref(), self.facts.as_ref()) else {
+            return no_model(ErrorCode::WrongState);
+        };
+        let cursor = model.term.cursor();
+        let read = facts.read(now, after);
+        let revs = self.input.input_revs();
+        OpResult::Ok(OpOutput::Facts(Facts {
+            model_rev: self.model_rev,
+            modes: model.modes(),
+            size: Size {
+                rows: u32::from(model.term.rows()),
+                cols: u32::from(model.term.cols()),
+                cell_px: self.launch_size.and_then(|size| size.cell_px),
+            },
+            cursor: FactsCursor {
+                row: cursor.row,
+                col: cursor.col,
+                visible: cursor.visible,
+            },
+            input: InputFacts {
+                client: ClientFacts {
+                    rev: revs.client,
+                    age_ms: read.age_ms,
+                },
+                host: HostFacts { rev: revs.host },
+                client_tail: HexBytes(read.tail),
+                tail_complete: read.tail_complete,
+                input_records: read.records,
+                next_cursor: read.next_cursor,
+                gap: read.gap,
+            },
         }))
     }
 

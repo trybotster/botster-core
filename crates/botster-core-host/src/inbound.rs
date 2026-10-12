@@ -533,10 +533,27 @@ impl HostEngine {
                     size,
                 });
             }
+            // IN-10: the client revision moves in every case. `RouteClosed` retired the route's key (EV-5), and Core
+            // can close a route without the worker (`DetachLocal` while the link is down), so only a live route of this
+            // session raises the edge.
             Observation::ClientInput { route, input_rev } => {
                 if let Some(t) = &mut s.terminal {
                     t.input_rev.client = input_rev;
                 }
+                if s.routes.contains(&route) {
+                    self.queue.post_keyed(Event::Activity {
+                        id: sid,
+                        instance,
+                        source: ActivitySource::Client(route),
+                        at: unix,
+                    });
+                }
+            }
+            // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
+            // A transaction can end after its route closed, and `RouteClosed` retired the route's key (EV-5): only a
+            // live route of this session raises the edge. The worker's facts keep the record's status update in both
+            // cases.
+            Observation::ClientInputEnded { route } if s.routes.contains(&route) => {
                 self.queue.post_keyed(Event::Activity {
                     id: sid,
                     instance,
@@ -610,7 +627,8 @@ impl HostEngine {
             } => self
                 .queue
                 .post_lost(&sid, &instance, kind, tap_dropped_bytes),
-            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host. A
+            // `ClientInputEnded` of a route that is not live in this session also comes here, and raises nothing.
             _ => {}
         }
     }

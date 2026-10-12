@@ -1092,6 +1092,7 @@ mod held_starts {
             size_policy: SizePolicy::default(),
             link_frame_bound: DEFAULT_MAX_PAYLOAD,
             limits: CoreLimits::default(),
+            cursor_ordinal: 1,
         })))
     }
 

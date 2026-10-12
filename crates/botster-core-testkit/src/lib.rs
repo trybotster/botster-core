@@ -16,6 +16,7 @@ pub mod crash;
 pub mod edge_tap;
 pub mod entropy;
 pub mod every_cut;
+pub mod facts_controls;
 pub mod harness;
 pub mod net;
 pub mod op_holds;
