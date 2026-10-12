@@ -189,3 +189,103 @@ This verdict accepts no future source, gate, pin, status removal, retry, or merg
 The reviewer changes no product code and runs no execution job.
 
 VERDICT: CLEAN (0 open; corrected source and body only)
+
+## Round 3 — train 8 source delta CLEAN
+
+Train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Train tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Train base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Frozen #325 member: `c3e1b41fb04a334eb9c5b864a6d3c68904743954`.
+Member source base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Lead assignment: `msg_plugin-w_1791837736_4d4bf1`.
+Scope: #325's source composition on this exact train head. Sol-B owns the combined review and ONE final train receipt.
+
+The reviewer reads complete matching package Round 3 at `99bd443eb4ee268fe79dba2209dfa079aed630a3`.
+File: `verdicts/p5-reply-order.md`. Receipt: `msg_plugin-w_1791838022_c9fec9`.
+That package delta is CLEAN on the same train head, tree, base, and frozen member.
+The original package and integration source CLEANs retain their exact member scope.
+
+### Ordered composition and retained edits
+
+The first-parent chain has these exact merges and member parents:
+
+1. #325 merges at `ea89cbb8934ac6c5a4f0df70c635e2e364d1b600` from the train base and frozen member.
+2. #327 `0e25e27da6606a27cf2ff94df5d139c80f27b4d5` merges at `3d8b0ae29dc9da81f6114dac92a314d0da9e5c2b`.
+3. #324 `0572493fc9e695acd57b1916e485fdd900ba7643` merges at `5f8ad97b4effb96cd54d5500c444bf1b59ec7f5c`.
+4. #329 `b9763b0f851a029a48af3a0f495388d69683f10b` merges at the train head.
+
+The reviewer reads the complete #325 insertion and compares every added and removed line with the accepted member diff.
+Every changed line matches, excluding hunk positions and object indices. The insertion changes four paths, with 111 additions and twelve deletions.
+Insertion full-index diff SHA-256: `49ca99d5feab9f7a4983ed0ca6ced924e2644d7b266869d670479e92bf2ee00c`.
+The train changes 26 paths, with 986 additions and 200 deletions.
+Train full-index diff SHA-256: `08f5d55a7b100bddd1ee3551cc84157b4f5f88f77be654024e1a0f40bc74cf8a`.
+The Git whitespace check passes.
+
+The topic file, DESIGN.md index, and complete real-resume file match the member, first insertion, and final train byte for byte.
+The complete reply-order test, including its comment, also matches across all three trees and occurs once.
+Test-block SHA-256: `b9628332156dd154631aa9b2318f42879b05ccb98027bdc84e2a004c3bb498e4`.
+R325-F1's documentation closure remains valid.
+
+### Worker and host boundary
+
+The imported World fixture now answers PTY resize actions. It still suppresses every LinkWritten input when `instant_link` is false.
+The reply-order test feeds PTY output and ReadScreen. Neither input creates ResizePty, so that fixture adds no resize-answer turn here.
+The test retains its pending Output, later revision, Title, Modes, final Output-revision assertion, and last Done assertion.
+
+After the #325 insertion, #327 adds only `mod exit_watch;` to the shared worker test file.
+The reviewer reads that complete module and the worker-machine delta at this boundary.
+Its tests own separate World instances. Its new failure input and failure exit action do not replace a read or output path.
+The failure path ends the worker without fabricating a successful read completion.
+
+The reviewer independently confirms that report, send_report, on_output, output_advanced, and report_output match the accepted member exactly.
+The complete model.rs blob also matches, including feed_model, after_step, the four reads, and capture page reporting.
+The final on_op retains all four read arms and the common report of Done.
+Reports still enter one ordered LinkSend queue. The host retains link order when it applies Observed and later Done messages.
+The imported host-driver change only exposes control_bound within its crate. It changes no delivery or observation order.
+Thus the source retains the same-turn model observations and pending Output flush before each read reply.
+
+### Real-resume and contracts scope
+
+The imported capture layer records SizeChanged within the existing size/profile exclusion.
+The successful resume comparisons perform no resize before their oracle reads. The later resize exclusion assertion remains present.
+The layer still forwards the same polled events and records matching capture completions. It holds or re-injects no event.
+The distinct final-byte title sentinels, s2 then s1 ReadScreen completions, quiet check, and both oracle comparisons remain exact.
+
+The reviewer reads the other members' affected worker-edge and input-log interfaces at this boundary.
+They change exit-watch failure delivery and the representation of pty_input logs.
+They change neither the real-resume output history nor its title, read-completion, or oracle paths.
+The separate members' full behavior remains in their assigned reviews and Sol-B's combined review.
+
+Cargo.toml and Cargo.lock match the train base exactly and pin contracts `.46`, commit `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`.
+The optional RouteAdopted tag and owner fields change no read or resume interface used here.
+The contracts driver delta from `.44` to `.46` copies bindings only for pty_input reads. It changes no oracle-resume fence.
+The three R-114 st_6b transcript blobs remain byte-identical between `.44` and `.46`.
+Each still calls oracle_resume without the later ReadScreen/Completed pair.
+
+The reviewer reads the complete contracts #97 delta again and compares the corresponding `.49` transcripts.
+Contracts `.49`, commit `5ce2cff1193dda65b51fbddab2c740dbf12efa32`, contains the matching s1 ReadScreen and successful Completed immediately before each oracle.
+This train does not pin `.49`. This review claims no execution of those future fences.
+The lead's requirement that #325 precede the pin that takes #97 remains applicable.
+The old `.44` READY gate and real-resume test are not execution evidence for contracts #97's transcript changes.
+
+### Conformance accounting and disposition
+
+The reviewer checks all nine conformance text sets after every merge and against every merge-base candidate.
+The #329 merge has two candidates. All 45 set formulas pass, including the not-applicable deferred row.
+Every merged set equals the prior parent set minus the member's removals, plus the member's additions against that merge base.
+The #325 insertion changes no set. It restores no prior removal and removes no identifier.
+Final counts are ledger 692, pending 385, real-pending 38, held 4, minimum 69, and real-only 26.
+The proof file retains the base's seven exact rows for four distinct ids.
+Deferred text retains three rows, including one active not-applicable case. Withdrawn retains 27 ids.
+The three R-114 st_6b ids remain absent from pending, real-pending, held, and real-only lists.
+The other members own the three pending removals. This delta grants no new removal authority.
+
+The lead reports id-set PASS, workspace compilation with tests PASS, and strict conformance 281/0.
+Those statements are operator pre-check reports. No retained execution log accompanies this delta assignment.
+The earlier member gate, reversal, local evidence, and body keep their original heads and recorded limits.
+No completed train gate is supplied or accepted here. Zero source-composition findings remain, including LOW.
+Sol-B's combined review, completed exact-head gate review, ONE final train receipt, and lead Q7 remain due.
+This verdict accepts no future head, retry, pin, gate, or merge.
+The reviewer changes no product code and runs no execution job.
+
+VERDICT: CLEAN (0 open; #325 train 8 source delta only)
