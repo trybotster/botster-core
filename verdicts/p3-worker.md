@@ -14990,4 +14990,24 @@ Applicable new member/combined reviews, exact merging gate, ONE final combined r
 The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 205.
 
+### Round 204 supplemental action-contract finding — F160 LOW
+
+Exact source remains `4d7c547a17577dc73daaa1cd89da7eed743ca8bf`; tree and base remain as above.
+The earlier published Round 204 at `eb24ef870124c718c007f76bfe87f2babae4ba38` records F159.
+This supplement records a second finding in the member's drain interface. It starts no new package round.
+
+Location: `crates/botster-worker-core/src/worker.rs:183-185`, the public Action::DrainPty comment.
+It says that the drain is bounded by the initial PTY count and that a remaining writer cannot delay the exit.
+That describes the earlier count-only rule. #318 deliberately replaces that rule under R-108 with repeated counted parts and flushing reads.
+A remaining writer can keep that drain running, as the accepted member's DESIGN note explicitly records pending A24.
+The unchanged inherited action comment therefore contradicts the behavior that this member introduces.
+The prior F150 closure covers the corrected main.rs/drain.rs comments, not this public action comment.
+Update the action comment to the repeated rule and the remaining-writer limitation. No product logic or new test is requested.
+
+F159 MEDIUM and F160 LOW are OPEN for #318 on the original reviewed train head.
+HIGH requires both to close before the next #318 CLEAN. The lead has already removed #318 from train 9b for F159.
+This supplement changes no #328 carry proof or replacement-train verdict. The earlier bounded drain stays in train 9b without #318.
+The reviewer sends F160 directly to P3 and Sol-C and changes no product code.
+No new gate, execution, or future-head acceptance follows. Next package round remains 205.
+
 VERDICT: NOT CLEAN
