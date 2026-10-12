@@ -756,7 +756,7 @@ impl Worker {
                 route_tag: route.route_tag.clone(),
                 owner: route.owner.clone(),
                 client: route.client.clone(),
-                limits: route.limits.clone(),
+                limits: route.limits,
                 stalled: route.stall.stalled_at(),
             })
             .collect()
