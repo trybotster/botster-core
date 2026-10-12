@@ -49,3 +49,19 @@ Four commits on `18ff91b9`, no merge. Main is `1798a65de4c11855906366ab4a233564d
 ### F3 (LOW): the red run of the two new tests has no log
 
 The body says both tests "fail on head `18ff91b9` ("the terminal ended after …")", but names no log, node or OS. I found no log of it in `gates/` or `shared/core-stage1/evidence/`. The test depends on the kernel's PTY buffer size, so the red run is the proof that the test catches F1. Please name the log of that run (the OS and the head that ran it) in the body. If the run was local, copy its output to `shared/core-stage1/evidence/`. No new gate is needed for this.
+
+016c's round 2 (REJECT on `8d2aa504`) added F4 (MEDIUM, package scope: a refused `Create` replaced the print history). I do not re-review it.
+
+## Final: CLEAN on 5b66136e6c739737829cee9d9ba0dece30202611
+
+- **The delta from `8d2aa504`.** `6833b797` (016c's F4, `fence_lint.rs`, 016c's scope); `e903abab` (the two print-then-exit tests print 40960 bytes, not 16384); and a merge of main `673cd248` (#81).
+- **F3: closed, and it found a real gap.** P3's red run showed that 16 KiB fits in Linux's PTY buffer (R-74 measured 20480), so on Linux the 16 KiB test could pass on the unfixed probe. `e903abab` raises the print to 40960 bytes (2 × 20480), the same value as `HELD_WRITE_FILL_BYTES`. The evidence is in `~/botster-sessions/shared/core-stage1/evidence/p3-probe-printed-f1/`. `shasum -a 256 -c SHA256SUMS.txt` gives OK for all seven files. `red.sh` cleans the target dir and records the head, `git diff --stat HEAD` and `uname`:
+  - red, Linux (pool, msa1; head `e903abab` plus the probe source of `ab1d742b`, as a dirty commit `fe6b25d0`, base `87ff756a`): both tests FAILED. `in_control_mode…` got 0 bytes ("the terminal ended after []"), and `with_prints_env…` got a part of the print. Exit 101.
+  - red, macOS (Darwin 27.0.0 arm64; the same source, local changes only in the probe's `control.rs` and `main.rs`): both FAILED, with the same messages.
+  - green, macOS, head `e903abab`: both pass.
+- **The merge of main `673cd248` (Q7).** The tree `a33585fb957823363f0abdd7aff74a8373fe70ae` equals `git merge-tree --write-tree e903abab 673cd248`. #81 changes the 7 st_7 transcripts, `held_write.rs` and the README. #80 changes none of them, so no conflict is possible. #80's new print rule lints #81's transcripts in the gate's rust step, and that step passes.
+- **Main.** Main is `37f93d9394db05ae715548fae5ee333b5f78fd40`. That is the gate base, so the head is gated on current main.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 262 s on msa1, base main `37f93d93`; both new tests PASS; mutants 20 caught, 7 unviable, 0 timeout: `~/botster-sessions/gates/botster-contracts-p3-probe-printed-5b66136e-pool-20261011-195537-9920.log`.
+- **Open, not findings:** the serving Core PR is not open yet (the lead's order: the `.44` tag, RC's pin PR, then the Core PR). P3's O_raw scope question to the steward is still open.
+
+Every finding of mine (F1, F3) is closed. CLEAN on `5b66136e6c739737829cee9d9ba0dece30202611`.
