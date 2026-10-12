@@ -340,10 +340,11 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it is empty: #243 removed the cause of the ev_5 flake and its entry, and #316 (the
-    /// contracts-v0.1.46 pin, with #89's ev_2 fence; R107-SI-2) removed the ev_2 entry (the Stage 1 exit needs the list empty).
+    /// The repository's list parses, and it holds only the diagnosed in_8 step 6 flake (KSTATE-1, steward ruling R-111; lead,
+    /// 2026-10-12), which #321 removes with the pin of PC's R-111 driver fix. #243 removed the ev_5 entry, and #316 (the
+    /// contracts-v0.1.46 pin, with #89's ev_2 fence; R107-SI-2) removed the ev_2 entry. The Stage 1 exit needs the list empty.
     #[test]
-    fn the_repository_list_parses_and_is_empty() {
+    fn the_repository_list_holds_only_the_in_8_flake() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
@@ -352,7 +353,13 @@ removed_by = "#243"
             .iter()
             .map(|e| (e.binary.as_str(), e.test.as_str()))
             .collect();
-        assert_eq!(names, Vec::<(&str, &str)>::new());
+        assert_eq!(
+            names,
+            [(
+                "botster-core::slow_conformance",
+                "conf::in_8_mode_checked_at_write_start_by_worker"
+            )]
+        );
     }
 }
 
