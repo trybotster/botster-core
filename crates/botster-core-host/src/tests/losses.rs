@@ -71,20 +71,32 @@ fn route_reports_become_events_and_wait_for_room() {
     w.running("s1");
     let route = attach(&mut w);
     w.engine.poll_events(64);
-    w.worker_says("s1", WorkerMsg::RouteStalled { route });
+    w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 0 });
     let events = w.engine.poll_events(64);
     assert!(
         matches!(&events[..], [Event::RouteStalled { route: r }] if *r == route),
         "{events:?}"
     );
-    w.worker_says("s1", WorkerMsg::RouteResumed { route });
+    w.worker_says("s1", WorkerMsg::RouteResumed { route, mark: 0 });
     let events = w.engine.poll_events(64);
     assert!(
         matches!(&events[..], [Event::RouteResumed { route: r }] if *r == route),
         "{events:?}"
     );
-    w.worker_says("s1", WorkerMsg::RouteStalled { route: RouteId(99) });
-    w.worker_says("s1", WorkerMsg::RouteResumed { route: RouteId(99) });
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteStalled {
+            route: RouteId(99),
+            mark: 0,
+        },
+    );
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteResumed {
+            route: RouteId(99),
+            mark: 0,
+        },
+    );
     w.worker_says(
         "s1",
         WorkerMsg::RouteClosed {
@@ -124,9 +136,9 @@ fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
     w.engine.poll_events(64);
     // Three route events fill the queue; the next two wait.
     for _ in 0..3 {
-        w.worker_says("s1", WorkerMsg::RouteStalled { route });
+        w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 0 });
     }
-    w.worker_says("s1", WorkerMsg::RouteResumed { route });
+    w.worker_says("s1", WorkerMsg::RouteResumed { route, mark: 0 });
     w.worker_says(
         "s1",
         WorkerMsg::RouteClosed {

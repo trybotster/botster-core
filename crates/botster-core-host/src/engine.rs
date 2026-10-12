@@ -132,6 +132,8 @@ pub(crate) struct RouteEntry {
     pub session: SessionId,
     pub instance: InstanceId,
     pub route_tag: Option<String>,
+    /// The route's stall clock, with its applied limits (R-90, OU-1).
+    pub clock: crate::stall::RouteClock,
 }
 
 /// A route event that waits for mandatory room (EV-5b).
@@ -277,6 +279,12 @@ impl HostEngine {
     pub fn can_accept(&self, input: &Input) -> bool {
         use botster_core_link::msg::WorkerMsg;
         match input {
+            // The answer to a route's due step has the slot that the step holds (R-90, E3-1 item 4).
+            Input::LinkMsg {
+                msg:
+                    WorkerMsg::RouteClosed { route, .. } | WorkerMsg::RouteStalled { route, .. },
+                ..
+            } if self.route_holds_slot(*route) => true,
             Input::LinkMsg {
                 msg:
                     WorkerMsg::RouteClosed { .. }
