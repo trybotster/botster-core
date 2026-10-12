@@ -57,3 +57,16 @@ No merge carries a manual resolution.
 
 - 016c waits for 016b's retained output of the exception-line reversal. That is package scope.
 - At the Core pin: the testkit `write_forever` edge, with the worker clock on its real default for the A24-1 window.
+
+## Final: CLEAN on d4d1f213e8e04ab842bdf49841bf12bf0bda9388 (F1 closed)
+
+- **F1: closed** by `7e486e5`, a doc-only change. `main.rs:7-9` now limits the hold on a failed write to direct mode. It says that in control mode the writer thread reports no failure, so the step writes until a signal ends it, also on a terminal that is gone. This is what the code does (`main.rs:173-179`; `control.rs:170-176`). No code or transcript changes.
+- **The merge `d4d1f213`** (main `3d590705` into the branch): tree `05b605d6` is equal to `git merge-tree --write-tree` of its parents. Main's side brings only the three `st_6b` transcripts (#97) and `docs/steward-rulings.md`. No path is shared with this PR. `steward/final43` is still `0bdb72e7`.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-stage0-final43-crate-d4d1f213-pool-20261012-125150-86256.log`, sha256 `25316fdf2a71eff2298d7fd43e3f6d49ae1b0446d72aba2595c1793723419a0c`. All ten steps PASS. Mutants: 9 of 9 caught, then 3 caught and 2 unviable. Exit 0 after 1119 s on linux, base main `3d590705`, ledger 2552 ids.
+- **Checklist (R-115):** the transcripts did not change since round 1, so the round-1 ticks stand. Item 7 is met, and items 1-6 are not applicable.
+
+### Landing note (not a finding): the next main merge conflicts
+
+Main is now `49ff52d2`. It contains #98 (`xtask/src/taint.rs`) and #100 (`botster-core-conformance` `driver.rs`, `lib.rs`, `tests/driver_steps.rs`). `git merge-tree --write-tree d4d1f213 origin/main` reports `CONFLICT (content)` in `crates/botster-core-conformance/src/lib.rs`, the `pub use driver::{…}` list that both PRs extend. `driver.rs` and `driver_steps.rs` merge automatically. So the landing head needs a merge commit that resolves the conflict by hand. It also needs my review of that resolution (both export sets kept, no other change) and a gate on that exact head. The rulings-only rule does not apply.
+
+My finding F1 is closed. CLEAN on `d4d1f213e8e04ab842bdf49841bf12bf0bda9388`.
