@@ -353,3 +353,113 @@ The lead reports that train 7b landed and names current v1 `007efbde6a59af403d09
 PC must supply the resulting exact head before FINAL-READY. Sol and 0179 must review the complete applicable delta.
 The decision resolves import timing. It supplies no corrected source or execution evidence and does not close R319-SI-3 / CQ-RFT-5.
 VERDICT: NOT CLEAN (1 open).
+
+## Correction inspection — current-base import and root macro; matching package delta remains due
+
+Corrected head: `71ec2783edc2380c3389a71062422491506ebf39`.
+Tree: `4035cda3ce1eb41476d5dc6b4baeba463d8deb11`.
+Imported v1 and current source base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Previous reviewed head: `fabbf66cdaccedd942b8cedea824c763bd7bfa7a`.
+Correction receipt: `msg_plugin-w_1791838564_4b8ba0`.
+The reviewer inspects the authorized import, the root macro correction, complete body, and retained check and reversal records.
+The complete matching package delta remains due. This inspection completes no integration CLEAN round.
+
+### Import identity and preservation
+
+Merge `39e298de6b8eb3722d44db3e79231224e29799f4` has exactly the previous reviewed head and named v1 tip as parents.
+Its tree is `f79e0bbbab3752b2b92dc181c8f5468efe7d7659`.
+The reviewer independently runs static `git merge-tree --write-tree` on those parents and obtains that exact tree.
+The remerge diff is empty. No manual resolution enters this import.
+The two parents have one merge base, `080987829a2e2245a7ea97606020400392c974d6`.
+The next commit adds exactly three lines to `tests/props.rs`: the root macro, its comment, and a blank line.
+No other post-import edit enters this corrected head.
+
+Import full-index diff SHA-256: `abeea40f5aa6e65bd6d33cdc883c08d46524f9dcc3120d1152e65f1fde5c78f3`.
+Macro correction diff SHA-256: `4c8ee5a3697dd7bc67c03f57f6497134e8b86431b6e87960f3991d3a49cd3be2`.
+Current-base own diff SHA-256: `9035440b95ddd45a53f02656b6942b9d04e8d0656d70408601bb0d8e684a82b5`.
+The current-base own diff has thirteen paths, 932 additions, and one deletion. The Git whitespace check passes.
+
+The reviewer compares all thirteen own edit sequences against the previously reviewed patch at its original source base.
+Every added and removed line remains exact, excluding hunk positions and the three new macro lines.
+The complete net, real-route, real-rqueue, real-holders, and sock_diag blobs match the previous reviewed head exactly.
+Both property harnesses and their helpers also match after removal of the three macro lines.
+The route_client blob changes only its test constructor to the imported `WorkerClock::real()` API.
+FrameEnds behavior, route accounting, checked errno conversion, and kernel access paths remain unchanged.
+The unconditional sock_diag export, both harness registrations, existing bolero dependency, and lockfile dependency edge remain present.
+The imported worker report-order design paragraph coexists with the corrected R-115 refusal-room paragraph.
+
+### R319-SI-3 / CQ-RFT-5 — MEDIUM, closed in the corrected source
+
+The new binary invokes `botster_test_process::built_in_test!();` at its root.
+The invocation uses the existing imported macro. It defines no handwritten substitute with the reserved test name.
+The reviewer reads the complete macro definition and its build-root assertion interface.
+The macro expands the caller's compile-time package and manifest directory and creates the selected, unignored libtest test.
+The existing slow filter explicitly selects that test name for every binary.
+The macro definition, slow-coverage implementation, and tier filter match imported v1 exactly.
+The source thus satisfies the existing B13 requirement without adding a new xtask check.
+
+The corrected-head record reports slow-coverage exit zero, with 1100 slow-only tests checked.
+The retained producer then removes exactly the macro, comment, and blank line from props.rs.
+The reversal reports both default and slow `botster-core-testkit::props` binaries missing the build-root test.
+It reports two violations and slow-coverage exit 1. This fails the required presence condition rather than a setup condition.
+The producer restores props.rs and records blank status, exact corrected head, and time.
+It retains no numeric restoration exit or new restored suite. This review infers neither.
+The source, corrected coverage result, and targeted negative result close the root-macro finding.
+
+### Current-base lists and contracts
+
+All nine conformance text sets satisfy the three-way import formula against the sole merge base.
+Each final set equals the previous reviewed set minus v1's removals, plus v1's additions against that merge base.
+All nine final conformance blobs also equal imported v1 byte for byte. No status change belongs to #319.
+The reviewed head retains the imported `.46` manifest exactly.
+The existing known-flaky list also equals imported v1; #319 adds no entry or retry authority.
+The control still precedes its separate contracts fence and later Core pin under rule 23am.
+This inspection accepts neither a future contracts head nor execution of that future fence.
+The corrected AM-2 status distinction and the earlier two FLAKY outcomes keep their Round 2 dispositions.
+
+### Supplied corrected-head checks and limits
+
+Log: `shared/core-stage1/evidence/pc-route-frames-taken/rft-merge-checks-71ec2783.log`.
+Verified SHA-256: `e4176b47cd9424919f7d509a4238a67fb26864dfa2d254fd1e00309aa62a0614`.
+The complete record has 46 lines and names exact corrected head with clean status at `2026-10-12T20:42:05Z`.
+Producer: `rft-merge-checks.sh`, SHA-256 `511c4cb86619d2579bd3955e128dc9bbf36ca26b63199683f0c4fddbd8322ec8`.
+Called producer: `rft-local-checks.sh`, SHA-256 `440fa680dade11edfdb2820eb8261d6a30b7963f71b48bc0025a8a80e814f4bd`.
+The reviewer reads both complete producers. They unset RUSTUP_TOOLCHAIN and set both concurrency caps to four.
+
+The first workspace check reports exit zero and finishes after 19.47 seconds.
+That command is `cargo check --workspace --tests`, without `--locked`, and precedes the subsequent clean marker.
+The record supplies no complete prior target-writer history for that first check.
+The called producer reports its clean marker at `2026-10-12T20:42:39Z` on Darwin 27.0.0, macOS 27.0.1.
+It does not retain the numeric clean exit. The previous evidence limits therefore remain explicit.
+All ten named xtask checks report exit zero. Both clippy commands report exit zero, with warnings denied.
+The Linux target check compiles the netlink path; it is not Linux runtime evidence.
+
+The default testkit summary reports 483/483 passes in 2.925 seconds.
+The focused slow record has thirteen named passes, zero failures, and 575 skipped in 0.450 seconds.
+The strict summary reports 281 passed, zero failed, and 412 ignored in 6.37 seconds.
+The producer explicitly sets strict seeds 0–31. It omits numeric test exits and filters the test output.
+Local Mac strict, slow, and timing results remain supplementary under pair-common.
+The focused slow selection does not run the root test itself; slow-coverage proves its selection in the full slow tier.
+The final exact-head train gate must execute the selected root tests and the other required steps.
+
+The root-macro reversal occurs after these checks and records slow-coverage exit 1.
+Its source restoration ends at `2026-10-12T20:55:16Z`. The script retains the removal pattern and diff statistics, not the complete raw patch.
+The independently inspected three-line commit and matching omission diagnosis establish this reversal's source scope.
+No new full gate, mutation run, or fuzz run occurs on this corrected head.
+The lead's handoff permits one import plus the macro, local checks, and both deltas; the train gate is the merge gate.
+Lead receipt `msg_plugin-w_1791837657_ac3742` supplies the updated train 7b import tip and replaces SLOT timing.
+The completed d1 gate retains its exact old head, unchanged-decoder evidence, FLAKY labels, and other recorded limits.
+It is not relabeled as corrected-head or merging-gate execution.
+
+### Body and next step
+
+The reviewer reads the complete current body and its complete delta from the previous reviewed body.
+Body SHA-256: `ef3ba24b7b5a6c94dfa3cd5e047dad619a0626de027cc89eda8c53a0be9ea90b`.
+The new section names the authorized import, three-line macro correction, corrected-head local checks, and negative coverage result.
+It preserves the earlier RED history, two FLAKY trials, exact d1 gate scope, and separate contracts prerequisites.
+Zero source or body findings remain, including LOW.
+The complete matching package delta remains due before the integration CLEAN round.
+The applicable train composition review, completed exact merging-head gate, final receipt, and lead Q7 remain due afterward.
+No corrected-head gate, future pin, specific retry, completed merge, or final train acceptance is granted here.
+The reviewer changes no product code and runs no execution job.
+Wait for the complete matching package delta doorbell. Never poll.
