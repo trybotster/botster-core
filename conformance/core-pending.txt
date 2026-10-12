@@ -249,11 +249,9 @@ conf::dp_6_latest_most_recent_activity_wins
 conf::dp_6_resize_has_no_answer_size_arrives_in_modes
 conf::dp_6_tie_by_receive_order
 conf::dp_7_detach_completes_after_transport_closed
-conf::dp_8_adopted_route_keeps_route_tag_owner_and_client_tags
+# conf::dp_8_adoption_fences_the_previous_host, conf::dp_8_old_epoch_commands_and_descriptors_are_refused: lose_host control / real proof, DP-8 fence proofs PR (lead, 2026-10-12; owner ST). On the DP-8 base the testkit refuses lose_host (UNSUPPORTED_CONTROL), and old_epoch is real-only (slow:fd-handoff) with no named proof.
 conf::dp_8_adoption_fences_the_previous_host
 conf::dp_8_old_epoch_commands_and_descriptors_are_refused
-conf::dp_8_route_adopted_event_per_live_route
-conf::dp_8_routes_survive_host_restart_and_bytes_keep_flowing
 conf::dp_9_fairness_bound_holds_under_flood
 conf::e2_2_other_modes_are_tracked_model_modes
 conf::e2_2_unrecognized_mode_number_changes_no_field
