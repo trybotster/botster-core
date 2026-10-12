@@ -416,9 +416,15 @@ impl Worker {
                 self.start_unowned(Owner::Route(route, op, want_result), encoded);
                 return;
             }
+            // DP-5: an event that the modes do not report (IN-9 `NotReported`, such as a mouse event with tracking off) is
+            // omitted with no frame, as on a real terminal, with or without an op.
+            Err(NotWrittenReason::NotReported) => return,
             Err(NotWrittenReason::ModePreconditionFailed) => RefusalReason::ModePreconditionFailed,
-            // A route's input is `bytes`, `text` or a paste, and their encoding has no other certain zero. The keys and the
-            // mouse, whose encoding can be `Unsupported{what}`, are later P4a work.
+            // DP-5: an event with no encoding (IN-9 `Unsupported{what}`) is refused with the encoder's `what` and its op.
+            Err(NotWrittenReason::Unsupported { what }) => RefusalReason::Unsupported {
+                what: what_name(what),
+            },
+            // A kind with no encoding path in the worker.
             Err(_) | Ok(None) => RefusalReason::Unsupported {
                 what: "input".into(),
             },
@@ -615,4 +621,12 @@ impl Worker {
             result: OpResult::Ok(OpOutput::Input(result)),
         });
     }
+}
+
+/// The wire name of an encoder's `Unsupported{what}` (DP-5's `input_refused{unsupported{what}}`): its JSON value.
+fn what_name(what: UnsupportedWhat) -> String {
+    serde_json::to_value(what)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "input".to_string())
 }

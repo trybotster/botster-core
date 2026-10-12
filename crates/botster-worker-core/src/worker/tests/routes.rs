@@ -1161,16 +1161,16 @@ fn a_view_only_route_refuses_input_not_writable() {
     assert_eq!(refusals(&client), vec![(None, RefusalReason::NotWritable)]);
 }
 
-/// DP-5, TS-5b (PR3 F102): a frame kind that this worker does not apply yet is refused `unsupported` with its kind and the
-/// frame's own op, and the route stays open.
+/// DP-5, TS-5b (PR3 F102): a frame kind that this worker does not apply yet (a file chunk; a resize, DP-6, a later PR) is
+/// refused `unsupported` with its kind and the frame's own op, and the route stays open.
 #[test]
 fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stays_open() {
     use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT};
     let (mut w, mut client, _) = attached(limits());
     let mut all = Vec::new();
-    let key = [
+    let resize = [
         &[TYPE_INPUT][..],
-        br#"{"kind":"key","op":"5","key":{"char":"a"},"event":"press"}"#,
+        br#"{"kind":"resize","op":"5","rows":25,"cols":81}"#,
     ]
     .concat();
     for bytes in [
@@ -1178,7 +1178,7 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
             op: Op(3),
             bytes: b"f".to_vec().into(),
         }),
-        stream_wrap(&key),
+        stream_wrap(&resize),
     ] {
         let actions = w.feed(Input::RouteRead {
             route: RouteId(1),
@@ -1201,6 +1201,143 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
         "{:?}",
         client.frames
     );
+}
+
+/// One `0x81 input` frame from its JSON, as the stream carries it (TS-3).
+fn input_frame(json: &str) -> Vec<u8> {
+    use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT};
+    stream_wrap(&[&[TYPE_INPUT][..], json.as_bytes()].concat())
+}
+
+/// Feeds the client's frames in one link read each, and returns every action.
+fn feed_frames(w: &mut World, client: &mut Client, frames: &[Vec<u8>]) -> Vec<Action> {
+    let mut all = Vec::new();
+    for bytes in frames {
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: bytes.clone(),
+        });
+        all.extend(client.take_all(w, RouteId(1), actions));
+    }
+    all
+}
+
+/// The encoder's bytes for `payload` with the worker's modes now: the bytes that IN-9 defines (section 5.1A).
+fn encoded(w: &World, payload: &InputPayload) -> Vec<u8> {
+    let model = w.worker.model.as_ref().expect("a model");
+    let (bytes, _, _) = super::super::model::encode(model, payload)
+        .expect("an encoding")
+        .expect("bytes");
+    bytes
+}
+
+/// IN-9, DP-5: a route key is encoded by the worker with the modes at its start and written; it has no answer frame.
+#[test]
+fn a_route_key_is_encoded_with_the_workers_modes_and_written_with_no_frame() {
+    use botster_route_codec::prelude::{Key, KeyEvent};
+    let (mut w, mut client, _) = attached(limits());
+    let want = encoded(
+        &w,
+        &InputPayload::Key(KeyInput {
+            key: Key::Char("a".into()),
+            shifted_key: None,
+            base_layout_key: None,
+            mods: vec![],
+            event: KeyEvent::Press,
+            text: Some("a".into()),
+            repeat: None,
+        }),
+    );
+    let all = feed_frames(
+        &mut w,
+        &mut client,
+        &[input_frame(
+            r#"{"kind":"key","op":"4","key":{"char":"a"},"event":"press","text":"a"}"#,
+        )],
+    );
+    assert_eq!(pty_writes(&all), want);
+    assert_eq!(refusals(&client), vec![]);
+}
+
+/// DP-5: a mouse or focus event that the modes do not report (IN-9 `NotReported`: tracking off, focus reporting off, the
+/// defaults) is omitted with no frame, with or without an op, as on a real terminal. A later input is still written.
+#[test]
+fn a_route_mouse_or_focus_event_that_the_modes_do_not_report_is_omitted_with_no_frame() {
+    let (mut w, mut client, _) = attached(limits());
+    let frames_before = client.frames.len();
+    let all = feed_frames(
+        &mut w,
+        &mut client,
+        &[
+            input_frame(
+                r#"{"kind":"mouse","op":"7","action":"press","button":"left","row":1,"col":1}"#,
+            ),
+            input_frame(r#"{"kind":"mouse","action":"press","button":"left","row":1,"col":1}"#),
+            input_frame(r#"{"kind":"focus","op":"8","focused":true}"#),
+            client_frame(&bytes_frame(9, b"z")),
+        ],
+    );
+    assert_eq!(pty_writes(&all), b"z");
+    assert_eq!(client.frames.len(), frames_before, "{:?}", client.frames);
+}
+
+/// IN-9, DP-5: with mouse tracking on (`1000h`), a route mouse event is encoded with the modes at its start and written.
+#[test]
+fn a_route_mouse_event_with_tracking_on_is_encoded_and_written() {
+    use botster_route_codec::prelude::{MouseAction, MouseButton};
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.feed(Input::PtyOutput(b"\x1b[?1000h".to_vec()));
+    client.take_all(&mut w, RouteId(1), actions);
+    let want = encoded(
+        &w,
+        &InputPayload::Mouse(MouseInput {
+            action: MouseAction::Press,
+            button: MouseButton::Left,
+            row: 1,
+            col: 1,
+            x: None,
+            y: None,
+            mods: vec![],
+            notches: None,
+        }),
+    );
+    assert!(!want.is_empty());
+    let all = feed_frames(
+        &mut w,
+        &mut client,
+        &[input_frame(
+            r#"{"kind":"mouse","action":"press","button":"left","row":1,"col":1}"#,
+        )],
+    );
+    assert_eq!(pty_writes(&all), want);
+    assert_eq!(refusals(&client), vec![]);
+}
+
+/// DP-5: an event with no encoding (IN-9 `Unsupported{what}`: an X10 mouse cell of 223 or more) is refused
+/// `unsupported{what}` with the encoder's `what` and the frame's op, writes nothing, and the route stays open.
+#[test]
+fn a_route_event_with_no_encoding_is_refused_with_the_encoders_what_and_its_op() {
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.feed(Input::PtyOutput(b"\x1b[?1000h".to_vec()));
+    client.take_all(&mut w, RouteId(1), actions);
+    let all = feed_frames(
+        &mut w,
+        &mut client,
+        &[input_frame(
+            r#"{"kind":"mouse","op":"6","action":"press","button":"left","row":1,"col":500}"#,
+        )],
+    );
+    assert!(pty_writes(&all).is_empty());
+    assert_eq!(
+        refusals(&client),
+        vec![(
+            Some(Op(6)),
+            RefusalReason::Unsupported {
+                what: "coordinate".into()
+            }
+        )]
+    );
+    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
 }
 
 /// IN-4, DP-5 (PR3 F87, integration R1-4): a complete input frame that is refused is still client input. Invalid UTF-8
