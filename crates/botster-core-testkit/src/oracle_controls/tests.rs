@@ -348,6 +348,73 @@ fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
     }
 }
 
+/// Condition 3 (R-62), Core DP-6: a route's `resize` changes the size with no host `Resize`. The session is recorded at its
+/// `SizeChanged`, so the controls that replay its history refuse after it, as after a host `Resize`.
+#[test]
+fn after_a_route_resize_the_history_controls_refuse() {
+    use botster_hub_conformance::route::RouteRead;
+    use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT, TYPE_LIVE};
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    output(&mut harness, core.as_mut(), at, b"abc");
+    let options: AttachOptions = serde_json::from_value(
+        json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+    )
+    .unwrap();
+    let (_, mut route) = harness
+        .attach_stream("a", core.as_mut(), ClientId("c1".into()), &sid(), options)
+        .expect("attached");
+    settle(core.as_mut(), at);
+    // DP-5: input before `live` is refused, so the client reads the baseline through `live` first.
+    let deadline = botster_conformance::Deadline::after(None);
+    let mut bytes = Vec::new();
+    let mut frames = Vec::new();
+    while !frames
+        .iter()
+        .any(|f: &Vec<u8>| f.first() == Some(&TYPE_LIVE))
+    {
+        match route.read(1 << 20, &deadline) {
+            RouteRead::Bytes(more) => bytes.extend(more),
+            RouteRead::Empty => settle(core.as_mut(), at),
+            other => panic!("{other:?}"),
+        }
+        while bytes.len() >= 4 {
+            let len = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+            if bytes.len() < 4 + len {
+                break;
+            }
+            frames.push(bytes[4..4 + len].to_vec());
+            bytes.drain(..4 + len);
+        }
+    }
+    let screen = json!({"session": "s1", "history": false});
+    let session = json!({"session": "s1"});
+    assert!(harness.control("a", "oracle_screen", &screen).is_ok());
+    route.write(&stream_wrap(
+        &[
+            &[TYPE_INPUT][..],
+            br#"{"kind":"resize","rows":5,"cols":12}"#,
+        ]
+        .concat(),
+    ));
+    route.read(1 << 20, &deadline);
+    settle(core.as_mut(), at);
+    assert_eq!(
+        core.get(&sid())
+            .map(|record| (record.size.rows, record.size.cols)),
+        Ok((5, 12)),
+        "the route's size applied"
+    );
+    assert_eq!(harness.control("a", "oracle_screen", &screen), changed());
+    for control in ["oracle_modes", "oracle_state"] {
+        assert_eq!(
+            harness.control("a", control, &session),
+            changed(),
+            "{control}"
+        );
+    }
+}
+
 /// Condition 3 names only the session that the op reached, through the controls: a `Resize` of `s2` refuses `s2`'s history
 /// controls and leaves `s1`'s answering, and an op that is not a `Resize` or a `SetColorProfile` (a capture of each
 /// session) refuses neither.

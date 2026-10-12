@@ -6,5 +6,23 @@
 # binary      the nextest binary id
 # test        the exact test name
 # diagnosis   the diagnosed cause
+# signature   the recorded failure signature, with named fields (Core lead, 2026-10-12), which a re-gate must match
+#             (BUILD.md Testing rule 9, second exception):
+#             { step = "<gate step>", symptom = "<symptom>", seed = "any" | <n>, text = "<literal>" }
+#             step: a step name of `cargo xtask ci --list`; symptom: step_timeout, test_timeout, assertion, signal or
+#             exit_code; seed: "any" or a seed number; text (optional, not empty): a literal substring of the failing
+#             test's output.
 # owner       the owner of the fix
-# removed_by  the pull request that removes the cause and this entry
+# removed_by  what removes the cause and this entry: a Core pull request "#<number>", or the pin of the contracts tag
+#             that carries the fix, "contracts-v<major>.<minor>.<patch> pin"
+
+# #316 (lead and steward ruling R-111, 2026-10-12). The gate of #316 on c34bfe9f failed with it ("INCONCLUSIVE
+# conf::in_8_mode_checked_at_write_start_by_worker seed=0 step=6 limit=step_timeout"). R-114 (contracts e22baecc) confirms
+# the shape. The fix is PC's R-111 driver fix; #321 pins the contracts tag that carries it.
+[[flaky]]
+binary = "botster-core::slow_conformance"
+test = "conf::in_8_mode_checked_at_write_start_by_worker"
+diagnosis = "KSTATE-1, steward ruling R-111: a latent race in the contracts driver. The await_control of step 6 (pty_queued, bytes 1..40960, after a 40 KiB WriteInput under pty_blocked kernel_bytes 1) waits only on Core edges, and pty_queued reads the Linux n_tty state after its asynchronous flush. Pre-existing on v1, not caused by the .46 pin (PC diagnosis; gate of #316 on c34bfe9f). Signature: INCONCLUSIVE seed=<any> step=6 limit=step_timeout."
+signature = { step = "slow", symptom = "step_timeout", seed = "any", text = "step=6 limit=step_timeout" }
+owner = "PC"
+removed_by = "#321"

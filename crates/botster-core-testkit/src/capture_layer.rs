@@ -59,7 +59,7 @@ pub(crate) struct Shared {
     begun: BTreeMap<OpId, (SessionId, u64)>,
     /// The transcript's completed captures. Only a test's fault injection writes them from outside.
     pub(crate) captures: BTreeMap<CaptureId, Recorded>,
-    /// The sessions that a `Resize` or a `SetColorProfile` reached (condition 3).
+    /// The sessions that a `Resize` or a `SetColorProfile` reached, or whose size changed (condition 3).
     changed: Changed,
     /// The pages that replace the next second capture: the negative proof through comparison 2.
     #[cfg(test)]
@@ -87,9 +87,10 @@ fn pages(core: &dyn CoreApi, capture: &Capture) -> Result<Vec<u8>, String> {
 }
 
 impl Shared {
-    /// Records the transcript's completed captures among `events`.
+    /// Records the transcript's completed captures among `events`, and the sessions whose size changed (condition 3).
     fn record(&mut self, events: &[Event]) {
         for event in events {
+            self.changed.observed(event);
             let Event::Completed { op, result } = event else {
                 continue;
             };
@@ -755,6 +756,33 @@ mod tests {
             assert_eq!(layer.pump(now()).events_posted, 0);
             assert_eq!(layer.poll_events(8), vec![], "never given back");
         }
+    }
+
+    /// Condition 3 (R-62), Core DP-6: a `SizeChanged` that passes the layer's `poll_events` records its session, as a route's
+    /// `resize` changes the size with no host `Resize`. Only that session is recorded.
+    #[test]
+    fn a_size_changed_that_passes_the_layer_records_its_session() {
+        let (mut fake, _) = Fake::new(true);
+        fake.posted.push(Event::SizeChanged {
+            id: sid("s1"),
+            instance: InstanceId("i1".into()),
+            size: Size {
+                rows: 5,
+                cols: 12,
+                cell_px: None,
+            },
+        });
+        let (marks, _next) = marks();
+        let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
+        let shared = shared.upgrade().unwrap();
+        assert!(lock(&shared).check(&sid("s1")).is_ok());
+        layer.pump(now());
+        assert_eq!(layer.poll_events(8).len(), 1);
+        assert!(matches!(
+            lock(&shared).check(&sid("s1")),
+            Err(ControlError::UnsupportedFor(name)) if name == crate::oracle_controls::SIZE_OR_PROFILE_CHANGED
+        ));
+        assert!(lock(&shared).check(&sid("s2")).is_ok());
     }
 
     /// A second capture before the driver's first `pump` gives `Bad`, and one that Core never completes gives `Bad` at the

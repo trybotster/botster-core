@@ -946,3 +946,6 @@ fn a_member_that_moves_after_term_is_refused_and_no_kill_is_sent() {
     blocker.release();
     eof(rest.into_inner());
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

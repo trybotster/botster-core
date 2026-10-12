@@ -6,9 +6,9 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs, mutants_cited,
-    mutants_stale, platform_code, prebuild, process_check, public_api, real_proofs, signals,
-    slow_coverage, taint, test_budget, timers, unsafe_exception,
+    built_in, caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs,
+    mutants_cited, mutants_stale, platform_code, prebuild, process_check, public_api, real_proofs,
+    signals, slow_coverage, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -67,6 +67,11 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
 ];
 
+/// The names of the gate's steps, in order (`cargo xtask ci --list`).
+pub fn step_names() -> impl Iterator<Item = &'static str> {
+    JOBS.iter().map(|(name, _, _)| *name)
+}
+
 /// The bolero harnesses of the repo: `(crate, harness name)`. Every byte decoder of the repo has one (plan section 8,
 /// step 9). A package that adds a decoder adds its harness here, and the fuzz step runs it when the diff changes its crate.
 const HARNESSES: &[(&str, &str)] = &[
@@ -113,6 +118,7 @@ fn taint_job(root: &Path) -> Result<()> {
     gate_decisions::command(root, &[])?;
     mutants_stale::command(root, &[])?;
     high_tier::command(root, &[])?;
+    built_in::command(root, &[])?;
     // The mutation step derives the platform-only code on its own OS; this static step fails early, on both gate OSes,
     // when the derivation cannot place some code.
     let files = package_sources(root)?;
@@ -2788,7 +2794,8 @@ mod tests {
             "1:immediate",
             "--no-tests=pass",
             "-E",
-            "binary(/^slow/) | test(/(^|::)slow_/)",
+            // The slow tier's filter (`test_budget::SLOW_FILTER`; its text is pinned in `test_budget`'s own test).
+            test_budget::SLOW_FILTER,
         ]
         .iter()
         .map(|s| s.to_string())
@@ -2810,7 +2817,8 @@ mod tests {
             "0",
             "--no-tests=pass",
             "-E",
-            "binary(/^slow/) | test(/(^|::)slow_/)",
+            // The slow tier's filter (`test_budget::SLOW_FILTER`; its text is pinned in `test_budget`'s own test).
+            test_budget::SLOW_FILTER,
         ]
         .iter()
         .map(|s| s.to_string())
@@ -3305,6 +3313,12 @@ mod slow_tests {
             binary: guarded.0.clone(),
             test: guarded.1.clone(),
             diagnosis: "d".into(),
+            signature: known_flaky::Signature {
+                step: "mutants".into(),
+                symptom: "assertion".into(),
+                seed: known_flaky::Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         };

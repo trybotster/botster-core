@@ -61,11 +61,17 @@ conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
+# conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one: Core A22 (contracts-v0.1.46, R-104). It fails at seed 0
+# step 25: after AdoptAll it expects RouteAdopted for each live route (DP-8 route adoption), and v1 posts none. #313 (DP-8
+# route adoption, owner ST) posts RouteAdopted; it then switches its route_tag and owner to the Option form (A22) and
+# un-pends this id with the other dp_8 ids.
+conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
-# conf::a2_1_no_deadline_code_exists: steward ruling R-97 (b): the testkit worker's own deadlines (AD-7 self-exit, worker-core
-# worker.rs:940/:921) run on the injected host clock, so the step 6 advance ends the held worker. Fails at seed 0 step 7.
-# Owner: P5, the R-97 fix PR after the hold_start PR.
+# conf::a2_1_no_deadline_code_exists: since the R-97 worker clock, steps 0-23 pass on the testkit (the start ends
+# StartupTimeout). It fails at seed 0 step 24: the payload's DA1 query (`pty_output 1b5b63`) never reaches r1 as a
+# `terminal_query` frame (EV-8, DP-3); the real tier stops INCONCLUSIVE at step 23. The same query path as
+# conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open. Owner: RC.
 conf::a2_1_no_deadline_code_exists
 conf::a2_1_not_admitted_state_is_wrong_state_sync_for_every_row
 conf::a2_1_read_screen_history_flag_and_text
@@ -146,8 +152,6 @@ conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
 conf::a5_1_testkit_is_real_core_one_worker_code_path
-# conf::a5_2_deferred_completion_keeps_slot_until_polled: step 10 expects PendingLimit with pending_ops 2, but only the Stop $a holds a slot then (steps 1 and 3 polled the Create and Start completions; EV-5(a)). Core admits the Create ({"ok":4}, E1 c0c86a58, seed 0); FakeCore frees slots at the same poll (fake structural, not run). Steward ruling R-92: the transcript changes to pending_ops 1 (P6 contracts PR); the id un-pends after the pin that contains it.
-conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
@@ -187,6 +191,7 @@ conf::ad_1_starting_without_identity_is_lost
 conf::ad_2_lost_reasons
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
+# conf::am_2_fairness_bound_across_routes: R-93, owner PC; the debt is the contracts core-fence-exceptions.txt line (contracts #79).
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
 conf::dp_10_t1_keystroke_to_pty_latency_budget
@@ -211,23 +216,16 @@ conf::dp_3_output_deflate_frames_share_no_state
 conf::dp_3_output_deflate_inflated_payload_is_at_most_the_frame_bound_minus_the_type_byte
 conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
-conf::dp_3_route_codec_matches_client_appendix_a4_a5
-conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
 conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
-conf::dp_5_no_input_has_a_success_acknowledgement
-conf::dp_5_not_reported_sends_no_frame
-conf::dp_5_op_is_optional_except_on_a_paste
 conf::dp_5_refusals_survive_a_resync
-conf::dp_5_resize_has_no_answer_size_arrives_in_modes
 # After the contracts-v0.1.39 merge: the testkit fails it at seed 10 step 15 (gate dfc38b47, seeds 0-31: route_closed session_ended
 # before input_refused session_ended), and the real tier at seed 0 step 15. Not diagnosed. Owner: RC.
 conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
-conf::dp_5_silent_not_reported_is_omitted_not_written
 conf::dp_5_stalled_route_with_repeated_queries_stays_bounded
 conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves
 conf::dp_5b_abort_or_route_end_leaves_nothing
@@ -248,10 +246,7 @@ conf::dp_5b_post_creation_refusal_carries_the_retained_path
 conf::dp_5b_second_file_begin_is_refused
 conf::dp_5b_written_bytes_and_the_precreation_bound_include_the_space
 conf::dp_5b_written_bytes_are_encoded_pty_bytes_with_markers
-conf::dp_6_close_falls_back_zero_routes_keeps_size
-conf::dp_6_host_resize_and_policy_latest_wins
-conf::dp_6_latest_most_recent_activity_wins
-conf::dp_6_resize_has_no_answer_size_arrives_in_modes
+# DP-6: the pinned contracts-v0.1.43 has no transcript of this id, so no tier runs it.
 conf::dp_6_tie_by_receive_order
 conf::dp_7_detach_completes_after_transport_closed
 conf::dp_8_adopted_route_keeps_route_tag_owner_and_client_tags
@@ -315,10 +310,9 @@ conf::ev_8_shadow_cannot_answer_and_client_silent_means_no_reply
 conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
+# conf::ev_9_every_session_event_carries_instance_id: Core serves control_queue, and the id fails at step 28: steward ruling R-96, the transcript
+# lists one Activity where Core correctly posts two (Output, and Client of r1). Owner PC: the contracts transcript PR; then core-real-pending (R-57, s81).
 conf::ev_9_every_session_event_carries_instance_id
-conf::in_1_host_write_and_route_frames_share_payload_kinds
-conf::in_6_cancel_result_kinds
-conf::in_6_refused_full_wakes_on_room
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag
@@ -345,7 +339,6 @@ conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
 conf::ou_9_resync_drops_unstarted_frames
 conf::st_1_new_instance_never_equal
-conf::st_1_resize_changes_rev_without_output
 conf::st_2_screen_history_flag
 conf::st_3_coordinates_are_zero_based_cells
 conf::st_3_cursor_fields
@@ -422,10 +415,8 @@ conf::sv_9_final_frames_readable_until_remove
 conf::sv_9_log_tail_bounded
 conf::sv_9_sigterm_then_group_kill
 conf::sv_9_start_rollback
-conf::sz_1_resize_without_route
-conf::sz_2_same_size_is_noop
+# SZ-3: host resize coalescing, Superseded{by}: Core applies every Resize (s6 fails on the testkit, step_timeout on the real tier).
 conf::sz_3_coalesced_resize_is_superseded
-conf::sz_3_every_resize_completes
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
 conf::tp_1_full_tap_drops_oldest_with_loss_marker_and_never_slows_the_pty

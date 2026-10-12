@@ -11,10 +11,10 @@ use botster_core_conformance::{driver_for, CoreSchemas, CORE_TRANSCRIPTS};
 use botster_core_testkit::TestkitHarness;
 use serde_json::json;
 
-/// `ou_1_attach_hands_transport_to_worker` sends `78` on its route as `bytes` with op "1" (step 9), and step 12 reads the
-/// route's log. The testkit does not know which op wrote the log's bytes, so the log has no known attribution.
+/// `ou_1_attach_hands_transport_to_worker` sends `78` on its route as `bytes` with op "1", and its one `route_expect_pty`
+/// step reads the route's log. The testkit does not know which op wrote the log's bytes, so the log has no known attribution.
+/// The read is found by its key: a fence step before it moves its index (contracts-v0.1.44 put it at 13).
 const ID: &str = "conf::ou_1_attach_hands_transport_to_worker";
-const READ: usize = 12;
 
 fn run_with(parts: serde_json::Value) -> Result<(), String> {
     let transcripts = load_dir(&CORE_TRANSCRIPTS).expect("the Core transcripts load");
@@ -22,11 +22,14 @@ fn run_with(parts: serde_json::Value) -> Result<(), String> {
         .into_iter()
         .find(|t| t.id == ID)
         .expect("the transcript at the pinned tag");
-    let step = &mut transcript.steps[READ];
-    assert!(step.get("route_expect_pty").is_some(), "{step}");
-    step["route_expect_pty"] = parts;
+    let read = transcript
+        .steps
+        .iter()
+        .position(|step| step.get("route_expect_pty").is_some())
+        .expect("the transcript reads the route's log");
+    transcript.steps[read]["route_expect_pty"] = parts;
     // Only the read is under test: the steps after it are cut.
-    transcript.steps.truncate(READ + 1);
+    transcript.steps.truncate(read + 1);
     let seeds = Selection::from_env().seeds(&SeedSet::from_env());
     let outcome = run_transcript(
         &transcript,
@@ -58,3 +61,6 @@ fn a_relation_part_resolves_from_the_sent_frames() {
     // An op that sent nothing on the route does not match.
     run_with(json!([{"written_by_op": "2"}])).unwrap_err();
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

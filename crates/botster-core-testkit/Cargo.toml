@@ -45,3 +45,14 @@ toml.workspace = true
 bolero.workspace = true
 schemars.workspace = true
 tempfile.workspace = true
+
+# The slow tier's integration tests. Each file is `#![cfg(feature = "slow")]`, so without the feature its binary holds no
+# test. `required-features` keeps cargo from building that empty binary in the default tier: every test binary that a
+# tier builds lists the build-root test (bug catalog B13, #306).
+[[test]]
+name = "slow_edge_tap"
+required-features = ["slow"]
+
+[[test]]
+name = "slow_process_group"
+required-features = ["slow"]
