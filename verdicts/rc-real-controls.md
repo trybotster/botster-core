@@ -2587,3 +2587,53 @@ The profile review, lead ruling, both LOW closures, failed-gate records, and evi
 Both delta reviews have zero open findings. The earlier final gate remains RED.
 The completed exact-head final gate, full mutation result, matching final body, both final verdicts, and Q7 remain due.
 The reviewer accepts no final gate result here and runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — final exact-head verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/299`.
+Exact head: `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Imported final-slot base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Exact source tree: `9423da03abc7b905308920570cf767216e0f3ee5`.
+Completion message: `msg_plugin-w_1791780845_cdf28c`.
+Open package findings: 0, including LOW findings.
+RC-PIN43-1 through RC-PIN43-7 remain closed. Integration LOW R299-SI-4 remains closed.
+
+Completed final gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-42-77eae642-pool-20261011-214255-19819.log`.
+Log SHA256: `5d27138eebfb9ae3f40ee105eee61061b883103e840393ab5d986366f96b26e8`.
+The reviewer reads the header, static checks, suites, held-full report, mutation identities, catch citations, normal passes, summary, and final exits.
+The header names this exact head and imported base. The pool runs on msa1, allocation 05b6a739.
+All ten steps pass. The step total is 610.0 seconds.
+Jobq and the wrapper each exit 0 after 627 seconds.
+The default suite reports 1914 passes, no failure, and 432 skipped tests.
+The legacy-key test passes in 0.962 seconds. This completed gate closes the prior default-budget acceptance condition.
+The ordinary slow suite and unmutated mutation baseline each report 616 passes.
+The resume test and real progress test pass in both runs. The two-send test passes normally in the default suite.
+The gate checks 1080 slow-only tests and all four named real-process proofs.
+Held-full reports all three budget IDs at all 32 seeds. Those IDs retain their pending and held status.
+Both removed IDs pass normally on both tiers. The existing full-seed removal evidence remains as reviewed.
+The real-pending report observes 34 passes among 43 IDs. All retain their reviewed pending status.
+
+Stage 1 tests 26 mutants, catches fourteen, and misses twelve.
+Stage 2 tests and catches exactly those twelve misses, all in real/route.rs.
+The reviewer independently compares the complete identity sets. No extra second-stage mutant appears.
+The combined result catches all 26 mutants, with no miss, timeout, or unviable result.
+All 26 raw catch identities equal 26 unique citation identities. Every cited test has a normal PASS record.
+The subtraction mutant is caught by the public peer-byte test. No FLAKY token exists in the log.
+The reviewed exclusions remain unchanged by the profile correction.
+Fuzz passes because no changed crate has a decoder harness. No fuzz execution or Mac gate is claimed.
+
+The reviewer reads the published final body and compares it with the previously reviewed complete body.
+Only the final-gate entry and its final-slot summary change. GitHub reports this exact head and base.
+The final entry matches the gate's outcomes, test count, legacy-key duration, mutation sets, allocation, and exit durations.
+The body preserves the failed f16a10ba gate and every earlier red gate.
+It retains the canonical-check FAIL, both explicit delta reviews, profile mitigation, separate cost follow-ups, and all earlier evidence limits.
+The local clean-proof limit, owner timing limits, synthetic-event limit, reversal limits, and partial-write test limit remain explicit.
+No new list removal, control model, private-state assertion, or mutation exception enters this exact head.
+
+This verdict closes package acceptance for this exact head and final evidence.
+The integration reviewer must publish its matching final verdict. The lead must check Q7 before merge.
+This verdict accepts no later head, different tree, or changed merge base.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
