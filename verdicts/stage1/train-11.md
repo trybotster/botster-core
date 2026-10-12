@@ -136,3 +136,12 @@ No future P6 pin, #321 composition, DP-8 implementation, B-7 ceilings amendment,
 I ran no build, test, gate, pool job, mutation, measurement, reproduction, or executable merge-check job.
 
 VERDICT: CLEAN (0 open, including LOW; complete combined source only)
+
+
+### Matching #320 package acknowledgment
+
+Package message `msg_plugin-w_1791848556_a8157b` confirms the complete matching source receipt at `e1ff831c0282fefd60b24162706ae924a1a9ff09`.
+I read that complete acknowledgment in verdicts/p5-read-facts.md.
+The package reviewer read complete #320 and combined verdicts at `db371fd0efa05dfec92684fedaa2a11c81dd07b4` and reports remote publication verified.
+The acknowledgment matches the exact train head, tree, base, frozen order, both member records, all closures, and source-only limits.
+No source change, new review round, or execution evidence follows. The exact gate, ONE final receipt, and lead merge checks remain due.
