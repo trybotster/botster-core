@@ -2264,3 +2264,27 @@ Formal Round 3 is CLEAN on exact71ec2783 with zero open findings. The matching f
 Train construction, applicable deltas, exact train gate, final evidence receipts, and lead Q7 remain due under the no-slot train decision.
 No future contracts head or pin, later source, status removal, specific retry, or completed merge is accepted.
 No reviewer execution job runs. The merge-tree calculation is source verification only. Wait for the doorbell. Never poll.
+
+## #319 matching integration and train-9b package delta
+
+The reviewer reads Sol's formal integration Round 3 at 2d5c33472264180841ff69f3dbb3a087025e2867.
+It matches package 27761dc1 on member 71ec2783, imported base 007efbde, tree 4035cda3, and all five closed findings.
+The reviewer verifies the published integration branch. No member finding remains open.
+
+Lead requests msg_plugin-w_1791839691_f59f4e and msg_plugin-w_1791839934_45fad9 assign the train delta.
+Train 9b replaces train 9 after #318 leaves. Exact head: 3e4b3ab8172f1a04467a7969833708606a0f8580.
+Tree: fe7700440d2c658dbdfe223ae7b54c17f5516654. Base: 2d8e8acc52eca692a089af02b4ace508d6694cc3.
+Members: #328 6b1918c9, #319 71ec2783, #326 797f090a, in that order.
+All thirteen own patch sequences remain exact. All own blobs remain unchanged after the member merge.
+The reviewer reads the moved route log, cached input bytes, design index, held-full delta, and preserved decoder selection.
+FrameEnds, route accounting, kernel paths, errno conversion, root macro, both harnesses, and refusal-room premise remain preserved.
+Own train patch SHA-256: d676147c4637033cdfd487dc2dd6e7f55e00eb2b41e5dcd3d731b2e031039b10.
+Member-to-train delta SHA-256: f22d75e5df32c90755f9432089599d49aabca6fdfcca09dec0627b5ff35e9319.
+The #319 package source delta is CLEAN with zero open findings. No train gate or final acceptance is claimed.
+Old train 9 checks retain their old head. Exact train 9b gate, combined review, final receipt, and lead Q7 remain due.
+No reviewer execution job runs. #320 independent review continues after this priority delta.
+
+#320 current inspection state: db97736b173d32ab78377a8f5ec2c6d083636bb8 has a new R-116 test and design case.
+Sol's efd4a8f7 record closes the topic-file finding and keeps the overflow gap finding open.
+The new test drops an older record. It does not prove gap for an empty log or a same-instance incremental read.
+The reviewer must complete independent source and evidence review. No #320 formal package verdict is issued yet.

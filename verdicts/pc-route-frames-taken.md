@@ -152,6 +152,7 @@ The current-base final slot, base check, final gate, final receipts, and lead Q7
 No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
 Wait for the doorbell. Never poll.
 
+
 ### Matching complete integration verdict
 
 Sol receipt `msg_plugin-w_1791828711_014353` supplies commit `a03e76a98afd1e049f3be9706b85a65cba6b19a7`.
@@ -466,3 +467,45 @@ The separate contracts route fence, kernel-state list addition, and later Core p
 No later head, status removal, specific retry, or completed merge is accepted.
 No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
 Wait for the doorbell. Never poll.
+
+## Train 9b — package source delta CLEAN
+
+Train head: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+Train tree: `fe7700440d2c658dbdfe223ae7b54c17f5516654`.
+Train base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Frozen #319 member: `71ec2783edc2380c3389a71062422491506ebf39`.
+Members, in merge order: #328 `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`, #319, #326
+`797f090ac8fa8f182b4201d524e3add74d8d60e5`.
+Lead receipts: `msg_plugin-w_1791839691_f59f4e` and replacement `msg_plugin-w_1791839934_45fad9`.
+The second receipt removes #318 and replaces train 9 with train 9b. This verdict applies only to train 9b.
+
+The reviewer reads complete matching integration Round 3 at `2d5c33472264180841ff69f3dbb3a087025e2867`.
+Its exact member head, tree, base, five closed findings, evidence limits, and pending train conditions match package Round 3.
+The remote integration branch contains this published record. No member finding remains open.
+
+The reviewer compares all thirteen own patch sequences with the #319 merge in train 9b.
+Every added and removed line remains exact, apart from hunk positions.
+Every own path remains byte-identical between that merge and the final train head.
+Own train patch SHA-256: `d676147c4637033cdfd487dc2dd6e7f55e00eb2b41e5dcd3d731b2e031039b10`.
+Complete member-to-train delta SHA-256: `f22d75e5df32c90755f9432089599d49aabca6fdfcca09dec0627b5ff35e9319`.
+
+The moved route paths change only the PTY input log representation and its callers.
+The real route still encodes the probe's complete input bytes as lowercase hex before it builds the same log answer.
+The testkit now uses the cached hex log. Both direct writes and released kernel bytes extend that cache with the same bytes.
+The route answer retains its byte log and single unattributed segment. An empty log still has no segment.
+FrameEnds, sent-byte accounting, socket identity checks, kernel queries, and route_frames_taken dispatch remain unchanged.
+
+The new worker design topic index preserves the R-115 refusal-room checklist text.
+Train 9b excludes #318's drain paragraph. The worker's route receive and refusal-room logic remain unchanged from the reviewed member.
+The xtask delta replaces held-full result accounting for #328. It preserves both decoder registrations and their landing selection.
+The props binary retains the real root macro and both decoder harnesses.
+The dependency edges, platform paths, checked errno conversion, and unchanged decoder source remain preserved.
+
+#319 still changes no conformance status, mutation exclusion, retry authority, or contracts pin.
+Train status and exclusion changes belong to the other members and require their own package and integration reviews.
+The lead reported workspace compilation and strict checks for old train 9. Those results are not relabeled as train-9b execution.
+The reviewer runs no build, test, gate, mutation, reproduction, or executable base-check job.
+The exact train-9b gate, combined integration review, final evidence receipt, and lead Q7 remain due.
+The separate contracts fence and later Core pin remain PC's work.
+
+VERDICT: CLEAN (0 open; #319 package source delta on train 9b only).
