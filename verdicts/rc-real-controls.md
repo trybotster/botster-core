@@ -2160,3 +2160,38 @@ The body retains the earlier budget failure and four missed progress mutants wit
 Both findings must close, and any changed source head needs its applicable review and gate evidence.
 The final-slot current-base import, checks, gate, and final body remain due after both source CLEANs.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — progress correction receipt
+
+Messages: `msg_plugin-w_1791773639_8ddc55` and `msg_plugin-w_1791773672_789ed2`.
+New head: `3f1fc94d86f6a43c5c5ef310791af676fe5b4ecb`.
+The reviewer read the complete source delta through intermediate `e52255f91363b2f46eee47847270cbc70c7b9456` and the final test-only change.
+Only the two route files change. No pin, list, CI, or mutation-exclusion change is added in this correction.
+
+RC-PIN43-1 is closed in the source.
+Both tests remove the private `unsent` observations and private loop condition.
+The testkit test checks the public progress result and exact bytes read by the peer.
+The real test checks every received byte is `x` and the total is exactly 4 MiB.
+Its loop ends on the received count, with a finite 10000-pass failure bound.
+Both tests retain false with no work, false while full, true after room, and final false.
+
+RC-PIN43-2 is closed in the source.
+The testkit flush and real flush_into return the sum of successful `Ok(n)` writes.
+Terminal errors still discard waiting bytes under OU-5, but add nothing to the successful-byte count.
+The testkit progress sums the two flush counts around run_ready. The real progress tests its flush count against zero.
+A partial successful write before an error retains its successful-byte count; an error before any successful write yields zero.
+The reviewer checks the existing callers; they ignore the new count and preserve their prior flush behavior.
+Both new regressions observe false progress when queued bytes are discarded on a failed stream.
+The testkit regression also reads no delivered suffix from the peer.
+The real regression drops the peer after filling the stream, then observes false progress without reading private state.
+No test asserts private state in this correction.
+
+The reviewer reads the complete filtered reversal log `evidence/rc-pin-42/reversal-progress-e52255f9.log` under the shared core-stage1 directory.
+Seven reversals fail the named progress tests, including both old length-comparison forms at the discarded-byte assertion.
+The log ends with zero changed files. It contains no complete build output or independent target-clean proof.
+RC reports passing local tests and clippy; those reports do not replace the new exact-head gate.
+Open package source findings: 0, including both MED findings.
+The new gate is running. Final source CLEAN awaits its completed exact-head evidence and matching body update.
+The prior head's green gate proves no later correction.
+The reviewer ran no test, build, gate, or diagnostic.
