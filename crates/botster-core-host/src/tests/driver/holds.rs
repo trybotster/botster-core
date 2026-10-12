@@ -4,7 +4,7 @@
 use super::deadlines::to_launch;
 use super::*;
 use botster_core_edges::scheduler::ChoicePoint;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The ops that a test holds.
 type Held = Arc<Mutex<BTreeSet<u64>>>;
@@ -12,58 +12,64 @@ type Held = Arc<Mutex<BTreeSet<u64>>>;
 type Log = Arc<Mutex<Vec<(ChoicePoint, usize)>>>;
 /// Every admission that the driver reports, in order: the op and its fixed timing.
 type Admitted = Arc<Mutex<Vec<(u64, bool)>>>;
+/// The ops of every `held` question that the driver asks, in order.
+type Asked = Arc<Mutex<Vec<Vec<u64>>>>;
 
-/// The production policy, with the ops of `held` held, every choice that the driver asks recorded in `log`, and every
-/// admission that it reports recorded in `admitted`.
-struct Holding {
+/// What a test sees of a [`Holding`] policy: the ops that it holds, and what the driver asked and reported.
+#[derive(Default)]
+struct Probes {
     held: Held,
     log: Log,
     admitted: Admitted,
-    policy: Production,
+    asked: Asked,
 }
 
-impl Holding {
-    fn new() -> (Holding, Held, Log, Admitted) {
-        let (held, log, admitted) = (Arc::default(), Arc::default(), Arc::default());
-        let policy = Holding {
-            held: Arc::clone(&held),
-            log: Arc::clone(&log),
-            admitted: Arc::clone(&admitted),
-            policy: Production::new(),
-        };
-        (policy, held, log, admitted)
-    }
+/// The production policy, with the ops of `held` held, and every choice, admission and `held` question of the driver
+/// recorded.
+struct Holding {
+    probes: Probes,
+    policy: Production,
 }
 
 impl Scheduler for Holding {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
-        self.log.lock().unwrap().push((point, candidates));
+        self.probes.log.lock().unwrap().push((point, candidates));
         self.policy.pick(point, candidates)
     }
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
-        self.log.lock().unwrap().push((point, max));
+        self.probes.log.lock().unwrap().push((point, max));
         self.policy.bound(point, max)
     }
 
     fn held(&mut self, ops: &[u64]) -> bool {
-        let held = self.held.lock().unwrap();
+        self.probes.asked.lock().unwrap().push(ops.to_vec());
+        let held = self.probes.held.lock().unwrap();
         ops.iter().any(|op| held.contains(op))
     }
 
     fn admitted(&mut self, op: u64, fixed_timing: bool) {
-        self.admitted.lock().unwrap().push((op, fixed_timing));
+        self.probes
+            .admitted
+            .lock()
+            .unwrap()
+            .push((op, fixed_timing));
     }
 }
 
-fn holding_rig() -> (Rig, Held, Log, Admitted) {
-    let (policy, held, log, admitted) = Holding::new();
-    (
-        Rig::with_scheduler(CoreLimits::default(), Box::new(policy)),
-        held,
-        log,
-        admitted,
-    )
+fn holding_rig() -> (Rig, Probes) {
+    let probes = Probes::default();
+    let policy = Holding {
+        probes: Probes {
+            held: Arc::clone(&probes.held),
+            log: Arc::clone(&probes.log),
+            admitted: Arc::clone(&probes.admitted),
+            asked: Arc::clone(&probes.asked),
+        },
+        policy: Production::new(),
+    };
+    let rig = Rig::with_scheduler(CoreLimits::default(), Box::new(policy));
+    (rig, probes)
 }
 
 fn stopping(events: &[Event], name: &str) -> usize {
@@ -79,7 +85,7 @@ fn stopping(events: &[Event], name: &str) -> usize {
 /// host that pumps until `more` is false stops (`pump_idle`). The step that the hold lets go runs in the next pump, once.
 #[test]
 fn a_held_stop_is_not_runnable_and_runs_once_in_the_pump_after_its_release() {
-    let (mut rig, held, _, _) = holding_rig();
+    let (mut rig, Probes { held, .. }) = holding_rig();
     let link = LinkId(1);
     to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
@@ -108,7 +114,7 @@ fn a_held_stop_is_not_runnable_and_runs_once_in_the_pump_after_its_release() {
 /// `stop_grace` deadline, and the pump at that time sends the kill.
 #[test]
 fn a_held_op_keeps_its_deadline_and_the_deadline_still_runs() {
-    let (mut rig, held, _, _) = holding_rig();
+    let (mut rig, Probes { held, .. }) = holding_rig();
     let link = LinkId(1);
     to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
@@ -137,12 +143,13 @@ fn a_held_op_keeps_its_deadline_and_the_deadline_still_runs() {
     );
 }
 
-/// Condition 1 of the lead's ruling: a session whose flow is over serves no op, so a hold of the ops that it served before
-/// does not stop its later steps. Its `Create` and `Start` completed; with both held, the payload's exit still runs to
-/// `Exited`.
+/// Condition 1 of the lead's ruling: a session with no flow serves no op. A completed `UpdateMetadata` leaves the session's
+/// `MetadataChanged` to the session's next step (LC-9), which runs with no flow: the driver asks `held` about it with no op,
+/// so a hold of the ops that the session served before (its `Create` and `Start`) does not stop it. (A payload exit is no
+/// such step: it begins a stop flow with its end, which a clause never lets the scheduler defer.)
 #[test]
 fn a_session_with_no_flow_serves_no_op() {
-    let (mut rig, held, _, _) = holding_rig();
+    let (mut rig, Probes { held, asked, .. }) = holding_rig();
     let link = LinkId(1);
     let start = to_launch(&mut rig, "s1", link);
     // `to_launch` begins the `Create` just before the `Start`.
@@ -150,15 +157,29 @@ fn a_session_with_no_flow_serves_no_op() {
     rig.worker_says(link, launched());
     rig.settle();
     held.lock().unwrap().extend([create, start.0]);
-    rig.worker_says(
-        link,
-        WorkerMsg::Exited {
-            code: Some(0),
-            signal: None,
-        },
+    asked.lock().unwrap().clear();
+    let update = rig
+        .driver
+        .begin(Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: BTreeMap::from([("k".into(), "v".into())]),
+        })
+        .unwrap();
+    let events = rig.run_out();
+    let changed = |e: &Event| matches!(e, Event::MetadataChanged { id, .. } if *id == sid("s1"));
+    assert!(
+        events.iter().any(changed),
+        "the step with no flow runs: {events:?}"
     );
-    rig.run_out();
-    assert_eq!(rig.driver.get(&sid("s1")).unwrap().state, exited_normally());
+    let asked = asked.lock().unwrap();
+    assert!(
+        asked.iter().any(|ops| ops == &[update.0]),
+        "the op's own step: {asked:?}"
+    );
+    assert!(
+        asked.iter().any(Vec::is_empty),
+        "the session's step with no flow serves no op: {asked:?}"
+    );
 }
 
 /// Condition 3: with no hold, the driver asks exactly the choices that it asked before `held` existed, in the same order:
@@ -166,7 +187,7 @@ fn a_session_with_no_flow_serves_no_op() {
 #[test]
 fn with_no_hold_the_choice_sequence_is_unchanged() {
     let run = |hold: Option<u64>| {
-        let (mut rig, held, log, _) = holding_rig();
+        let (mut rig, Probes { held, log, .. }) = holding_rig();
         held.lock().unwrap().extend(hold);
         let link = LinkId(1);
         to_launch(&mut rig, "s1", link);
@@ -188,7 +209,7 @@ fn with_no_hold_the_choice_sequence_is_unchanged() {
 /// asks no choice point; a refused `begin` reports nothing.
 #[test]
 fn begin_reports_each_admission_once_with_its_fixed_timing() {
-    let (mut rig, _, log, admitted) = holding_rig();
+    let (mut rig, Probes { log, admitted, .. }) = holding_rig();
     let create = rig.driver.begin(create("s1")).unwrap();
     while rig.pump().more {
         rig.drain_events();
@@ -218,7 +239,7 @@ fn begin_reports_each_admission_once_with_its_fixed_timing() {
 /// its release, once.
 #[test]
 fn a_held_forwarded_op_is_not_sent_until_its_release() {
-    let (mut rig, held, _, _) = holding_rig();
+    let (mut rig, Probes { held, .. }) = holding_rig();
     let link = LinkId(1);
     to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
