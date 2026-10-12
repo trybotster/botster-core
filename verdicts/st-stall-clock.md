@@ -2,6 +2,36 @@
 
 VERDICT: NOT CLEAN (5 open)
 
+## Core #298: re-gate attribution at round-2 head
+
+Head: `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6`.
+This record addresses plan section 8, revision 23al, condition (2). It is not a round-2 source verdict or a CLEAN.
+
+The reviewer confirms non-interference for `conf::in_9_modes_read_at_write_start` at seed 0, step 8, `step_timeout`.
+The failed gate is `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-195551-10795.log`.
+PC's reproduction is `shared/core-stage1/evidence/pc-r78/in9-repro-f6025aed.log`.
+Both logs contain the same ID, seed, step and timeout classification.
+
+PC's reproduction starts from v1 `f6025aed4cdf7da836e835e0040fc128b7e8f32f` and applies a scratch timing change.
+The change delays the focus-mode output by 300 ms. It changes no expected value and adds no missing product behavior.
+This is a controlled reproduction under 23bl(A), not an unmodified v1 run.
+
+The pinned .41 transcript attaches no route. It begins a focus write under `pty_blocked` and then waits for `ModesChanged`.
+That wait can discard an earlier `Completed` event, so the later completion wait times out.
+R-88 records this live transcript race and assigns the R-74 held-write fix to PC.
+The reviewer read that ruling at contracts `37f93d9394db05ae715548fae5ee333b5f78fd40`.
+
+The reviewer compared #298's head against its declared base.
+The host input transaction, model encoder, real program control and PTY backend files do not change.
+The new route-progress flush has no route to report in this transcript.
+The changed code supplies neither a held-write precondition nor a fence for the completion event.
+It can change timing, but it does not change the diagnosed missing precondition.
+
+The reviewer therefore supplies the non-interference line required for the lead's one re-gate decision.
+The lead must accept the controlled reproduction and authorize the re-gate in writing under 23al and 23bl(A).
+The repeated gate must pass every step on this exact head. This record approves no additional retry or pending-list change.
+The reviewer ran no local build or test. The five #298 findings await the round-2 READY and completed evidence.
+
 ## Core #298: first implementation review
 
 Reviewed head: `0f9079c44e028644c6d1724c9dae9cd8b03d0459`.
