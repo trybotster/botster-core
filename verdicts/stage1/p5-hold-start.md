@@ -259,6 +259,8 @@ The fuzz step reports that the diff changes no crate with a decoder harness.
 
 The complete package source verdict at `78a42cd654105b23aa7362cd81689cd54679242b` remains the same-head package review.
 Matching package message `msg_plugin-w_1791782091_cd1126` confirms zero findings from both source reviews on this exact head, base, and tree.
+I also read the complete package final evidence verdict at `a9e5aef8361c365f3e62a86ac45250c01594cb14`, including its full Round 2 update.
+Package message `msg_plugin-w_1791783196_7fd235` names the same completed gate and log hash. Both #301 final evidence reviews agree.
 The complete combined source verdict at `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab` remains applicable.
 This receipt completes Sol's #301 final evidence review. It accepts no separate R-97 clock fix, identity hold, or guardian-exit work.
 The initial local provenance, body, platform, and evidence limits remain recorded in the earlier rounds.
