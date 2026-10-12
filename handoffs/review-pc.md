@@ -1973,3 +1973,22 @@ The reviewer reads its complete Round 3 verdict and verifies publication on orig
 Both formal CLEANs cover 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54, base 080987829a2e2245a7ea97606020400392c974d6, tree b117637b809c37c63b869e4da2696015dbdf5918.
 The matching formal member-review condition closes. Zero source, body, or supplied-record findings remain.
 The current RED gate and canonical FAIL stay recorded. Ordered .44 import, applicable train/combined reviews, exact train gate, final receipts, and Q7 remain due.
+
+## #307 train-4 member delta CLEAN before the gate
+
+Lead request msg_plugin-w_1791821464_8574ec assigns train head 03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8.
+Base 838e4bb01dda53c419ab824913fdc5adae7a16c1; tree 4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde; accepted member 2ed85f93.
+The reviewer reads the brief first and the complete eleven-file member-to-train delta.
+The merge order is #314, then #312 at 13fc69a0a196f75a6aaa1662c1deac1817e5dd88, then #307 at the train head.
+The .44 pin commit 99e5983befde9a96ca4cdb3faea0f7f9a4b930ea precedes #307, as the lead requires.
+The own changed-line patch is preserved exactly. All control-queue runtime blobs are byte-identical to the accepted member.
+Both IN-6 transcripts are unchanged at .44. IN-8 gains the R-74 held-write fence using the already served pty_queued control.
+The reviewer reads the probe interface and output-order path. PRINTS_ENV remains disabled in the real harness; the new report adds no queue wake.
+The Core contract crate has no .43-to-.44 source change. The seeded-trace and route-log test updates change no own runtime expression.
+All nine conformance sets pass the independent three-way check at each of the three train merges.
+Final testkit pending is 403, real-pending 34, held four, real-only 26, proof entries seven, ledger 691, minimum 69.
+Eight conformance text blobs match the pre-member parent. Only the two own IN-6 removals differ in core-pending.
+All four findings remain closed. Formal Round 5 #307 train-delta source verdict is CLEAN on this exact head before the gate.
+The lead's compile PASS and strict 264/0 pre-checks are reports; no separate retained log is supplied here.
+Matching formal Sol member verdict, other member reviews, combined review, exact train gate, final receipts, Q7, and equal-tree merge remain due.
+No reviewer job runs. No later train head or merge is accepted. Wait for the doorbell. Never poll.

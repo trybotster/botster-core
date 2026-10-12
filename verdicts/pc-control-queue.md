@@ -429,3 +429,67 @@ The reviewer reads its complete Round 3 verdict and verifies publication on the 
 It matches package verdict `ad4750f9cc30669c2d431814e75c6a4cbb653d55` on exact head `2ed85f93`, base `08098782`, and tree `b117637b`.
 Both close all findings after the final body correction and preserve the current RED gate and canonical FAIL.
 The matching formal member-review condition closes. The ordered `.44` import and all final train conditions remain due.
+
+## Round 5: VERDICT: CLEAN (0 open; #307 train delta before the gate)
+
+Train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Train base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Accepted #307 member: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Lead request: `msg_plugin-w_1791821464_8574ec`.
+The reviewer reads the binding brief first. The current merge-train rules require this overlapping member-delta review.
+This verdict covers #307's source and contract composition on the exact train head before its final gate.
+
+### Order and source preservation
+
+The first merge is #314 at `b3f7f39b72bc2a985634240573b2d08660b162c6`.
+The second merge is #312 at `13fc69a0a196f75a6aaa1662c1deac1817e5dd88`.
+The third merge is #307 at the reviewed train head.
+The second merge includes member `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64` and the `.44` pin before #307, as the lead requires.
+The train manifests and lock name contracts commit `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+
+The reviewer reads the complete eleven-file delta from the accepted member to the train.
+Every own changed line against the pre-member train parent matches the accepted own patch against base `08098782`.
+All control-queue runtime blobs are byte-identical to the accepted member.
+The cancel precedence, failed-write mark retirement, failed-side refusal exclusion, frame-bound formula, and room wake remain unchanged.
+Both testkit tiers retain their separate control-room and scheduler-hold state.
+The train member merge has no combined-resolution delta. Every changed non-own blob matches its pre-member train parent.
+
+#314 changes the seeded-trace test to same-head determinism under the lead's recorded ruling.
+It changes no driver executable expression and no control-queue assertion.
+#312 updates the route-log test to find its read step by key after transcript fences move the index.
+Its probe adapter adds only the new `Report::Printed` match arm.
+The real harness supplies the control-socket variable and does not enable `PRINTS_ENV`.
+The reviewer reads the new probe request/report interface and output-order path.
+With print reports disabled, prints do not wait for `Recorded`; `Output` still queues bytes and acknowledges the request.
+The new report does not create a control-queue event or change the existing program control arguments.
+The Core contract crate has no source change between `.43` and `.44`.
+
+### Transcripts and lists
+
+Both own IN-6 transcripts are unchanged between `.43` and `.44`.
+The IN-8 transcript adds the R-74 held-write fence: one kernel byte, a 40960-byte fill, and a `pty_queued` wait before the mode-sensitive write.
+The required `pty_queued` control is already served. The pin changes no expected IN-6 value.
+This source check confirms that the ordered pin contains the named structural fix. It is not a measured successful train run.
+
+The reviewer independently checks all nine conformance sets at each of the three train merges.
+Each set equals the three-way additions minus both sides' removals. No missing or extra id occurs.
+At the #307 merge, the two IN-6 removals compose with #312's deferred-completion removal.
+Final testkit pending is 403: pre-member 405 minus the two own ids.
+Final real-pending is 34 and retains all nine removals from #312. #307 adds no real removal.
+Held has four ids, real-only 26, real-proof entries seven, ledger 691, and minimum 69.
+Eight conformance text blobs equal the pre-member parent. Only the own pending removals differ.
+The train introduces no own pin, mutation exclusion, public signature, or gate-decision change from #307.
+
+### Scope of this CLEAN
+
+All four package findings remain closed. No new #307 source, interface, or list finding is identified.
+The member PR body remains scoped to its member head and its historical RED gate. The train review uses the lead's exact composition record.
+The lead reports host/testkit/link compile pre-checks PASS and strict seeds 0-31 at 264/0.
+No separate retained pre-check log is supplied here. This review treats those results as operator reports, not an independently audited gate.
+
+The complete #307 train-delta source review is CLEAN on `03709a0c`.
+The matching formal integration member verdict, other member reviews, and combined review remain due before the gate.
+The exact train gate must complete the unmutated baseline, Stage 2 mutation proof, and fuzz omitted by the RED member gate.
+Final evidence receipts, lead Q7, and an equal-tree merge receipt remain due. No later train head or merge is accepted.
+No reviewer build, test, gate, mutation, reproduction, or executable base-check job ran. Wait for the doorbell. Never poll.
