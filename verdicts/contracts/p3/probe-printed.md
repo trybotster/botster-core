@@ -29,3 +29,23 @@ Fix: a print step returns only when its bytes are written, as before. For exampl
 
 - **The serving Core PR** is not open yet. The ruling's owner line asks this PR to name it. The body gives the lead's order (`.44` tag, RC's pin PR, then the Core PR) and says the number is added when it opens. I accept that order. After F1's fix, the pin is again opt-in.
 - **P3's question to the steward**, whether condition 4 and the lint cover every O_raw read (`oracle_screen`, `oracle_modes`, `oracle_state`), is open. It does not change this head. If the steward widens the rule, I re-check the lint delta.
+
+016c's round 1 (REJECT on `18ff91b9`) confirmed F1 and added F2 (MEDIUM, package scope: the lint's print history keyed by session name only). I do not re-review 016c's F2.
+
+## Round 2: NOT CLEAN on 8d2aa504c74651d97d63a0400c4e5561c465758d (F1 closed in the code; 1 LOW evidence item)
+
+Four commits on `18ff91b9`, no merge. Main is `1798a65de4c11855906366ab4a233564d3ec637d`. `git diff 41355cc6 1798a65d` changes only `docs/steward-rulings.md`: a rulings-only move.
+
+- **F1, the code: closed.** `6d8ec1b3`:
+  - `Wire::print` makes a one-shot channel and stores its sender in `WireState.written`, under the lock. A print becomes `Effect::Print`, and `apply` sends the sender with the bytes: at once with reports off, and in the serve thread's `Recorded` with reports on.
+  - The writer thread signals the sender after `write_all` and `flush`. `Wire::print` drops the lock and then waits for that signal. So the next step (`exit`, `signal_self`) runs only after the print is written, as before this PR.
+  - `exit` does not wait for the rest of the queue, so a blocked `pty_output` write (OU-3d) still does not hold it.
+  - Only the main thread prints, one step at a time, so one `written` slot is enough.
+- **The tests** (`ab1d742b`, before the fix): `in_control_mode_a_print_then_exit_writes_every_byte` and `with_prints_env_a_print_then_exit_writes_every_byte` print 16 KiB and exit; the terminal must read every byte, and the exit code is 0. Both pass in the gate on this head. `8d2aa504` makes two older print tests end the probe after the print, so a probe that never prints fails them at once (the mutant timeout).
+- **The body**: the two claims are corrected ("each print is written before the next step runs").
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 278 s on msa1, base main `1798a65d`; mutants 20 caught, 7 unviable, 0 timeout: `~/botster-sessions/gates/botster-contracts-p3-probe-printed-8d2aa504-pool-20261011-193753-29271.log`.
+- `a7da7322` (016c's F2) is 016c's scope.
+
+### F3 (LOW): the red run of the two new tests has no log
+
+The body says both tests "fail on head `18ff91b9` ("the terminal ended after …")", but names no log, node or OS. I found no log of it in `gates/` or `shared/core-stage1/evidence/`. The test depends on the kernel's PTY buffer size, so the red run is the proof that the test catches F1. Please name the log of that run (the OS and the head that ran it) in the body. If the run was local, copy its output to `shared/core-stage1/evidence/`. No new gate is needed for this.
