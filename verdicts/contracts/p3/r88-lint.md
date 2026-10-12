@@ -159,3 +159,13 @@ Delta from my CLEAN head `522e5485`: `bf229151` (merge of main `939e1acd`, #66),
 No open finding. CLEAN on `69301401`.
 
 Still open for the next merger: #69 (gate running on `e75d5515`) fences `ev_5_route_closed`. This head keeps that id's two debt lines (steps 28, 29). Whichever of #69 and #73 merges second removes them (Q7 delta review).
+
+## Final: CLEAN on fa1b762056c592747b6b869b4009b03f1a6b7556
+
+Q7 delta from my CLEAN head `69301401`:
+- `dd4f8989`: one merge of main `6fdfc413` (#69 and rulings). Its tree `487912e02f1249351b41720866cac2dd4f6bd84d` equals `git merge-tree`, so there is no manual resolution.
+- `fa1b7620`: removes only `ev_5_route_closed`'s two R-88 `debt:` lines (steps 28, 29), which #69's `route_reports {s1,$r2}` fence now covers.
+- R-88: 29 lines in 18 ids (my count).
+- Gate PASS on the exact head, all ten steps, exit 0 after 316 s on msa1, base main `6fdfc413` (current main): `~/botster-sessions/gates/botster-contracts-p3-r88-lint-fa1b7620-pool-20261011-180204-30342.log`, sha256 `606615afa0c6aa8a5646f0ba0c688a2ea6102d1f6b43d018e2e5f5b316b86008` (I computed it).
+
+No open finding. #77 (PC, no open finding on `c284e82c`) fences `tm_6_begin` (steps 20-23) and `in_6_refused_full` (step 9), which still have PC-owned debt lines here. Whichever of #73 and #77 merges second removes them, and I review that delta.
