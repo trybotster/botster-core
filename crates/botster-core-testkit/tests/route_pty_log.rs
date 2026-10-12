@@ -61,3 +61,6 @@ fn a_relation_part_resolves_from_the_sent_frames() {
     // An op that sent nothing on the route does not match.
     run_with(json!([{"written_by_op": "2"}])).unwrap_err();
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

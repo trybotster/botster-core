@@ -508,11 +508,14 @@ impl HostEngine {
     }
 
     /// The largest frame payload of a worker link, in bytes (plan section 3). A host write travels in its JSON form and a
-    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows.
+    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows. The multiple
+    /// is the worst JSON form of one payload byte: a `Text` control byte is the six-byte escape `\u00XX` (`Bytes` and `Paste`
+    /// are hex, two bytes a byte), so every write that `max_paste_bytes` admits fits (lead ruling, 2026-10-12). Where the
+    /// cap binds, `begin` refuses a message that cannot fit (steward ruling R-100, `frame_fit`).
     pub fn link_frame_bound(&self) -> u32 {
         let limits = &self.cfg.limits;
         let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
-        let bound = largest.saturating_mul(4).saturating_add(1 << 20);
+        let bound = largest.saturating_mul(6).saturating_add(1 << 20);
         u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
     }
 

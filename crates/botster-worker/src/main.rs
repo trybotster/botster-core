@@ -365,6 +365,21 @@ impl Driver {
                     payload.signal_group(signal);
                 }
             }
+            Action::ResizePty(size) => {
+                let resized = self.payload.as_ref().map(|payload| {
+                    let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+                    let (xpixel, ypixel) = size.cell_px.map_or((0, 0), |px| {
+                        (
+                            clamp(size.cols.saturating_mul(px.width)),
+                            clamp(size.rows.saturating_mul(px.height)),
+                        )
+                    });
+                    payload.resize(clamp(size.rows), clamp(size.cols), xpixel, ypixel)
+                });
+                // SZ-3 (#311 F148): the machine applies the size only when the PTY took it.
+                self.inputs
+                    .push_back(Input::PtyResized(io_decisions::pty_resized(resized)));
+            }
             Action::ReapPayload => {
                 if let Some(payload) = self.payload.take() {
                     self.deregister_pty(&payload);
@@ -809,10 +824,4 @@ fn slow_driver_observer() {
 mod slow_edges;
 
 #[cfg(test)]
-#[test]
-fn this_test_binary_was_built_in_this_worktree() {
-    botster_test_process::built_in::assert_built_here(
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_MANIFEST_DIR"),
-    );
-}
+botster_test_process::built_in_test!();

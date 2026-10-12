@@ -32,3 +32,6 @@ fn log_chunks_carry_every_byte_at_each_chunk_size() {
         assert_eq!(received, tail, "{max}");
     }
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

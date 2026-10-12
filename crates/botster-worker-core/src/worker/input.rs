@@ -72,14 +72,19 @@ pub(super) struct RouteInput {
     want_result: bool,
     /// Its input record (ST-7), made at receipt.
     record: Option<RecordId>,
+    /// What the input holds of the route's input bound while it waits (DP-5, the read allowance): [`held_len`].
+    held: usize,
 }
 
-/// The caller's bytes of a payload: the unit of a route's held input (DP-5, the read allowance).
-fn payload_len(payload: &InputPayload) -> usize {
+/// What a waiting route input holds of the route's input bound (DP-5, `route_input_queue_bytes`, the read allowance): the
+/// caller's bytes of a `bytes`, `text` or paste payload, and for a semantic key, mouse or focus input (whose bytes exist
+/// only when it is encoded, IN-9) the bytes of its frame on the stream, `wire`. The undecoded frame held the same bytes in
+/// the reader, so its decode gives no room back.
+fn held_len(payload: &InputPayload, wire: usize) -> usize {
     match payload {
         InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => bytes.0.len(),
         InputPayload::Text { text } => text.len(),
-        _ => 0,
+        _ => wire,
     }
 }
 
@@ -151,7 +156,7 @@ impl InputState {
             .queue
             .iter()
             .filter_map(|p| match p {
-                Pending::Route(input) if input.route == route => Some(payload_len(&input.payload)),
+                Pending::Route(input) if input.route == route => Some(input.held),
                 _ => None,
             })
             .sum();
@@ -261,13 +266,16 @@ impl Worker {
         payload: InputPayload,
         want_result: bool,
         record: Option<RecordId>,
+        wire: usize,
     ) {
+        let held = held_len(&payload, wire);
         self.input.queue.push_back(Pending::Route(RouteInput {
             route,
             op,
             payload,
             want_result,
             record,
+            held,
         }));
         self.try_start();
     }
@@ -456,6 +464,7 @@ impl Worker {
             payload,
             want_result,
             record,
+            ..
         } = input;
         if let Err(reason) = self.admission(Source::Route) {
             // The wire merges the reasons; the record keeps the IN-2 reason (steward ruling R-101 Q2).
@@ -475,12 +484,26 @@ impl Worker {
                 self.start_unowned(Owner::Route(route, op, want_result), record, encoded);
                 return;
             }
+            // DP-5: an event that the modes do not report (IN-9 `NotReported`, such as a mouse event with tracking off) is
+            // omitted with no frame, as on a real terminal, with or without an op. Its record still ends, with the IN-2
+            // reason (steward ruling R-101 Q2).
+            Err(NotWrittenReason::NotReported) => {
+                let outcome = WriteOutcome::NotWritten(NotWrittenReason::NotReported);
+                self.end_client_record(route, record, outcome, 0);
+                return;
+            }
             Err(NotWrittenReason::ModePreconditionFailed) => (
                 RefusalReason::ModePreconditionFailed,
                 NotWrittenReason::ModePreconditionFailed,
             ),
-            // A route's input is `bytes`, `text` or a paste, and their encoding has no other certain zero. The keys and the
-            // mouse, whose encoding can be `Unsupported{what}`, are later P4a work.
+            // DP-5: an event with no encoding (IN-9 `Unsupported{what}`) is refused with the encoder's `what` and its op.
+            Err(NotWrittenReason::Unsupported { what }) => (
+                RefusalReason::Unsupported {
+                    what: what_name(what),
+                },
+                NotWrittenReason::Unsupported { what },
+            ),
+            // A kind with no encoding path in the worker: no other certain zero.
             Err(reason) => (
                 RefusalReason::Unsupported {
                     what: "input".into(),
@@ -770,4 +793,12 @@ fn record_end(outcome: WriteOutcome, pty_bytes: u64) -> (InputRecordState, Optio
 /// `cancelled`, and no host learns its end (ID-2): the record is how a reader learns it (steward ruling R-103 (3)).
 fn fenced_outcome() -> WriteOutcome {
     WriteOutcome::NotWritten(NotWrittenReason::Refused)
+}
+
+/// The wire name of an encoder's `Unsupported{what}` (DP-5's `input_refused{unsupported{what}}`): its JSON value.
+fn what_name(what: UnsupportedWhat) -> String {
+    serde_json::to_value(what)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| "input".to_string())
 }

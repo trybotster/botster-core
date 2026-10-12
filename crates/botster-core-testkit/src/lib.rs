@@ -32,6 +32,7 @@ pub mod queue_controls;
 #[cfg(feature = "slow")]
 pub mod real;
 pub mod refusal;
+pub mod report_holds;
 pub mod resume_controls;
 pub mod route_client;
 pub mod route_controls;
@@ -71,7 +72,4 @@ static ALLOCATOR: PeakAllocator = PeakAllocator;
 pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");
 
 #[cfg(test)]
-#[test]
-fn this_test_binary_was_built_in_this_worktree() {
-    botster_test_process::built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
-}
+botster_test_process::built_in_test!();

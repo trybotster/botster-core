@@ -746,6 +746,7 @@ mod adoption;
 mod boundaries;
 mod driver;
 mod flow_edges;
+mod frame_fit;
 mod lifecycle;
 mod losses;
 mod queue_pressure;
