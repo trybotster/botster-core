@@ -166,3 +166,67 @@ This receipt accepts no later head, pin, status removal, or additional re-gate.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; #314 train 4b base delta only, final train evidence pending)
+
+## Round 4: final #314 receipt on train 4b
+
+Exact head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Gate and merge base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Frozen #314 member: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead request: `msg_plugin-w_1791827181_b71169`.
+Round 3's exact-head source acceptance remains unchanged. This round supplies #314's final evidence receipt.
+Sol owns the combined final review.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+Sol-B independently verifies the hash and reads the identity, base accounting, affected tests, raw mutations, citations, summaries, and exits.
+The gate and merge base both equal the recorded base. All ten steps PASS in 962.9 seconds.
+Default passes 1,957 tests; slow passes 633 tests.
+The determinism test passes in 0.025 seconds. The real contracts-checkout comparison passes in 0.099 seconds.
+Strict conformance passes 264 tests without failure. Held-full runs three budget IDs at 32 seeds without failure.
+Pending remains 403; real-pending remains 34. Those counts include the other members' accepted changes.
+This receipt approves no additional status removal for #314.
+
+Stage 1 tests 65 mutants: 39 caught, 14 missed, 12 unviable, and zero timeout.
+The unmutated slow baseline passes all 633 tests. Stage 2 catches the 14 exact stage 1 misses.
+Sol-B independently compares those missed and caught identity sets; they match.
+The final result has 53 caught, 12 unviable, zero missed, and zero timeout.
+All 53 unique raw catch identities match their citations. Every catcher has a normal PASS.
+No runtime FLAKY or INCONCLUSIVE result appears.
+The one INCONCLUSIVE string belongs to the stored known-flake diagnosis. It supplies no failing trial or catch.
+
+The listed real EV-2 trial passes ordinary slow in 0.115 seconds and the unmutated baseline in 0.119 seconds.
+Its exact binary/test pair is excluded from stage 2 mutation runs. No credited catch names that trial.
+These ordinary passes remove no known-flaky entry and establish no structural repair.
+#314 adds no production mutant. Its earlier synthetic evidence retains its original tree and three-file E1 scope.
+This train gate supplies no new mutation run of every E1 control.
+The link_decoder and msg_decoder fuzz runs complete 6,143,074 and 3,614,151 cases, respectively.
+The job and wrapper exit 0 after 1,064 seconds on msa1, with one second queued and 1,063 seconds running.
+The earlier train 4 gate remains RED with its recorded failure and nonzero exit.
+
+Sol-B reads the full live #314 body before and after P6 adds the final Train gates section.
+The update names the two train heads, bases, member order, logs, current hash, affected test times, and completed results.
+It retains the original PR gate and synthetic mutation evidence with their original scopes.
+
+**B314-I2 — LOW — final RED-train disposition clarity. CLOSED.**
+The first update groups the PTY ack boundary and A31 tail drain under the RED train disposition.
+Sol-B reads R107-SI-2 and the lead handoff. That ruling separates EV-2's fence fix from A31's OU-7 obligation.
+Sol-B requests the clarification in `msg_plugin-w_1791827357_b0fc16`.
+P6 corrects the body in `msg_plugin-w_1791827375_c3bcda`; Sol-B independently reads the corrected live body.
+It states that .44 lacks the fence between the title request and Stop, and contracts #89 adds the title fence.
+It states that #316's pin removes the temporary entry. The retained logs identify neither earlier SI-1 possibility.
+It keeps A31's separate OU-7 ID outside the EV-2 fix. The failed gate remains recorded.
+No source head changes through this body correction.
+
+Sol-B reads package receipt `4d21704f3a4ae5f8f9246da979f19932eabb3e92`, its complete Round 4 gate audit.
+The package reviewer places that receipt on hold for the body clarification. Sol-B publishes no final CLEAN during the hold.
+Sol-B then reads replacement final package receipt `efa99fb22d75cb86a0f9cfdde98e011933d095a4`, its complete Round 5.
+The replacement closes the body hold and supersedes the earlier final receipt. Its unchanged gate audit agrees with these checks.
+The replacement reports zero findings on the same exact head, tree, base, and completed gate.
+No #314 source, final-body, or supplied-evidence finding remains on this exact train head.
+This final member receipt does not replace the other member reviews or Sol's combined final review.
+The lead must still verify the final merged tree and remote refs.
+This receipt accepts no later head, pin, status removal, additional re-gate, or completed merge.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #314 final receipt on the completed exact-head train 4b gate)
