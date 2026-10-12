@@ -157,6 +157,16 @@ Local selected packages pass 1235/1235; strict default conformance passes 595/59
 The implementer reports the lead's order for no separate member gate. The train-11 gate and final receipt remain due.
 This receipt claims source CLEAN only. No source finding remains open. Wait for the next doorbell.
 
+#298 train 11 source delta: CLEAN at `131024f3936898a3106af299e6751553c55bbc82`.
+Base: `644f632f194f62ad7fe14e66482ee01083706e30`; members: #298 `7a8592fb`, then #320 `48ff7a03`.
+The first merge has the same tree as the reviewed #298 head.
+The reviewer checked the overlapping changes, all 38 paths in #298's patch and all ten conformance sets at both merges.
+All patch comparisons and all twenty set checks pass. The stall-clock files and host queue remain unchanged.
+The new input-record reports preserve progress-before-report order through `Worker::report`.
+No source finding remains open. This receipt covers preservation of #298, not all independent #320 behavior.
+The lead reports the compile check passed. The reviewer ran no build or test and did not inspect the running conformance job.
+The final train gate remains due. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

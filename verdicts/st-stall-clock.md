@@ -1,6 +1,43 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (source delta; Core #298 at 7a8592fb)
+VERDICT: CLEAN (source delta; train 11, Core #298 at 131024f3)
+
+## Core #298: train 11 source delta
+
+Reviewed train: `131024f3936898a3106af299e6751553c55bbc82`.
+Train base and three-way base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+First member: #298 at `7a8592fb493450c8b046a076cf484317eb58d96e`.
+Second member: #320 at `48ff7a038d7c466776ae114acf32fd4f2f6d22da`.
+First merge: `2d544e361beb2fffba21330c083899209f81a89e`.
+VERDICT: CLEAN for preservation of #298 in this source delta. No source finding remains open.
+This review does not approve all independent #320 behavior.
+The final train gate remains due. The reviewer ran no local build or test.
+
+The first merge has the same tree as #298's reviewed head.
+The reviewer checked the changes from #298 to the final train in the overlapping source, documentation and test files.
+The host and worker stall-clock files remain unchanged. The host queue file also remains unchanged.
+The new input-record reports use `Worker::report`, which flushes route progress before it sends the next report.
+The close paths send the new input-record reports through that same path before `RouteClosed`.
+The transport acceptance mark, progress fences, mandatory reservation and close-clock order remain intact.
+The modes queue still preserves started frames and makes replacement frames droppable.
+The new receipt-time argument serves ReadFacts. It does not replace the host's injected stall clock.
+The link-frame bound retains its previous payload floor while it adds space for FactsReply.
+The cursor ordinal fields and launch fixtures do not change the stall-clock behavior.
+
+The reviewer compared #298's patch against its patch after the #320 merge.
+All added and deleted line multisets match in all 38 paths. No extra path appears in that comparison.
+The only text conflict in the final merge is the real-pending list.
+Its resolution retains the ST stall group, the R-109 re-entry and the imported ST-7 id.
+
+The reviewer independently checked all ten conformance sets at both merges.
+All twenty checks match the three-way union-minus-removals rule.
+At the final train, the counts are held 7, pending 361, real-only 26, real-pending 45, real-proofs 4 and deferred 2.
+The other counts are ledger 692, minimum 69, contracts-deferred 3 and contracts-withdrawn 27.
+No merge loses or invents an id under that rule.
+
+The lead reports that `cargo check --locked --workspace --tests` passed.
+The reviewer did not execute that check and did not inspect the running conformance job.
+This receipt claims source CLEAN only. The lead controls the final train gate and its completed receipt.
 
 ## Core #298: train-9b and train-10 import, round 8
 
