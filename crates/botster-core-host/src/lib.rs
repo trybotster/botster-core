@@ -11,6 +11,7 @@ pub mod driver;
 pub mod engine;
 pub mod flow;
 pub mod flows;
+pub mod frame_fit;
 pub mod inbound;
 pub mod io;
 pub mod queue;
