@@ -175,3 +175,14 @@ No open finding. #77 (PC, no open finding on `c284e82c`) fences `tm_6_begin` (st
 - 016c: `State::takes` (report.rs line 620) resolves a `Completed` through `current(op)` but does not require `op.handle == h`, although `event_fence` filters the handle. So a completion of an op on `h2` ends the `parked_work` witness of the same session name on `h`, and a repeated witness can then clear a second cause. This breaks the R-88 identity and the round-4 rule. 016c's exact-module proof returns `[]` where step 8 is due.
 - **Sibling, the same class (line 622):** the route branch resolves the route through `self.route(...)`, which is the latest `attach_route` of that variable on ANY handle. `event_fence` (line 576) uses `route_on(h, r)`. So a `RouteStalled`/`RouteResumed`/`RouteClosed` wait on `h` can end the witness of the session that the variable names on another handle. The fix must also use the route's binding on `h`, and the identity test should cover both branches.
 - I reviewed `takes` in round 4 and did not check its handle identity, although I had raised the same point for `op_posted` in round 1. Per my rule (package scope after my CLEAN), I do not withdraw the CLEAN. I re-check the delta on the next head. 016c asks the steward before round 5.
+
+## Round 5 (the steward's narrow identity fix): final CLEAN on dedf30c8bc793032f7e4495635d71bb0456efa6a
+
+Delta from `fa1b7620`:
+- `aacf2892`: `State::takes` now reads the session on `h` only, as `event_fence` does. A `Completed` counts only if `op.handle == h`. A route event resolves through `route_on(h, r)` and a new binding-to-session map (`binding_sessions`, filled in `State::attach`). This closes 016c's MEDIUM and my sibling at line 622. Two new self-tests, `a_completed_on_another_handle_ends_no_parked_witness` (`[8]`) and `a_route_event_names_its_session_on_its_own_handle_for_a_parked_witness` (`[9]`, 016c's `r1` case), are red on `fa1b7620`: `left: []` against `[8]` and `[9]` in `shared/core-stage1/evidence/p3-r88-lint/round5-red-on-fa1b7620.log`, sha256 `73e7fd4c9e0cc2c11874ecd3f6dd8e48f7381963502732d22ccadd790806a66f` (I computed it).
+- `7129038f`: merge of main `ecbd6ac8` (#77). Its tree `b8464eebf31727f030e9aa79a580358acb0c5ea3` equals `git merge-tree`.
+- `dedf30c8`: removes only PC's five R-88 `debt:` lines (`in_6_refused_full` s9, `tm_6_begin` s20-s23), which #77 fences.
+- Gate PASS on the exact head, all ten steps, exit 0 after 160 s on msa1, base main `ab25f04b`: `~/botster-sessions/gates/botster-contracts-p3-r88-lint-dedf30c8-pool-20261011-182912-54224.log`, sha256 `7a049bf546289492caf1c9f3b5ef9c89713fdf48cd0d98a3b3653548a9904e46` (I computed it).
+- Main moved `ecbd6ac8` → `ab25f04b` → `5843aa0dd7d50ef050d8941536fb9a5008fd2661`. Each move changes only `docs/steward-rulings.md` (the rulings-only exception).
+
+No open finding. CLEAN on `dedf30c8`.
