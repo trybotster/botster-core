@@ -11,7 +11,7 @@
 
 use crate::controls::ControlRegistry;
 use crate::harness::TestkitHarness;
-use botster_conformance::ControlError;
+use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::*;
 use serde::Deserialize;
 use serde_json::{json, Value};
