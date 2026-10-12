@@ -212,8 +212,6 @@ conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
-conf::dp_5_no_input_has_a_success_acknowledgement
-conf::dp_5_op_is_optional_except_on_a_paste
 conf::dp_5_refusals_survive_a_resync
 # After the contracts-v0.1.39 merge: the testkit fails it at seed 10 step 15 (gate dfc38b47, seeds 0-31: route_closed session_ended
 # before input_refused session_ended), and the real tier at seed 0 step 15. Not diagnosed. Owner: RC.
@@ -331,7 +329,6 @@ conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
 conf::ou_9_resync_drops_unstarted_frames
 conf::st_1_new_instance_never_equal
-conf::st_1_resize_changes_rev_without_output
 conf::st_2_screen_history_flag
 conf::st_3_coordinates_are_zero_based_cells
 conf::st_3_cursor_fields
