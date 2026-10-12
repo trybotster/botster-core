@@ -445,7 +445,7 @@ The final exact-head train gate must execute the selected root tests and the oth
 The root-macro reversal occurs after these checks and records slow-coverage exit 1.
 Its source restoration ends at `2026-10-12T20:55:16Z`. The script retains the removal pattern and diff statistics, not the complete raw patch.
 The independently inspected three-line commit and matching omission diagnosis establish this reversal's source scope.
-No new full gate, mutation run, or fuzz run occurs on this corrected head.
+No new full gate, mutation run, or fuzz run is supplied for this corrected head.
 The lead's handoff permits one import plus the macro, local checks, and both deltas; the train gate is the merge gate.
 Lead receipt `msg_plugin-w_1791837657_ac3742` supplies the updated train 7b import tip and replaces SLOT timing.
 The completed d1 gate retains its exact old head, unchanged-decoder evidence, FLAKY labels, and other recorded limits.
@@ -463,3 +463,32 @@ The applicable train composition review, completed exact merging-head gate, fina
 No corrected-head gate, future pin, specific retry, completed merge, or final train acceptance is granted here.
 The reviewer changes no product code and runs no execution job.
 Wait for the complete matching package delta doorbell. Never poll.
+
+## Round 3 — approved current-base import and root-macro correction CLEAN
+
+Head: `71ec2783edc2380c3389a71062422491506ebf39`.
+Tree: `4035cda3ce1eb41476d5dc6b4baeba463d8deb11`.
+Imported base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Previously reviewed head: `fabbf66cdaccedd942b8cedea824c763bd7bfa7a`.
+Scope: the authorized v1 import, preserved own changes, root-macro correction, current body, and supplied correction evidence.
+
+The reviewer reads complete matching package Round 3 at `27761dc18856339efee7a4280cc5759b2869ff27`.
+File: `verdicts/pc-route-frames-taken.md`. Receipt: `msg_plugin-w_1791839369_66950c`.
+It is CLEAN on the exact same head, tree, and imported base.
+It agrees with the complete independent correction inspection at `f9164502ed0e0252a16e0cf78ee0c2bf47da54ac`.
+That inspection's source conclusions, positive and negative presence evidence, body hash, and evidence limits remain applicable.
+
+All five findings close. R319-SI-3 / CQ-RFT-5 closes through the existing root macro and matching coverage results.
+Zero source, body, or import findings remain, including LOW.
+The inspected automatic merge preserves all thirteen own edit sequences apart from the required three-line macro insertion.
+The conformance files retain the imported base. No status removal, new pin, or retry authority enters this PR.
+The earlier decoder fuzz and mutation results remain scoped to their exact d1 head and unchanged decoder code.
+The new local compile and coverage results remain scoped to this corrected head, with all recorded limits.
+No full gate on this `.46` composition or final train acceptance is claimed.
+
+The lead's train composition review, applicable member deltas, completed exact merging-head gate, final receipt, and Q7 remain due.
+The separate contracts route fence, kernel-state list addition, and later Core pin remain PC's work under rule 23am.
+The no-slot train decision applies. This CLEAN creates no final slot and grants no future head or merge.
+The reviewer changes no product code and runs no execution job.
+
+VERDICT: CLEAN (0 open; corrected source, body, and authorized import only)
