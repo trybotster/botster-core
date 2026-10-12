@@ -503,3 +503,45 @@ The formal #307 verdict matches package `76ae3ad37fc67b47cf2fbaea794cb77554b526d
 The combined verdict also has zero open source findings. It reports all six exact-head member source receipts read and CLEAN.
 The matching #307 formal source-review condition closes. The combined source condition has its published integration verdict.
 No completed train gate is accepted. Final member evidence receipts and lead Q7 merge/tree/push verification remain due.
+
+## Round 6: VERDICT: CLEAN (0 open; train-4b base delta before the gate)
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Previously reviewed train: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`, base `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Lead request: `msg_plugin-w_1791825491_f03c1f`.
+Scope: #307's delta from the landed #317 base change only. The reviewer reads the brief first.
+
+The reviewer independently compares both complete full-index diffs.
+`03709a0c..e37b91d6` is byte-identical to `838e4bb0..9fe97f50`.
+Both diffs have SHA-256 `7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6`.
+They change only `ci/known-flaky.toml` and one test in `xtask/src/known_flaky.rs`.
+This train is rebuilt on the new base. It does not descend from the old train commit; preservation follows from the content comparison.
+The ordered members remain #314, then #312's `.44` pin, then frozen #307 member `2ed85f93`.
+
+The reviewer reads the complete two-file change and its existing parser, filter, and baseline context.
+The single entry names only real-tier `conf::ev_2_mandatory_and_keyed_never_dropped`.
+Its diagnosis names the pre-.45 fence gap, the queued acknowledgement, the link-only quiet check, and contracts #89.
+The signature fixes the binary, id, step 71, and `step_timeout`; only the seed varies.
+The owner is RC and the removing PR is #316. The governing R107-SI-2 permits this entry under the train's `.44` pin.
+The corrected ruling makes removal depend on the later fenced pin, not on A31's separate work.
+
+The changed xtask test parses the repository list and requires exactly that one binary/test pair.
+All production parser, validation, filter, reporting, and stale-entry logic remains unchanged.
+Mutation stages exclude the listed test only when their own test list contains it. It cannot count as a mutant catch.
+The normal slow step and unmutated Stage 2 baseline still run the test. The base change adds no unmutated-failure suppression.
+The reviewer reads #317's published accepted-source record and its matching integration receipt for this same two-file scope.
+Its earlier gate is evidence on #317's head; it is not a train-4b gate.
+
+All #307 source, test, design, interface, and runtime blobs remain unchanged from the reviewed train.
+All nine conformance text blobs remain byte-identical. Testkit pending stays 403 and real-pending stays 34.
+The earlier ordered-pin and own-patch checks remain valid under this exact content preservation.
+No pin, control, clause expectation, timeout, process allowance, mutation exclusion, or list-set membership changes in this delta.
+All four package findings remain closed. No new #307 source or base-composition finding is identified.
+
+The #307 base-change delta is CLEAN on exact train-4b head `e37b91d6` before its fresh gate.
+The lead's xtask compile PASS is an operator report. It supplies no completed train acceptance evidence.
+Old train `03709a0c` stays RED and is not re-gated. This verdict approves no retry or gate result.
+Matching formal member and combined source reviews, the fresh exact-head gate, final evidence receipts, and Q7 remain due.
+No later head or merge is accepted. No reviewer execution job ran. Wait for the doorbell. Never poll.

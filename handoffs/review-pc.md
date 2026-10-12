@@ -2000,3 +2000,19 @@ Both #307 formal verdicts match train 03709a0c, base 838e4bb0, tree 4bb9e8c7. Th
 The combined record reports all six exact-head member source receipts read and CLEAN, with zero combined source findings.
 The ordered .44 fix is present. The historical member gate stays RED. No completed train gate is accepted yet.
 The exact train gate, final member evidence receipts, and lead Q7 merge/tree/push verification remain due. No reviewer job runs.
+
+## #307 train-4b base-change delta CLEAN before the gate
+
+Lead request msg_plugin-w_1791825491_f03c1f assigns head e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c.
+Base 9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec; tree ad98644e8be65b95b5fa03c39b350dee5d5a2502.
+The reviewer reads the brief first and the complete two-file #317 base delta and existing gate context.
+The full-index train diff equals the full-index base diff byte for byte; SHA-256 7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6.
+The rebuilt train does not descend from 03709a0c; the content comparison proves preservation.
+The single known-flaky entry names real EV-2, exact step 71/step_timeout, owner RC, removed by #316, under R107-SI-2.
+The changed test requires that one binary/test pair. Production parser/filter/stale-entry logic is unchanged.
+The entry affects mutation test selection only. The slow step and unmutated Stage 2 baseline still run EV-2.
+The ordered #314/#312/#307 members and .44 pin remain present. All own runtime blobs and all nine conformance files are unchanged.
+Formal Round 6 is CLEAN on this exact train head before the gate, with zero open package findings.
+The lead's xtask compile PASS is a report, not completed train evidence. Old train 03709a0c stays RED and is not re-gated.
+Matching formal member/combined source reviews, fresh exact-head gate, final evidence receipts, and Q7 remain due.
+No reviewer job runs. No retry, later head, or merge is accepted. Wait for the doorbell. Never poll.
