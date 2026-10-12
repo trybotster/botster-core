@@ -101,3 +101,49 @@ Lead receipt `msg_plugin-w_1791830912_a6335f` explicitly SETTLES package round f
 I read the six-line c707 delta. The assertion uses a local flag set from returned PTY poll events. The driver flag remains setup for reads and is no longer asserted. No production behavior changes. This observation is not a final closure or exact-head evidence acceptance.
 
 Integration round three remains in progress. The replacement READY, its completed gate, and the authorized same-head package verdict remain due. No new formal integration verdict is issued here. I ran no execution job.
+
+
+## Round 3: completed repairs and authorized F154 settlement
+
+- Head: `c707c4d6b89f3e96d8884713c818151a10ad6e58`.
+- Tree: `79fb1e20839f75ee94fcd5691555e5b6bce8a20c`.
+- Source base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- Gate reference: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, not imported.
+- Reviewed delta: complete b050 repair from d19, then the six-line c707 test repair. No production behavior changes.
+- READY: `msg_plugin-w_1791832118_983541`.
+- Package: `2e8363da579f90b059fcf03c15a43b0a1b0262e2`, complete Round 198 in `verdicts/p3-worker.md`.
+- Lead SETTLE: `msg_plugin-w_1791830912_a6335f`. This completes the integration round already in progress.
+
+I read the complete same-head package verdict. Round 197 reviewed #302; Round 198 supplies this authorized package settlement.
+No finding appears outside the lead's authorized repair scope. Earlier source reviews and their limits remain applicable.
+
+**F153 closes at b050.** The leader ignores HUP before it forks the holder. The holder inherits that disposition from its start.
+The holder's marker and response after Exited remain. Linux proves a quiet read with a live terminal holder.
+Mac proves process survival only. The complete body retains that distinction.
+
+**F154 closes at c707.** The assertion reads a local saw_pty_event flag initialized to false.
+Only a returned PTY poll token sets that flag. Driver readiness remains read setup and supplies no assertion value.
+The absolute deadline, actual exit wake, Linux unread tail, count gap, and complete-output checks remain unchanged.
+No subject getter or production branch is added. F150, F151, and F152 retain their earlier closures.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p3-a31-drain-c707c4d6-pool-20261012-115220-30004.log`.
+Verified SHA256: `8da758f002695b5b656f17e13a3cdb22b1013e25d0fe2f1f958687463e1f06fc`.
+Its headers name the exact head and distinct gate reference. All ten steps pass: 1939 default and 626 slow tests.
+I match all 21 unique raw catches to citations and normal PASS results. Four mutants are unviable.
+Stage 2 catches all five Stage 1 misses after its unmutated baseline passes. No final miss, timeout, or FLAKY remains.
+The changed driver-tail test passes in the normal slow tier and the baseline. Fuzz selects no changed decoder harness.
+CI takes 441.1 seconds. Job and wrapper exit zero after 948 seconds, including 496 seconds queued and 452 seconds running.
+
+I read the exact-head Mac pre-gate log. It records removal of 12876 files totaling 3.6 GiB.
+Fmt, actual CI taint, and worker clippy with slow exit zero. It supplies no new Mac slow or strict run.
+The complete PR body SHA256 is `b3ec0db9288cca92a21e33e897acb007db923327d2641940bbf4dd1f8f19b17b`.
+The body preserves earlier gates, measurement limits, reversals, F28's separate duty, and the Mac IN-6 failure.
+P3 must classify that failure from source and logs under the lead's ruling. An isolated pass supplies no cause or closure.
+The lead states that this separate duty does not block #318.
+
+All five finding identities, F150 through F154, are closed, including LOW findings.
+Final import/check, applicable train and combined reviews, exact-final-head gate, final receipts, and equal-tree merge verification remain due.
+This verdict accepts no future head, train, pin, pending removal, A24 rule, or F28 closure. #163 remains open for separate duties.
+I ran no build, test, measurement, gate, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW)
