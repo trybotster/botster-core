@@ -22,7 +22,7 @@ pub fn row_key(id: &SessionId) -> String {
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
 /// The key of the cursor ordinal counter (steward ruling R-101 Q6): the highest ordinal that a `Start` reserved in this data
-/// directory, in decimal. It is outside `ROW_PREFIX`, as the host epoch's row is (DESIGN.md "The cursor ordinal").
+/// directory, in decimal. It is outside `ROW_PREFIX`, as the host epoch's row is (`design/cursor-ordinal.md`).
 pub const ORDINAL_KEY: &str = "meta/cursor-ordinal";
 
 /// The next cursor ordinal after the counter row `counter` (1 with no row), or `None` when the row is not a number.

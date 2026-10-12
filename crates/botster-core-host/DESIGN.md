@@ -2,6 +2,13 @@
 
 Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, contracts `contracts-v0.1.2` (manifest final14).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/cursor-ordinal.md`](design/cursor-ordinal.md): The cursor ordinal (ST-7; P5; steward ruling R-101 Q6 and its
+  follow-up).
+
 ## Shape
 
 - `HostEngine` is a sans-IO machine (plan 2.1). Time enters only through `pump(now)` (TM-1): edge results are fed with no new
@@ -420,32 +427,6 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone at the stop, and `GroupSignal::KillPayload` (`SIGUSR2`) at the due `pump` of `stop_grace` (steward ruling R-97, follow-up, contracts `12ebec28`). The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
 - **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
 
-## The cursor ordinal (ST-7; P5; steward ruling R-101 Q6 and its follow-up)
-
-- **What it is.** The high 24 bits of every input cursor of `ReadFacts` (`CURSOR_ORDINAL_BITS`, `botster-core-link`). Cursors
-  must stay distinct across instances for the life of the data directory, also after a `Remove` and a `Create` of the same
-  id and in a later Core process. So the ordinal is a durable counter of the registry, under the data-directory lock. It
-  goes to the worker in `LaunchSpec.cursor_ordinal` only; the worker keeps it across an adoption.
-- **The row.** `meta/cursor-ordinal` (`session::ORDINAL_KEY`): the highest ordinal that a `Start` reserved, in decimal.
-  It is outside `session/`, as `meta/host-epoch` is: a row there is not a session, so the id scan of `HostDriver::open`,
-  `AdoptAll` and the testkit's row tap never see it.
-- **Two reads, one reason.** The host epoch is read and raised in `botster-core-sys` `DataDir::open`, before the driver
-  exists: the real tier's edge owns it. The ordinal is read by `HostDriver::open` through the registry edge
-  (`read_rows`), with the session rows. The testkit has no `DataDir`, and it must apply the same ordinal rule, so the rule
-  lives in the host, over the edge that both tiers have.
-- **Reserve per `Start`** (`StartPhase::RowOrdinal`, after the token and before the `Starting` row). The phase takes the
-  next ordinal, moves memory past it at once, and writes the row. `Ok` goes on to the `Starting` row. A failed or uncertain
-  write ends the `Start` as a failed `Starting` row write does (`start_not_run`): the session is `Created`, and the op
-  completes `RegistryFailed` with the write's `uncertain`. An ordinal reaches a worker only after a write of a value at or
-  above it returned `Ok`, and memory never goes back, so no ordinal is used twice. A `Start` after a failure reserves the
-  next ordinal.
-- **Exhaustion is permanent for the data directory.** Past `MAX_CURSOR_ORDINAL`, `Start` completes
-  `RegistryFailed{uncertain: false}` with nothing written and no event but its completion. Every later `Start`, in this
-  process or a later one, fails the same way. A counter row that is not a number fails `open` with `RegistryFailed`.
-- **Effect on the transcripts.** `storage_fail_write` fails the next write. Before a `Start` it is now taken by the ordinal
-  write, with the same outcome (`RegistryFailed` with the fault's `uncertain`, the session `Created`); for example
-  `a5_3_async_failure_only_through_edges_and_real_completion` steps 5-10. The cost is one more registry write per `Start`.
-
 ## R-100: a message that cannot fit the link frame is refused at the call (2026-10-12)
 
 - **Rule (steward ruling R-100).** A call whose message to the worker can never fit the link frame is refused at the call
@@ -460,8 +441,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
   the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
   `Created` session can store them after the check of `Start` (RC-R100-3). It also has the largest cursor ordinal
-  (`MAX_CURSOR_ORDINAL`): `Start` reserves the ordinal after the call (ST-7, "The cursor ordinal"). A call that passes never fails at the send. The
-  cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
+  (`MAX_CURSOR_ORDINAL`): `Start` reserves the ordinal after the call (ST-7, `design/cursor-ordinal.md`). A call that
+  passes never fails at the send. The cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
   size), and for a `Launch` up to several kilobytes, because a full palette is about 6.7 KB of JSON (RC-R100-5). Assigning
   the request number at `begin` would change the op-number order, so it is not done.
 - **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
