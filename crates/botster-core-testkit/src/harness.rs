@@ -661,7 +661,7 @@ mod tests {
         let (mut harness, mut core, mut route, result) = attached_route_and_result(json!({}));
         read_baseline(route.as_mut());
         let args = json!({"session": "s", "route": result.route.0});
-        let mut progressed = |harness: &mut TestkitHarness, core: &mut Box<dyn CoreApi>| {
+        let progressed = |harness: &mut TestkitHarness, core: &mut Box<dyn CoreApi>| {
             for _ in 0..16 {
                 core.pump(Now {
                     monotonic: Instant::now(),
