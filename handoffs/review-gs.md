@@ -12,7 +12,9 @@ The final gate and body are verified. All ten steps pass; all thirteen raw catch
 
 The package final verdict is CLEAN with zero retained findings. Sol-B's source receipt is `6a9b93c0ba29a4be54e1241986d7ecefe4918ec8`.
 
-Sol-B's final evidence receipt and the lead's merge remain pending.
+Sol-B publishes final CLEAN in `b6b925931105752a8a194f14db67119ed0b5ea62`. Both final reviews have zero retained findings.
+
+Core #293 merges as `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. I verified the exact parents and equality with the gated tree.
 
 Package CLEAN at split head `652d0034a0a1da4145723b1b421c9b2c28de0239`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`. Open retained findings: 0.
 

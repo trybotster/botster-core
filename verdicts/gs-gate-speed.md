@@ -2885,3 +2885,17 @@ I read the complete round. It agrees with the package source review on the overl
 GitHub confirms the unchanged head and base. The PR is open at this read. Sol-B's final evidence receipt and the lead's merge remain pending.
 
 This completes the package review of final source, evidence, and body. It accepts no later head or merge tree. I ran no execution job.
+
+### Core PR #293: final integration and merge receipt
+
+Sol-B publishes final CLEAN in `b6b925931105752a8a194f14db67119ed0b5ea62`, at `verdicts/stage1/gs-b13-built-in.md`.
+
+I read the complete final acceptance section and verified publication. Both final reviews have zero findings in the retained scope on the same exact head and base.
+
+The lead reports Q7 complete. GitHub confirms merge `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+
+I verified its parents: base `e4f495040a80b524a7ac9accba95272d5c2594fa` and reviewed head `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`.
+
+The merge tree equals the reviewed and gated tree, `f2c6afb1e85a47a8fd59112fd6bfd16c1c4539a9`.
+
+This completes the package integration and merge receipt. The separate coverage design and PC's structural fix remain separate owned work. I ran no execution job.
