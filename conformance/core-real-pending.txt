@@ -52,7 +52,6 @@ conf::ou_3_progressing_reader_lossless
 # R-43(5): no_spurious_wakes (contracts-v0.1.39, #50; lead, plan 23aw); it passes on the testkit since the TM-6 wake fix. On the
 # real tier at contracts-v0.1.39 it fails at seed 5 step 21: the pump posts 1 event where the transcript expects
 # {"more":false,"events_posted":0} (A5-4 of the .39 pin PR, Linux). Owner: GS (the tm_6 probe).
-conf::tm_6_begin_and_attach_signal_wake
 
 # The testkit route end answers pty_input since the testkit PR of plans 23aw/23bd; route_stream_holders has no real form (lead,
 # plans 23be and 23bh). P6, with the other R-47 real route controls.
