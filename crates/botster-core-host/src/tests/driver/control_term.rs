@@ -29,10 +29,10 @@ fn within_term(msg: &HostMsg) {
 
 /// Limits with the smallest frame bound (1 MiB and 8 KiB), so a string over it is quick to build.
 fn small() -> CoreLimits {
-    let mut l = CoreLimits::default();
-    l.max_paste_bytes = 1024;
-    l.max_snapshot_bytes = 1024;
-    l
+    limits(|l| {
+        l.max_paste_bytes = 1024;
+        l.max_snapshot_bytes = 1024;
+    })
 }
 
 /// `msg` with a string over the frame bound of [`small`] is refused, and the term bounds every frame that is not.
