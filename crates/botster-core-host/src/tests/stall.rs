@@ -246,7 +246,8 @@ fn a_due_step_with_no_room_is_parked_until_a_poll_frees_room() {
 }
 
 /// EV-5b, TM-6 (steward ruling R-87, `parked_work`): a due stall step that is parked on room is parked work of the route's
-/// session, and work that is ready with room. A poll that frees room ends both.
+/// session, and work that is ready with room. A due step that did not run yet is ready now, not parked. A poll that frees
+/// room ends both.
 #[test]
 fn a_parked_due_step_is_parked_work_of_the_routes_session() {
     let mut w = world(1);
@@ -255,6 +256,13 @@ fn a_parked_due_step_is_parked_work_of_the_routes_session() {
     w.engine.begin(create("x1")).unwrap();
     w.pump();
     w.advance(STALL);
+    w.feed(Input::Clock(w.unix));
+    // Due, and not run yet: it is ready now, not parked.
+    assert!(w.engine.ready_at(false).contains(&Work::DueStep));
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "a step that did not run is not parked"
+    );
     w.pump();
     assert!(dues(&w).is_empty(), "the step is parked");
     assert!(!w.engine.ready_at(false).contains(&Work::DueStep));
