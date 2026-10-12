@@ -10,7 +10,7 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #311 | Train-6 source delta CLEAN at `3e655eff`, Round 6, for frozen member `2c5d09a0`. Package Round 195 and body/ruling receipt `39428df3` checked. Local timeouts remain unclassified. | Exact train gate, Sol's one train receipt, and merge verification. Combined source review `a3250c8c` is checked. No final gate evidence accepted. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
 | #318 | Integration Round 3 CLEAN at `c707c4d6`. Package Round 198 `2e8363da` checked. F150–F154 close; exact-head gate passes all ten steps. | Final import, train reviews, final gate and receipts, and merge verification. Mac IN-6 classification remains P3's separate duty. No F28 closure accepted. |
-| #316 | Integration Round 1 source CLEAN at `0844f9df`. Package `dca58cff` checked. Exact-head initial gate passes all ten steps. | Applicable train reviews, final receipts, and merge verification. #313/#308 composition remains unaccepted. |
+| #316 | Import Round 2 source CLEAN at `f1ac08b9`. Package `723c6ec2` checked. RC-PIN46-2 closes. #308 signature composition is accepted at this head. | Train-7 reviews, exact-head gate, combined final receipt, and merge verification. Future #313 composition remains unaccepted. |
 
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 

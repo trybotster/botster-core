@@ -92,3 +92,59 @@ The additional ID is `conf::dp_3_route_codec_matches_client_appendix_a4_a5` from
 Checks item 3 must scope eleven to the earlier head or state the current count. No source change or extra execution is required.
 The exact-head package closure and corrected complete body remain due. The integration import round remains in progress.
 No formal replacement verdict or final gate acceptance follows from these source checks. I ran no execution job.
+
+
+## Round 2: train-7 SLOT import delta
+
+- Head: `f1ac08b998f15f062f123a996e2688344c33c3ba`.
+- Tree: `76fab1bfcbc23fafbd358964620a6929795f97bf`.
+- Imported source base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Previous member: `0844f9dfadee637197d1bbbfc4ea5dcd7c951325`.
+- Three-way merge base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- READY: `msg_plugin-w_1791835547_aca25b`.
+- Package: `723c6ec226ffd32b347bd4ca39f5f98062e1aa52`, complete train-7 SLOT import section in `verdicts/rc-real-controls.md`.
+- Reviewed delta: the complete six-file difference from the imported base and both known-flaky conflict resolutions.
+
+I read the complete same-head package verdict and corrected body. Both retain zero open findings, including LOW findings.
+The merge parents match the previous member and imported base. The owner reports rerere off and two conflicts.
+The manifest and lock equal the previously reviewed .46 pin byte for byte. No additional dependency revision appears.
+The ledger and pending files add only a22_1 relative to the imported base. Core still constructs no RouteAdopted.
+The imported frame-fit and resize implementations change no RouteAdopted field use. #313's future composition remains unaccepted.
+
+The known-flaky resolution retains #308's structured-signature header and removes EV-2 with its signature table.
+The sole remaining entry is IN-8, owned by PC and removed by #321.
+Its signature names slow, step_timeout, any seed, and literal text `step=6 limit=step_timeout`.
+That signature matches R-111 and the retained c34 RED. It includes no step-8 failure or additional symptom.
+The repository-list test uses the exact binary, test, and removal-PR tuple. It expects only IN-8 and #321.
+The parser, other tests, and mutation filters equal the imported base. No production check behavior changes in this resolution.
+Normal slow and unmutated baseline failures remain RED. Stage 1 exit still requires an empty list. No retry is authorized here.
+
+All nine three-way conformance formulas match. Counts are ledger 692, pending 388, real-pending 38, proofs seven, and minimum 69.
+Four held IDs, 26 real-only IDs, three deferred entries, and 27 withdrawn entries retain the merged sets.
+The import preserves sixteen pending removals and four real-pending additions. Their accepted owner reviews retain their scopes.
+No real-pending ID loses its final exception across .44 to .46. No new pending removal follows from this pin.
+The mutation configuration equals the imported base. No exclusion is added.
+
+I read R-114 at contracts `e22baecc1be444c96c3b7c099162eeb53b605164` and the current R-115 freeze.
+The separate oracle_resume fence work does not enter this pin. The delta adds no check family or lint.
+R-111's structural driver fix remains outside .46; #321's removal trigger remains unsatisfied.
+
+I read strict-slot.sh and its exact-head retained log without executing them.
+The log names this head, tree, and imported base, with no tracked difference. Both parallelism caps are four.
+The script unsets RUSTUP_TOOLCHAIN and runs quiet cargo clean. The marker supplies no separate numeric clean exit or removal count.
+Fmt, all-feature workspace test-target check, lists, ledger, six known-flaky tests, and prebuild exit zero.
+Strict seeds 0–31 pass 281 cases, with zero failures and exit zero. Seventeen real-only pending transcripts do not run there.
+The four held IDs keep their rules. These local records establish no full-seed real-tier result or completed train gate.
+Historical gates retain their original heads and bases. The lead uses train 7's gate as the merge gate.
+
+**RC-PIN46-2 — LOW — CLOSED.** The corrected body gives eleven no-exception IDs at 0844f9df and twelve at f1ac08b9.
+The added ID is the imported dp_3 route-codec transcript. It already lacks an exception at .44.
+I read the complete corrected body and verify exact UTF-8 SHA256 `1e730f0684003f90945e0b382babad88f9c47a955aaf05ebc419d9757d0aa687`.
+The source head remains fixed. The earlier finding and its closure remain recorded.
+
+No source or body finding remains. Applicable train and combined reviews, the exact-head train gate, and lead merge verification remain due.
+The combined reviewer sends the single final train receipt for an unchanged member. I supply this source delta only.
+This verdict accepts no later head, future #313 composition, PC fix, new control, specific retry, or final gate result.
+I ran no build, test, gate, measurement, mutation run, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; import source delta only)
