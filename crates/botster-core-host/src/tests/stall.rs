@@ -1,9 +1,10 @@
 //! The host's stall clock of a route (steward ruling R-90 and its follow-up): the host arms `stall_deadline` from the pump
 //! that consumes a waiting progress report, sends the due step with its mark, holds one mandatory slot for the answer, and
-//! arms `stall_close_after` from the pump that consumes `RouteStalled`. A due step with no mandatory room is parked (E3-1
+//! arms `stall_close_after` from the pump that posts `RouteStalled`. A due step with no mandatory room is parked (E3-1
 //! item 4).
 
 use super::*;
+use crate::engine::ParkedRoute;
 use crate::run::DeadlineKind;
 
 const STALL: Duration = Duration::from_secs(1);
@@ -578,4 +579,30 @@ fn progress_of(w: &mut World, session: &str, route: RouteId, mark: u64, waiting:
             waiting,
         },
     );
+}
+
+/// 0181's ST298-R5: the stall event and the resume both wait behind an older parked close (EV-6). When the stall event
+/// posts, the resume behind it already ended the stall in the worker: the post arms no close step. Then the resume posts.
+#[test]
+fn a_stall_event_with_its_resume_parked_behind_it_arms_no_close_step() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    let other = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.advance(STALL);
+    w.pump();
+    assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 3 }]);
+    w.engine
+        .parked
+        .push_back(ParkedRoute::Close(other, RouteCloseReason::WriteFailed));
+    w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 3 });
+    w.worker_says("s1", WorkerMsg::RouteResumed { route, mark: 4 });
+    assert_eq!(w.engine.parked.len(), 3);
+    for _ in 0..3 {
+        w.feed(Input::Run(Work::Parked));
+        assert_eq!(due_at(&w, route), None, "no close step");
+        w.engine.poll_events(64);
+    }
+    assert!(w.engine.parked.is_empty());
+    assert!(w.engine.queue.has_mandatory_room(), "no slot is held");
 }
