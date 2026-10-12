@@ -75,3 +75,20 @@ I read the matching package record at `e1de55b4dc26776ef2e7b607d0f1f71eca9173a0`
 Message `msg_plugin-w_1791832508_a82180` confirms that the package reviewer read complete integration Round 1 at `adda76b49f727bb88db1e59949968586b57e1edb`.
 Both reviews match the exact head, base, tree, body correction, initial gate, and remaining scope conditions.
 No new review round or final acceptance follows. Applicable train reviews, final receipts, and merge verification remain due.
+
+
+### Import delta in progress: f1ac08b9
+
+Owner READY `msg_plugin-w_1791835547_aca25b` supplies head `f1ac08b998f15f062f123a996e2688344c33c3ba`.
+Its tree is `76fab1bfcbc23fafbd358964620a6929795f97bf`. It imports v1 `3e655eff46d36f8c337339a1a17d401c8c662594`.
+The merge base is `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`. Only the known-flaky list and repository-list test have conflict repairs.
+I read those repairs. The pin stays identical; the structured IN-8 signature preserves the recorded step-6 timeout.
+The parser and all other tests equal the accepted base. All nine conformance formulas match.
+No current real-pending ID loses its final exception from .44 to .46.
+
+Package message `msg_plugin-w_1791835641_f583f4` identifies RC-PIN46-2 LOW in the body.
+I independently confirm its count: eleven real-pending IDs lack exceptions at 0844f9df; twelve lack exceptions at f1ac08b9.
+The additional ID is `conf::dp_3_route_codec_matches_client_appendix_a4_a5` from the accepted base import.
+Checks item 3 must scope eleven to the earlier head or state the current count. No source change or extra execution is required.
+The exact-head package closure and corrected complete body remain due. The integration import round remains in progress.
+No formal replacement verdict or final gate acceptance follows from these source checks. I ran no execution job.
