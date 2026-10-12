@@ -586,3 +586,19 @@ This FINAL accepts no later source, future pin, status removal, specific retry, 
 I ran no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; FINAL combined train-4b at exact gated head, lead merge verification pending)
+
+## Completed train-4b merge verification
+
+The #303 SLOT request names imported v1 `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Request: `msg_plugin-w_1791829265_8ba78c`.
+The reviewer independently reads remote v1 and GitHub #307 merge metadata.
+GitHub reports #307 closed and merged at `2026-10-12T18:00:10Z`.
+Its member head remains `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Its merge commit is exactly the reviewed train head, `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Remote v1 equals that commit.
+Its tree is `ad98644e8be65b95b5fa03c39b350dee5d5a2502`, exactly the reviewed and gated tree.
+The previously verified ordered member ancestry therefore reaches remote v1 without a source change.
+The outstanding merge and publication verification conditions close.
+The train-4b FINAL remains CLEAN. This record accepts no later source or later pin.
+The separate #316 removal and A31 work remain due.
+The reviewer runs no execution job.

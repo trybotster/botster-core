@@ -288,3 +288,63 @@ Stop-grace, identity hold, guardian exit, and a testkit AD-7 control remain sepa
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open initial findings; final integration remains due) at 955ca290737453265d7eb4622c5e998abbe0c84f against stacked base 403bbf689cc9f745a9552cc518374a6a8f2cdb32
+
+## SLOT source inspection — complete package delta remains due
+
+Inspected head: `df461c83ffa8761c691e5ee07cf50f20784029f7`.
+Previous reviewed head: `955ca290737453265d7eb4622c5e998abbe0c84f`.
+Imported v1 base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `d821aaeeb7dbb28623145dc0867fb8314fc91908`.
+Request: `msg_plugin-w_1791829265_8ba78c`.
+The exact pushed branch and remote v1 match these identities.
+The commit has exactly those two parents. Their merge base is the original #301 stack, `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+The owner reports one merge with rerere disabled.
+
+The reviewer reads the complete seven-file own delta and all three resolutions through `git show --remerge-diff`.
+Own full-index delta SHA-256: `08d9cb91be9716a11c00fcddc38146137d5acb0aea26da67134518ffccaa929f`.
+The delta has 450 additions and 68 deletions. Its paths equal the original own paths.
+All own added lines remain exact. Only two sets of deleted lines differ from the original delta:
+- The route test module retains v1's `Instant` import because v1's new test node uses it.
+- The old deadline documentation differs in v1. The resolution retains this PR's host-only deadline documentation.
+The other conflict keeps `until_deadline`, `run_ready`, and v1's test-only `add_node` together.
+No worker-clock behavior changes in these resolutions.
+
+`run_ready` still advances the Sim to `WorkerClock::now` without a program step or host pump.
+`WorkerDeadlineWake` still compares and waits on the worker clock, then forwards the host's wake and descriptor.
+The imported reader node ignores time and has no deadline. Its progress test remains present.
+The imported host driver exposes the same host wake and host-only deadline query that this wrapper needs.
+The existing manual-clock peer regression and both required R-97 unit tests remain exact.
+R303-SI-1 stays closed. No new source defect is identified.
+
+All nine conformance text sets satisfy the three-way formula and equal imported v1.
+Counts: pending 403, real-pending 34, held four, ledger 691, minimum 69, real-only 26, real-proofs seven, deferred three, withdrawn 27.
+The own pending delta changes only the startup-id explanation. It removes no id.
+Cargo.toml and Cargo.lock are byte-identical to the imported base and pin contracts `.44`.
+The accepted R-66 fence fix from `.42` therefore reaches this head through the reviewed `.43`/`.44` imports.
+R303-F1's required final import is satisfied in source. Its earlier RED and FLAKY records retain their original scope.
+The known-flaky entry, mutation configuration, host driver, queue controls, operation holds, and production worker equal the imported base.
+
+### R303-F2 — LOW — OPEN: body must identify summary limits and historical pin scope
+
+Package notice: `msg_plugin-w_1791829479_b46f4e`.
+The reviewer independently confirms this issue in the complete current body.
+Body SHA-256: `74ccb7ac427819805eb32fb4b9594d337f5ffbd35144fdba896a660f09a4f6c0`.
+The SLOT local-check file states that the owner read results from the terminal and kept no raw log.
+The body must call this file an owner-written summary and retain the absence of raw output and numeric exits.
+The old R303-F1 diagnosis also states, `This PR pins contracts v0.1.41`.
+The body must scope that statement to the earlier `3cc95f90` gate head.
+The SLOT now imports `.44` and the corrected fence.
+This finding requires body corrections only. The reviewer requests no new run for it.
+
+The local summary names the exact SLOT head, target directory, both concurrency caps, and macOS.
+It reports fmt, workspace/test compilation, clippy, testkit tests, and strict conformance 264/0 with seeds 0–31.
+The switch record independently reports a clean of 57590 files and 14.1 GiB at `2026-10-12 18:10:02 UTC`.
+The summary supplies no raw command output or numeric command exits.
+It is supporting operator evidence. It does not replace the completed exact train gate.
+
+The complete matching package delta remains due. This inspection completes no CLEAN round.
+R303-F2 must close before CLEAN. The lead's train-6 gate, final body, final receipts, and Q7 remain due.
+No older gate is relabeled as execution of this SLOT head.
+Stop-grace, identity hold, guardian exit, and a testkit AD-7 control remain separate work.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+Wait for the body correction and package verdict doorbells. Never poll.
