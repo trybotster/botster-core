@@ -92,6 +92,9 @@ struct CandidateIo {
     readable: bool,
 }
 
+/// A result of the payload's exit watch: the leader's status, or the watch's failure (steward ruling R-106).
+type Watched = Result<botster_core_edges::edges::ExitStatus, payload::ExitWatchFailed>;
+
 /// The real edges of one worker and the machine they drive.
 struct Driver {
     read_chunk: NonZeroUsize,
@@ -124,10 +127,7 @@ struct Driver {
     waker: Arc<Waker>,
     /// The thread of this loop: the one thread that starts the payload (`payload`, "Loop thread").
     loop_thread: LoopThread,
-    exits: (
-        mpsc::Sender<botster_core_edges::edges::ExitStatus>,
-        mpsc::Receiver<botster_core_edges::edges::ExitStatus>,
-    ),
+    exits: (mpsc::Sender<Watched>, mpsc::Receiver<Watched>),
     /// Inputs of the current turn; the machine handles them before the next one.
     inputs: VecDeque<Input>,
     exit: bool,
@@ -284,8 +284,13 @@ impl Driver {
                         }
                     }
                     EXIT => {
-                        while let Ok(status) = self.exits.1.try_recv() {
-                            self.inputs.push_back(Input::PayloadExited(status));
+                        while let Ok(watched) = self.exits.1.try_recv() {
+                            self.inputs.push_back(match watched {
+                                Ok(status) => Input::PayloadExited(status),
+                                Err(failed) => Input::ExitWatchFailed {
+                                    errno: failed.errno,
+                                },
+                            });
                         }
                     }
                     ENDPOINT => {
@@ -388,6 +393,11 @@ impl Driver {
                 self.drain_left = None;
             }
             Action::Exit => self.exit = true,
+            // R-106 (c): the run ends with the failure, so the worker exits non-zero and `main` writes the errno to stderr,
+            // the worker's own log. The machine sent nothing about it; the drop of the payload kills its group and reaps it.
+            Action::ExitFailure { errno } => {
+                return Err(io::Error::other(payload::ExitWatchFailed { errno }))
+            }
             Action::CandidateClose(id) => {
                 if let Some(mut candidate) = self.candidates.remove(&id) {
                     let _ = self.poll.registry().deregister(&mut candidate.stream);

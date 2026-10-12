@@ -141,7 +141,9 @@ impl SessionInput {
             .map(|worker| worker.identity())
             .ok_or_else(|| format!("the session {} has no worker process yet", self.session.0))?;
         let input = self.inputs.input(worker).map_err(|e| format!("{e:?}"))?;
-        Ok(crate::route_client::route_pty_log(input))
+        Ok(crate::route_client::route_pty_log(
+            botster_route_codec::prelude::hex_encode(&input),
+        ))
     }
 }
 
