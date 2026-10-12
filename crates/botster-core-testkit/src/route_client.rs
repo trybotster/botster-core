@@ -139,6 +139,9 @@ pub struct TestkitRoute {
     failed: bool,
     /// `None` for a route that `attach_stream` did not build: it runs no `route_fill`.
     fill: Option<RouteFill>,
+    /// The record of its host's `route_reports`, which `route_accept` sets the base of `progressed` in. `None` for a route
+    /// that `attach_stream` did not build.
+    reports: Option<Arc<Mutex<crate::route_reports::RouteReports>>>,
 }
 
 impl TestkitRoute {
@@ -151,7 +154,17 @@ impl TestkitRoute {
             unsent: Vec::new(),
             failed: false,
             fill: None,
+            reports: None,
         }
+    }
+
+    /// `route_accept` sets the base of `progressed` in `reports` (R-90 follow-up, Q2).
+    pub fn with_reports(
+        mut self,
+        reports: Arc<Mutex<crate::route_reports::RouteReports>>,
+    ) -> TestkitRoute {
+        self.reports = Some(reports);
+        self
     }
 
     /// The route runs `route_fill` with its session's worker and its frame bound.
@@ -311,6 +324,13 @@ impl RouteClient for TestkitRoute {
                     .and_then(Value::as_u64)
                     .and_then(|b| usize::try_from(b).ok())
                     .ok_or("route_accept needs `bytes`")?;
+                // The base of `progressed` comes before the stream takes a byte under the limit.
+                if let Some(reports) = &self.reports {
+                    reports
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .accepted(self.route);
+                }
                 self.worker_end().accept_at_most(bytes);
                 Ok(json!({}))
             }
