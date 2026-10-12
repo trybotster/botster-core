@@ -241,6 +241,18 @@ mod slow_tests {
         let error = diag::parse(&enoent, 9).unwrap_err().to_string();
         assert!(error.contains("not found"), "{error}");
         assert!(error.contains("os error 2)"), "{error}");
+        // R319-SI-1: an error code with no positive errno (i32::MIN, whose negation overflows, and 0) is a reply that does not
+        // parse; the smallest negative errno (-1, EPERM) is a not-found error.
+        for errno in [i32::MIN, 0] {
+            let error = diag::parse(&message(2, &errno.to_ne_bytes()), 9)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("not a negative errno"), "{errno}: {error}");
+        }
+        let eperm = diag::parse(&message(2, &(-1i32).to_ne_bytes()), 9)
+            .unwrap_err()
+            .to_string();
+        assert!(eperm.contains("os error 1)"), "{eperm}");
         assert!(diag::parse(&message(3, &[]), 9).is_err());
         assert!(
             diag::parse(&both[..both.len() - 1], 9).is_err(),
