@@ -13,9 +13,12 @@
 //!   for its status update, so an end always has one. When no record can be made with that reserve, no record is made
 //!   ([`Exhausted`]), and the worker refuses new input (R-101 follow-up).
 //! - **Retention.** At most `input_events_kept` entries, and at most `input_events_bytes` bytes of the list as JSON, the
-//!   form in which the link carries it (`input_records_cost`). The oldest entry goes first. The newest record and its
-//!   status update are never dropped: a record whose payload would not leave room for its status update is cut to a
-//!   shorter payload, and if needed to its minimal form (cursor, source, `at`, kind and state), with `payload_truncated`.
+//!   form in which the link carries it (`input_records_cost`). The oldest entry goes first. Two records and their status
+//!   updates are never dropped (steward ruling R-117): the newest record of the log, client or host, and the record of the
+//!   current client `rev`, the newest client record. They are often one record. A newest record whose payload would not
+//!   leave room for its status update and the other protected pair is cut to a shorter payload, and if needed to its
+//!   minimal form (cursor, source, `at`, kind and state), with `payload_truncated`. A kept record is never cut later.
+//!   When the protected entries alone are over a bound, they stay, and every read is `gap` (R-116, R-117).
 //!   `payload_truncated` means only that something of the record was cut; a record with no truthful payload has none
 //!   and is not `payload_truncated` (steward ruling R-103).
 //! - **The client tail.** The last `input_tail_bytes` PTY bytes that client input wrote, exact; `tail_complete` turns
@@ -114,6 +117,9 @@ pub(super) struct Facts {
     dropped_upto: u64,
     /// The sequence number of the newest record: it and its status update are never dropped.
     newest: Option<u64>,
+    /// The sequence number of the record of the current client `rev`, the newest client record: it and its status update
+    /// are never dropped either (R-117). None before the first client input.
+    client: Option<u64>,
     bounds: Bounds,
     /// The largest JSON length of a status update: the room that the newest record leaves for its own.
     status_room: u64,
@@ -134,6 +140,7 @@ impl Facts {
             entries_len: 0,
             dropped_upto: 0,
             newest: None,
+            client: None,
             bounds: Bounds::of(limits),
             status_room: largest_status_update(),
             tail: VecDeque::new(),
@@ -189,9 +196,15 @@ impl Facts {
             self.last_client = Some(now);
         }
         let at = millis(now.saturating_duration_since(self.start));
+        let is_client = matches!(source, InputSource::Client { .. });
         let record = record_of(self.cursor(seq), source, at, content, self.bounds.payload);
-        let entry = self.fitted(record);
+        // A host record leaves the current client record protected beside it; a client record is that record itself.
+        let other = if is_client { 0 } else { self.client_pair_len() };
+        let entry = self.fitted(record, other);
         self.newest = Some(seq);
+        if is_client {
+            self.client = Some(seq);
+        }
         self.push(seq, seq, entry);
         Ok(RecordId(seq))
     }
@@ -227,7 +240,7 @@ impl Facts {
 
     /// The facts of the log now. With `after`, only the entries after it; `gap` when retention removed an entry after it,
     /// or when it is a cursor of another ordinal (then every kept entry is returned). Without `after`, every kept entry, and
-    /// `gap` when retention ever removed one. Any read is `gap` while the protected pair is over the byte bound (R-116).
+    /// `gap` when retention ever removed one. Any read is `gap` while the protected entries are over a bound (R-116, R-117).
     pub(super) fn read(&self, now: Instant, after: Option<InputCursor>) -> FactsRead {
         let after = after.map(|InputCursor(c)| (c >> SEQ_BITS, c & MAX_SEQ));
         let (from, gap) = match after {
@@ -235,9 +248,10 @@ impl Facts {
             Some(_) => (0, true),
             None => (0, self.dropped_upto > 0),
         };
-        // R-116: the protected pair over the byte bound is the one list over it, and the overflow itself is a gap, for
+        // R-116, R-117: the protected entries over a bound are the one list over it, and the overflow itself is a gap, for
         // every reader, with or without an older record to drop.
-        let gap = gap || self.list_len() > self.bounds.bytes;
+        let gap =
+            gap || self.list_len() > self.bounds.bytes || self.entries.len() > self.bounds.kept;
         let since = self.last_client.unwrap_or(self.start);
         FactsRead {
             records: self
@@ -272,11 +286,27 @@ impl Facts {
         self.retain();
     }
 
+    /// The JSON length that the protected pair of the current client `rev` takes in the list beside another pair: its
+    /// record, its status update or the room kept for it, and two commas. 0 before the first client input.
+    fn client_pair_len(&self) -> u64 {
+        let Some(client) = self.client else {
+            return 0;
+        };
+        let lens = self.entries.iter().filter(|k| k.record == client);
+        let (n, len) = lens.fold((0, 0), |(n, len), k| (n + 1, len + k.len));
+        let update = if n < 2 { self.status_room } else { 0 };
+        len + update + 2
+    }
+
     /// Drops the oldest entries that are not protected until both bounds hold.
     fn retain(&mut self) {
         while self.entries.len() > self.bounds.kept || self.list_len() > self.bounds.bytes {
-            let newest = self.newest;
-            let Some(at) = self.entries.iter().position(|k| Some(k.record) != newest) else {
+            let protected = [self.newest, self.client];
+            let Some(at) = self
+                .entries
+                .iter()
+                .position(|k| !protected.contains(&Some(k.record)))
+            else {
                 return;
             };
             let gone = self.entries.remove(at).expect("found");
@@ -285,11 +315,16 @@ impl Facts {
         }
     }
 
-    /// The newest record as it is kept: whole when it leaves room for its status update in `input_events_bytes`; else with
-    /// the longest payload that does; else in its minimal form.
-    fn fitted(&self, record: InputRecord) -> InputRecordEntry {
-        // The list of the protected pair: `[`, the record, `,`, the status update, `]`.
-        let room = self.bounds.bytes.saturating_sub(3 + self.status_room);
+    /// The newest record as it is kept: whole when it leaves room in `input_events_bytes` for its status update and for
+    /// `other`, the JSON length of the other protected pair; else with the longest payload that does; else in its minimal
+    /// form.
+    fn fitted(&self, record: InputRecord, other: u64) -> InputRecordEntry {
+        // The list of the protected pairs: `[`, the record, `,`, the status update, the other pair with its commas, `]`.
+        let room = self
+            .bounds
+            .bytes
+            .saturating_sub(3 + self.status_room)
+            .saturating_sub(other);
         let fits = |r: &InputRecord| json_len(&InputRecordEntry::Record(r.clone())) <= room;
         if fits(&record) {
             return InputRecordEntry::Record(record);

@@ -39,14 +39,19 @@
   write is `NotWritten(Refused)` with exact zero, and a client frame is refused `refused` with no `rev` step;
   `ReadFacts` still answers.
 - **Retention:** at most `input_events_kept` entries, and at most `input_events_bytes` bytes of the list as JSON, the
-  form in which the link carries it. The oldest entry goes first. The newest record and its status update are never
-  dropped: a record that would not leave room for its status update is cut to the longest payload that does, then to its
-  minimal form, with `payload_truncated`. `payload_truncated` means only that something was cut: a record with no
+  form in which the link carries it. The oldest entry goes first. Two records and their status updates are never
+  dropped (steward ruling R-117): the newest record of the log, client or host, and the record of the current client
+  `rev`, the newest client record. They are often one record, so the protected set is 2 entries, or at most 4. Before
+  the first client input only the newest record is protected. A newest record that would not leave room for its status
+  update and for the other protected pair (its record, and its status update or the room kept for it) is cut to the
+  longest payload that does, then to its minimal form, with `payload_truncated`. A kept record is never cut later: an
+  incremental reader may already have it. `payload_truncated` means only that something was cut: a record with no
   truthful payload has none and is not `payload_truncated` (R-103). The minimal form always keeps the cursor, the full
-  source tags, `at`, kind and state. If the protected pair in its minimal form alone exceeds `input_events_bytes` (route
-  tags at `max_route_tag_bytes` that JSON escapes), the list keeps the pair and drops every older record, and every read
-  reports `gap` while it is over the bound: this is the only case where the list, and `input_records_cost`, exceed the
-  bound (steward ruling R-116; the 9B minimum stays).
+  source tags, `at`, kind and state. If the protected entries alone exceed `input_events_bytes` (route tags at
+  `max_route_tag_bytes` that JSON escapes, or a minimal host record beside the client pair) or `input_events_kept`
+  (below 4), the list keeps them and drops every older record, and every read reports `gap` while it is over a bound:
+  this is the only case where the list, and `input_records_cost`, exceed a bound (steward rulings R-116 and R-117; the
+  9B minimums stay).
 - **Time:** `at` and `age_ms` are milliseconds on the worker's own clock, from the worker's start (the first `now` that
   it is given). Before any client input, `age_ms` counts from that start (R-101 Q4, Q5). They are not comparable with
   the unix `at` of events (TM-1).
