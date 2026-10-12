@@ -238,6 +238,9 @@ pub struct WorkerHandle {
     /// This host spawned the worker, so its exit watch reports the worker's end. An adopted worker has none (A21). Not
     /// durable: a new handle adopts the worker.
     pub spawned: bool,
+    /// A `cancel` was refused `Full` because this worker's control stream had no room: `SessionWritable` follows when a
+    /// drain gives the stream room for one control message again (IN-6, SV-3, steward ruling R-91).
+    pub refused_full: bool,
 }
 
 /// A live session: the row, the two states, and the machines that work on it.

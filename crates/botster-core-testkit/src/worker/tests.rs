@@ -169,13 +169,17 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
         dir: edges.key.dir.clone(),
         processes: Arc::clone(&edges.processes),
     };
-    for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
+    for signal in [
+        GroupSignal::EndPayload,
+        GroupSignal::KillPayload,
+        GroupSignal::Term,
+    ] {
         spawner.signal_group(edges.id, signal);
         assert_eq!(edges.ready(now, &worker), 1);
-        let expected = if signal == GroupSignal::Term {
-            Input::Terminate
-        } else {
-            Input::EndPayload
+        let expected = match signal {
+            GroupSignal::Term => Input::Terminate,
+            GroupSignal::KillPayload => Input::KillPayload,
+            _ => Input::EndPayload,
         };
         assert_eq!(edges.take(now, &worker, 0), expected);
         assert_eq!(edges.ready(now, &worker), 0);
@@ -185,8 +189,10 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     assert_eq!(spawner.poll_exit(), Some((edges.id, ExitStatus::Signal(9))));
     assert_eq!(spawner.poll_exit(), None);
     spawner.signal_group(edges.id, GroupSignal::EndPayload);
+    spawner.signal_group(edges.id, GroupSignal::KillPayload);
     spawner.signal_group(edges.id, GroupSignal::Term);
     assert!(!lock(&edges.cell).end_payload);
+    assert!(!lock(&edges.cell).kill_payload);
     assert!(!lock(&edges.cell).terminate);
     edges.perform(now, Action::LinkSend(b"lost".to_vec()));
     assert_eq!(edges.ready(now, &worker), 0);
@@ -220,9 +226,10 @@ fn worker_identities_do_not_repeat() {
     }
 }
 
-/// LC-5: the workers expose the grace deadline set by the shared worker machine.
+/// LC-5 (steward ruling R-97, follow-up): after `EndPayload` the workers expose no grace deadline: `stop_grace` is the Core
+/// library's deadline, and the shared worker machine keeps no timer for it.
 #[test]
-fn workers_expose_the_payload_grace_deadline() {
+fn workers_expose_no_payload_grace_deadline() {
     use botster_core_link::frame::{encode_frame, FrameType};
     use botster_core_link::hello::Hello;
     use botster_core_link::msg::{HostMsg, LaunchSpec};
@@ -260,7 +267,6 @@ fn workers_expose_the_payload_grace_deadline() {
         notification_policy: NotificationPolicy::All,
         size_policy: SizePolicy::Latest,
         link_frame_bound: 65536,
-        stop_grace_ms: 250,
         limits: CoreLimits::default(),
     }));
     payload.clear();
@@ -285,10 +291,7 @@ fn workers_expose_the_payload_grace_deadline() {
     while worker.poll_action().is_some() {}
     let workers = Workers::new(edges.scheduler.clone(), now);
     lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
-    assert_eq!(
-        workers.next_deadline(),
-        Some(now + Duration::from_millis(250))
-    );
+    assert_eq!(workers.next_deadline(), None);
 }
 
 /// Plan 2.5 rule 7 and A5-2: positive read bounds retain control bytes and complete frames in order.

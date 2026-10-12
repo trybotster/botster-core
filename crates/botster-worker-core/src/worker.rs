@@ -33,7 +33,8 @@ use std::time::{Duration, Instant};
 
 /// `SIGTERM`: the graceful request of LC-5.
 pub const SIGTERM: i32 = 15;
-/// `SIGKILL`: the kill of the payload's group after `stop_grace` (LC-5).
+/// `SIGKILL`: the kill of the payload's group (LC-5). Core times it: at its due `pump` it sends `Kill` or, without the link,
+/// `KillPayload` (steward ruling R-97, follow-up).
 pub const SIGKILL: i32 = 9;
 
 /// What a worker is told at its start (the command line and the token of `botster_core_link::launch`).
@@ -133,8 +134,12 @@ pub enum Input {
     PtyDrained,
     /// The payload's leader ended. It is not reaped: the driver reaps it only on [`Action::ReapPayload`].
     PayloadExited(ExitStatus),
-    /// The worker-control signal (`GroupSignal::EndPayload`, `SIGUSR1`): end the payload without the control link (LC-5).
+    /// The worker-control signal `GroupSignal::EndPayload` (`SIGUSR1`): ask the payload to stop, without the control link
+    /// (LC-5). The worker keeps no grace timer: Core sends `KillPayload` at the end of `stop_grace`.
     EndPayload,
+    /// The worker-control signal `GroupSignal::KillPayload` (`SIGUSR2`): kill the payload's group now, without the control
+    /// link (LC-5; steward ruling R-97, follow-up).
+    KillPayload,
     /// `SIGTERM` to the worker: end the payload's group if the worker still holds its leader, reap it, and end. A worker that
     /// is told to end leaves no payload behind (plan R12: teardown is TERM, grace, KILL, reap). Nothing waits for the link.
     Terminate,
@@ -280,7 +285,6 @@ pub struct Worker {
     termed: bool,
     /// A `SIGKILL` went to the group: once the leader has ended, its group kill is complete.
     killed: bool,
-    stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
     /// The size that the PTY and the model have now (SZ-2: the last one applied): the launch size, then each change.
@@ -294,8 +298,6 @@ pub struct Worker {
     resizes: VecDeque<NextResize>,
     /// The session's read-visible revision (Core ST-1): an opaque token that each model step of the output advances.
     model_rev: ModelRev,
-    /// The kill of the worker-control signal's grace (LC-5).
-    grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
     removing: bool,
     /// The worker ends once its link is closed (LC-7 step 3 is done).
@@ -381,14 +383,12 @@ impl Worker {
             exit_drained: false,
             termed: false,
             killed: false,
-            stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
             size: None,
             pty_resize: None,
             pty_synced: true,
             resizes: VecDeque::new(),
             model_rev: ModelRev(0),
-            grace: None,
             removing: false,
             exit_pending: false,
             queued_total: 0,
@@ -550,10 +550,7 @@ impl Worker {
             self.actions.push_back(Action::SignalPayload(signal));
             match signal {
                 SIGTERM => self.termed = true,
-                SIGKILL => {
-                    self.killed = true;
-                    self.grace = None;
-                }
+                SIGKILL => self.killed = true,
                 _ => {}
             }
         }
@@ -632,10 +629,7 @@ impl Worker {
             HostMsg::Stop if self.payload == PayloadState::Spawning => self.early.stop = true,
             HostMsg::Stop => self.signal(SIGTERM),
             HostMsg::Kill if self.payload == PayloadState::Spawning => self.early.kill = true,
-            HostMsg::Kill => {
-                self.signal(SIGKILL);
-                self.reap_when_complete();
-            }
+            HostMsg::Kill => self.kill_group(),
             HostMsg::Op { req, op } => self.on_op(now, req, op),
             HostMsg::Cancel { req } => self.on_cancel(req),
             HostMsg::Remove => self.on_remove(),
@@ -668,7 +662,6 @@ impl Worker {
         self.limits = spec.limits;
         self.frame_bound = spec.link_frame_bound;
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
-        self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
         self.payload = PayloadState::Spawning;
         self.launch_size = Some(spec.size);
         self.size = Some(spec.size);
@@ -680,7 +673,7 @@ impl Worker {
         }));
     }
 
-    fn on_spawned(&mut self, now: Instant, result: Result<PayloadId, SpawnFailure>) {
+    fn on_spawned(&mut self, result: Result<PayloadId, SpawnFailure>) {
         if self.payload != PayloadState::Spawning {
             return;
         }
@@ -695,15 +688,15 @@ impl Worker {
                     payload: id,
                 };
                 self.report(&msg);
-                // What came while the spawn was out applies now: a kill (a `Remove` or `Kill`) first, else the graceful
-                // request; the grace of `EndPayload`; then the exit that the edge already saw.
+                // What came while the spawn was out applies now: a kill (a `Remove`, `Kill` or `KillPayload`) first, else
+                // the graceful request (`Stop` or `EndPayload`); then the exit that the edge already saw.
                 if self.removing || early.kill {
                     self.signal(SIGKILL);
                 } else if early.stop {
                     self.signal(SIGTERM);
                 }
                 if early.end_payload {
-                    self.on_end_payload(now);
+                    self.on_end_payload();
                 }
                 for (req, size) in early.resizes {
                     self.on_resize(req, size);
@@ -1101,8 +1094,10 @@ impl Worker {
         self.actions.push_back(Action::Exit);
     }
 
-    /// LC-5 without the link: the graceful request, then the group kill after `stop_grace`. A repeated signal changes nothing.
-    fn on_end_payload(&mut self, now: Instant) {
+    /// LC-5 without the link: the graceful request. The worker keeps no grace timer: `stop_grace` is the Core library's
+    /// deadline, and Core sends `KillPayload` at its due `pump` (steward ruling R-97, follow-up). A repeated signal changes
+    /// nothing.
+    fn on_end_payload(&mut self) {
         if self.payload == PayloadState::Spawning {
             self.early.end_payload = true;
             return;
@@ -1112,24 +1107,29 @@ impl Worker {
         }
         if self.exit.is_some() {
             // The leader already ended: only the rest of its group can remain, and nothing waits for a graceful end.
-            self.signal(SIGKILL);
-            self.reap_when_complete();
+            self.kill_group();
             return;
         }
         if !self.termed {
             self.signal(SIGTERM);
         }
-        if self.grace.is_none() {
-            self.grace = Some(now + self.stop_grace);
+    }
+
+    /// LC-5 without the link: the kill of the payload's group, now, as `Kill` on the link. A repeated signal changes nothing.
+    fn on_kill_payload(&mut self) {
+        if self.payload == PayloadState::Spawning {
+            self.early.kill = true;
+            return;
+        }
+        if !self.killed {
+            self.kill_group();
         }
     }
 
-    fn on_timer(&mut self, now: Instant) {
-        if self.grace.is_some_and(|at| at <= now) {
-            self.grace = None;
-            self.signal(SIGKILL);
-            self.reap_when_complete();
-        }
+    /// The kill of the payload's group, and the reap once the group is gone.
+    fn kill_group(&mut self) {
+        self.signal(SIGKILL);
+        self.reap_when_complete();
     }
 
     /// The adoption deadlines that are due at `now`. Every input applies them first, so an input at or after a deadline
@@ -1322,7 +1322,7 @@ impl Machine for Worker {
                 }
                 self.finish_close();
             }
-            Input::Spawned(result) => self.on_spawned(now, result),
+            Input::Spawned(result) => self.on_spawned(result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
             // full PTY, and reports it: the output advances `model_rev` (Core ST-1: "every read-visible mutation
             // (output, ...)"), and the host posts `Activity{source: Output}` from the observation (Core 6.2).
@@ -1332,9 +1332,11 @@ impl Machine for Worker {
             Input::PtyResized(result) => self.on_pty_resized(result),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
-            Input::EndPayload => self.on_end_payload(now),
+            Input::EndPayload => self.on_end_payload(),
+            Input::KillPayload => self.on_kill_payload(),
             Input::Terminate => self.on_terminate(),
-            Input::Timer => self.on_timer(now),
+            // The worker's own deadlines (the adoption deadlines, `expire_adoption`) apply first for every input.
+            Input::Timer => {}
             Input::Candidate(id) => self.on_candidate(now, id),
             Input::CandidateBytes(id, bytes) => self.on_candidate_bytes(now, id, &bytes),
             Input::CandidateClosed(id) => {
@@ -1355,14 +1357,10 @@ impl Machine for Worker {
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        [
-            self.grace,
-            self.orphan,
-            self.candidate.as_ref().map(|c| c.deadline),
-        ]
-        .into_iter()
-        .flatten()
-        .min()
+        [self.orphan, self.candidate.as_ref().map(|c| c.deadline)]
+            .into_iter()
+            .flatten()
+            .min()
     }
 }
 
