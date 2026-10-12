@@ -76,3 +76,12 @@ HIGH. Implementer: ST (sess-…0180). Package reviewer: 016c. PR base: main `11b
 Main is now `49ff52d2`. #100 (`botster-core-conformance` `driver.rs`, `lib.rs`, `tests/driver_steps.rs`) landed after this head's base. That is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head. The paths are disjoint.
 
 My finding F1 is closed. CLEAN on `c3e6a0b1cfcbfae58f54a6f271c1938e9bc4f1fd`.
+
+## Q7 receipt: base merge 5ce2cff1193dda65b51fbddab2c740dbf12efa32
+
+- **The parents** are main `49ff52d2` and the reviewed head `c3e6a0b1`. Tree `acc685b4` is equal to `git merge-tree --write-tree` of the parents.
+- **The diff from main** has 18 paths, and none of them is one of #100's three driver paths. Its stable patch-id `b2de4de8` is equal to the patch-id of the reviewed head against its base `80f022e9`.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-detached-5ce2cff1-5ce2cff1-pool-20261012-131428-97863.log`, with sha256 `6c354479ab648f846ea7200a1e56f81ed23df2640baf4dd25a51ded39e1024b8`. All ten steps PASS. Exit 0 after 266 s on linux, base main `49ff52d2`.
+- **Main** is still `49ff52d2`, so main fast-forwards to `5ce2cff1`.
+
+Q7 receipt given for `5ce2cff1193dda65b51fbddab2c740dbf12efa32`.
