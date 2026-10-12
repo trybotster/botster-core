@@ -1,34 +1,45 @@
 //! `cargo xtask built-in`: only the shared entry makes the build-root test of a test binary (bug catalog B13; design
 //! `design-gs-built-in-coverage.md`, Core lead 2026-10-12).
 //!
-//! The test `botster_test_process::built_in::TEST_NAME` comes only from `built_in_test!()` and `built_in_trial!()`. Those
-//! expand the crate's compile-time name and manifest directory in the calling crate, so no caller passes an argument. This
-//! check is a name rule, not a check of the call's form: the name may appear only in the files of `ALLOWED`, so a test that
-//! is written by hand with that name, with any body, cannot exist. A comment or a string with the name fails too.
+//! The test `test_budget::BUILT_IN_TEST` comes only from `built_in_test!()` and `built_in_trial!()`. Those expand the
+//! crate's compile-time name and manifest directory in the calling crate, so no caller passes an argument. This check is a
+//! name rule, not a check of the call's form: the name may appear only in the files of `ALLOWED`, each time no more than
+//! its count, so a test that is written by hand with that name, with any body, cannot exist. A comment or a string with the
+//! name fails too. The count of the shared test crate's file is 2, one for each macro: so that crate cannot also export the
+//! name as a constant, which a harness could give to a trial with an empty body (review B306-I2).
 //!
 //! That every test binary HAS the test is the presence check of the `slow` step (`slow_coverage::presence`), from the
 //! `cargo nextest list` of each tier: a list that cargo and nextest make, not a search of the sources.
 
+use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
 use anyhow::{Context, Result};
-use botster_core_testkit::built_in::TEST_NAME;
 use std::path::Path;
 
-/// The only files that may contain the name: the macros that make the test, and the slow tier's filter, which selects it.
-pub const ALLOWED: [&str; 2] = [
-    "crates/botster-test-process/src/built_in.rs",
-    "xtask/src/test_budget.rs",
+/// The only files that may contain the name, each with the number of times that it may: the two macros that make the
+/// test, and xtask's copy, the slow tier's filter, which selects it, and the unit test that pins the filter. No test crate
+/// depends on xtask, so its copy gives no harness the name.
+pub const ALLOWED: [(&str, usize); 2] = [
+    ("crates/botster-test-process/src/built_in.rs", 2),
+    ("xtask/src/test_budget.rs", 3),
 ];
 
-/// The violations of `files` (path relative to the root, text): one line for each other file that contains the name.
+/// The violations of `files` (path relative to the root, text): one line for each file that contains the name more times
+/// than [`ALLOWED`] lets it (0 for a file that it does not name).
 pub fn violations(files: &[(String, String)]) -> Vec<String> {
     files
         .iter()
-        .filter(|(path, text)| text.contains(TEST_NAME) && !ALLOWED.contains(&path.as_str()))
-        .map(|(path, _)| {
-            format!(
-                "{path}: names `{TEST_NAME}`; only `botster_test_process::built_in_test!()` or `built_in_trial!()` makes \
-                 that test (bug catalog B13)"
-            )
+        .filter_map(|(path, text)| {
+            let count = text.matches(TEST_NAME).count();
+            let allowed = ALLOWED
+                .iter()
+                .find(|(file, _)| file == path)
+                .map_or(0, |&(_, allowed)| allowed);
+            (count > allowed).then(|| {
+                format!(
+                    "{path}: names `{TEST_NAME}` {count} times ({allowed} allowed); only \
+                     `botster_test_process::built_in_test!()` or `built_in_trial!()` makes that test (bug catalog B13)"
+                )
+            })
         })
         .collect()
 }
@@ -50,7 +61,7 @@ pub fn command(root: &Path, _args: &[String]) -> Result<()> {
     println!(
         "built-in: {} Rust files; the test name is only in {}",
         files.len(),
-        ALLOWED.join(" and ")
+        ALLOWED.map(|(file, _)| file).join(" and ")
     );
     Ok(())
 }
@@ -65,8 +76,25 @@ mod tests {
 
     #[test]
     fn only_the_macros_and_the_slow_filter_may_name_the_test() {
-        let allowed: Vec<_> = ALLOWED.iter().map(|path| file(path, TEST_NAME)).collect();
+        let allowed: Vec<_> = ALLOWED
+            .iter()
+            .map(|&(path, count)| file(path, &vec![TEST_NAME; count].join("\n")))
+            .collect();
         assert_eq!(violations(&allowed), Vec::<String>::new());
+        // A third copy in the shared test crate: a constant that a harness could give to a trial with an empty body
+        // (review B306-I2).
+        let exported = format!(
+            "{}\npub const TEST_NAME: &str = \"{TEST_NAME}\";\n",
+            allowed[0].1
+        );
+        let found = violations(&[file(ALLOWED[0].0, &exported)]);
+        assert_eq!(found.len(), 1, "{exported}");
+        assert!(
+            found[0].starts_with("crates/botster-test-process/src/built_in.rs: names")
+                && found[0].contains("3 times (2 allowed)"),
+            "{}",
+            found[0]
+        );
         // The macro call does not contain the name.
         assert_eq!(
             violations(&[file(

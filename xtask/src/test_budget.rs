@@ -186,9 +186,14 @@ pub fn tier_env(slow: bool) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-/// The nextest filter of the slow tier. The last term selects the build-root test of every test binary
-/// (`botster_test_process::built_in::TEST_NAME`; bug catalog B13, lead 2026-10-12): the slow tier builds the libraries and
-/// binaries again with their `slow` features, and each of those artifacts runs its own check.
+/// The name of the build-root test that `botster_test_process::built_in_test!()` and `built_in_trial!()` make (bug catalog
+/// B13; design `design-gs-built-in-coverage.md`). xtask holds its own copy: the shared test crate exports no item with the
+/// name (review B306-I2). If the copies differ, every binary fails the presence check of the `slow` step.
+pub const BUILT_IN_TEST: &str = "this_test_binary_was_built_in_this_worktree";
+
+/// The nextest filter of the slow tier. The last term selects the build-root test of every test binary ([`BUILT_IN_TEST`];
+/// bug catalog B13, lead 2026-10-12): the slow tier builds the libraries and binaries again with their `slow` features, and
+/// each of those artifacts runs its own check.
 pub const SLOW_FILTER: &str =
     "binary(/^slow/) | test(/(^|::)slow_/) | test(/^this_test_binary_was_built_in_this_worktree$/)";
 
