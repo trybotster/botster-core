@@ -161,10 +161,8 @@ conf::ou_3_progressing_reader_lossless
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 
 # route input after the launch with no program_ready (P3 PR B, DP-6 resize): each passes on both tiers at contracts-v0.1.43
-# (strict, seeds 0-31), but the pinned core-fence-exceptions.txt lists unfenced steps (dp_3_route_codec step 11 and dp_5_no_input
-# step 11: no program_ready, R-60; each step 9: no await_title, R-57; dp_5_op_is_optional step 15: no program_ready, R-60), so a
-# real-tier pass is not evidence. Contracts main (for contracts-v0.1.44) has the fences of dp_3_route_codec (the min-ids PR);
-# the two dp_5 ids keep their entries there. Owner: P3.
-conf::dp_3_route_codec_matches_client_appendix_a4_a5
+# (strict, seeds 0-31), but the pinned core-fence-exceptions.txt lists unfenced steps (dp_5_no_input step 11: no program_ready,
+# R-60, and step 9: no await_title, R-57; dp_5_op_is_optional step 15: no program_ready, R-60), so a real-tier pass is not
+# evidence. dp_3_route_codec has its fences at contracts-v0.1.44 and left this list. Owner: P3.
 conf::dp_5_no_input_has_a_success_acknowledgement
 conf::dp_5_op_is_optional_except_on_a_paste

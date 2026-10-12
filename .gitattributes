@@ -1,0 +1,13 @@
+# The conformance list files merge as id sets: a three-way merge of their ids, with comment lines kept. The driver is a
+# local tool outside this repository (~/botster-sessions/shared/tools/botster-list-merge); install it once per clone with
+# `botster-list-merge install <clone>`. Where it is not installed (CI, the gates), git merges these files as text.
+conformance/contracts-deferred.txt merge=botster-list
+conformance/contracts-withdrawn.txt merge=botster-list
+conformance/core-held.txt merge=botster-list
+conformance/core-ledger-ids.txt merge=botster-list
+conformance/core-pending.txt merge=botster-list
+conformance/core-real-only.txt merge=botster-list
+conformance/core-real-pending.txt merge=botster-list
+conformance/minimum-core.txt merge=botster-list
+# One id has one line per named proof: the key is the whole line.
+conformance/core-real-proofs.txt merge=botster-list-lines

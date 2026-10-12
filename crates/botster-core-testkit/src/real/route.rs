@@ -12,6 +12,7 @@
 use super::holders::{self, Socket};
 use super::program::{Inputs, Requests};
 use crate::edge_tap::Tap;
+use crate::route_client::FrameEnds;
 use botster_conformance::Deadline;
 use botster_core::RealEdges;
 use botster_core_conformance::RouteClient;
@@ -37,6 +38,7 @@ pub(super) const CONTROLS: &[&str] = &[
     "route_fill",
     "route_stream_written",
     "route_stream_holders",
+    "route_frames_taken",
 ];
 
 /// The most bytes that one read of a `route_accept` drain takes: 64 KiB.
@@ -99,6 +101,12 @@ pub(super) struct RealRoute {
     received: u64,
     /// The input log of the route's session (`pty_input`); `None` on the plain harness, which has no controls.
     input: Option<SessionInput>,
+    /// The client bytes that the stream accepted, in total (`route_frames_taken`).
+    sent: u64,
+    /// The frames that the client handed to the stream (`route_frames_taken`).
+    frames: FrameEnds,
+    /// The client end's socket, read at the first `route_frames_taken` (the netstat row's `Conn`, the diag reply's peer).
+    client_socket: Option<Socket>,
 }
 
 /// The bytes that the stream holds for the client's end and that the client has not read (`FIONREAD`). On Linux and macOS,
@@ -252,6 +260,9 @@ impl RealRoute {
             handed: false,
             received: 0,
             input: None,
+            sent: 0,
+            frames: FrameEnds::default(),
+            client_socket: None,
         })
     }
 
@@ -368,7 +379,40 @@ impl RealRoute {
             self.unsent.clear();
             return 0;
         };
-        flush_into(end, &mut self.unsent)
+        let moved = flush_into(end, &mut self.unsent);
+        self.sent += moved as u64;
+        moved
+    }
+
+    /// `route_frames_taken` (Core AM-2; R-93 Q1 and its real-tier serving point): the client's complete frames whose last
+    /// byte the worker has read. Taken bytes are the bytes that the stream accepted from the client less the bytes that the
+    /// worker's end holds unread ([`super::rqueue::unread`], a read-only kernel query). Every failure is a harness error.
+    fn route_frames_taken(&mut self) -> Result<Value, String> {
+        let worker = &self
+            .holders
+            .as_ref()
+            .ok_or("route_frames_taken needs a route of the tapped real harness")?
+            .socket;
+        let end = self
+            .end
+            .as_ref()
+            .ok_or("route_frames_taken: the client's end of the route is closed")?;
+        let client = match &self.client_socket {
+            Some(client) => client,
+            None => self.client_socket.insert(
+                holders::socket(end.as_fd())
+                    .map_err(|e| format!("route_frames_taken: the client's end: {e}"))?,
+            ),
+        };
+        let unread = super::rqueue::unread(worker, client)
+            .map_err(|e| format!("route_frames_taken: {e}"))?;
+        let taken = self.sent.checked_sub(unread).ok_or_else(|| {
+            format!(
+                "route_frames_taken: the worker's end holds {unread} unread bytes, more than the {} that the client sent",
+                self.sent
+            )
+        })?;
+        Ok(json!({ "frames": self.frames.taken(taken) }))
     }
 
     /// One read of at most `max` bytes: a wait of `wait` for the first byte, or no wait. The stream stays nonblocking: the
@@ -394,6 +438,7 @@ impl RouteClient for RealRoute {
     fn write(&mut self, bytes: &[u8]) {
         if self.end.is_some() {
             self.unsent.extend_from_slice(bytes);
+            self.frames.push(bytes);
         }
         self.flush();
         self.drain();
@@ -480,6 +525,8 @@ impl RouteClient for RealRoute {
             // end, the count at the close stays.
             // Core DP-1, DP-2, OU-1, OU-11 (plan 23bf).
             "route_stream_holders" => self.route_stream_holders(),
+            // Core AM-2 (R-93 Q1): the client's complete frames that the worker has read from the stream.
+            "route_frames_taken" => self.route_frames_taken(),
             "route_stream_written" => {
                 let held = match &self.end {
                     Some(end) => {
@@ -1262,5 +1309,119 @@ mod slow_tests {
             route.control(close, &json!({})).unwrap();
             assert_eq!(written(&mut route), total, "{close}: the count stays");
         }
+    }
+
+    /// A route of the tapped harness over a pair, with the worker end's socket read before the "worker" holds it.
+    fn tapped_pair() -> (RealRoute, UnixStream) {
+        let (route, worker) = pair();
+        let socket = holders::socket(std::os::fd::AsFd::as_fd(&worker)).unwrap();
+        let route = route.with_holders(Holders {
+            socket,
+            host_bytes: Box::new(|| Ok(0)),
+        });
+        (route, worker)
+    }
+
+    /// A frame of `body` bytes on the route stream: the 4-byte big-endian length, then the body.
+    fn frame(body: &[u8]) -> Vec<u8> {
+        let mut bytes = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
+        bytes.extend_from_slice(body);
+        bytes
+    }
+
+    fn frames_taken(route: &mut RealRoute) -> Result<Value, String> {
+        route.control("route_frames_taken", &json!({}))
+    }
+
+    /// The worker's end reads exactly `n` bytes that the stream already holds: one nonblocking read, which never waits.
+    fn take(worker: &mut UnixStream, n: usize) {
+        worker.set_nonblocking(true).unwrap();
+        let mut buf = vec![0u8; n];
+        assert_eq!(
+            worker.read(&mut buf).unwrap(),
+            n,
+            "the stream holds the bytes"
+        );
+    }
+
+    /// `route_frames_taken` on the real tier (R-93 Q1, the real-tier serving point), on this OS: a frame counts once the
+    /// worker's end has read its last byte, as the kernel's count of the worker end's unread bytes shows. A frame read in
+    /// part is not taken.
+    #[test]
+    fn route_frames_taken_follows_the_worker_ends_reads() {
+        let (mut route, mut worker) = tapped_pair();
+        assert!(route.has_control("route_frames_taken"));
+        route.write(&frame(b"ab"));
+        route.write(&frame(b"cdef"));
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 0}));
+        take(&mut worker, 5);
+        assert_eq!(
+            frames_taken(&mut route).unwrap(),
+            json!({"frames": 0}),
+            "one byte short"
+        );
+        take(&mut worker, 1);
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
+        take(&mut worker, 7);
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
+        take(&mut worker, 1);
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 2}));
+    }
+
+    /// Bytes that wait in the client (the stream is full) are not taken: the count is of the bytes that the stream accepted,
+    /// less the worker end's unread bytes. A small frame, then one larger than both socket buffers: the worker reads nothing,
+    /// and no frame is taken.
+    #[test]
+    fn bytes_that_wait_in_the_client_are_not_taken() {
+        let (mut route, mut worker) = tapped_pair();
+        route.write(&frame(b"ab"));
+        route.write(&frame(&vec![b'x'; 4 << 20]));
+        assert!(!route.unsent.is_empty(), "the stream holds less than 4 MiB");
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 0}));
+        take(&mut worker, 6);
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
+    }
+
+    /// The kernel query agrees with the reader's own count of its unread bytes (`FIONREAD` on the worker's end), and it
+    /// counts nothing that the worker's end wrote.
+    #[test]
+    fn the_kernel_query_is_the_worker_ends_unread_bytes() {
+        let (client, mut worker) = UnixStream::pair().unwrap();
+        let of = |end: &UnixStream| holders::socket(std::os::fd::AsFd::as_fd(end)).unwrap();
+        let (worker_socket, client_socket) = (of(&worker), of(&client));
+        let query = || super::super::rqueue::unread(&worker_socket, &client_socket).unwrap();
+        assert_eq!(query(), 0);
+        (&client).write_all(&[7u8; 100]).unwrap();
+        worker.write_all(&[9u8; 40]).unwrap();
+        assert_eq!(query(), 100, "the worker's writes are not its unread bytes");
+        take(&mut worker, 30);
+        assert_eq!(query(), 70);
+        assert_eq!(
+            query(),
+            unread(&worker).unwrap(),
+            "the reader's own FIONREAD"
+        );
+        // The client's end is a cross-check: a socket of another pair is not the worker end's peer (Linux: the reply's
+        // peer; macOS: no row has it in `Conn`), and the query fails.
+        let (other, _peer) = UnixStream::pair().unwrap();
+        let stranger = of(&other);
+        assert!(super::super::rqueue::unread(&worker_socket, &stranger).is_err());
+    }
+
+    /// Condition (b): a failed query is a harness error, never a pass: a route of the plain harness, a closed client
+    /// end, and a worker's end that closed (the kernel no longer has the socket).
+    #[test]
+    fn route_frames_taken_fails_as_a_harness_error() {
+        let (mut plain, _worker) = pair();
+        assert!(frames_taken(&mut plain).unwrap_err().contains("tapped"));
+        let (mut route, worker) = tapped_pair();
+        route.write(&frame(b"ab"));
+        drop(worker);
+        let closed = frames_taken(&mut route).unwrap_err();
+        assert!(closed.starts_with("route_frames_taken: "), "{closed}");
+        assert!(!closed.contains("unsupported_control"), "{closed}");
+        let (mut route, _worker) = tapped_pair();
+        route.control("client_close", &json!({})).unwrap();
+        assert!(frames_taken(&mut route).unwrap_err().contains("closed"));
     }
 }
