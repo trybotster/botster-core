@@ -32,3 +32,12 @@ HIGH (gate-decision code). Author: the steward. Package reviewer: 016c. The PR's
 ```
 
 Fix: run `cargo fmt --all` and commit. Then gate the new head. No other change is needed.
+
+## Final: CLEAN on b65e0f6ba8fe7d6338a800fddc4d6410097d5d3e (F1 closed)
+
+- **The new commit.** `b65e0f6b` ("xtask taint: rustfmt the new test", parent `d558cf8e`) changes only `xtask/src/taint.rs:144`. It is exactly the wrap that F1 quotes. No other line changes.
+- **F1: closed.** The pool gate on the exact head is green: `~/botster-sessions/gates/botster-contracts-steward-b5-taint-skip-b65e0f6b-pool-20261012-123735-30871.log`. My `shasum -a 256` of it is `37b274d3cf966b589f931bfebfd26e001dcba32ecc72fc1ed8ab19a8bcaa4ed3`. All ten steps PASS, exit 0 after 834 s on msa1, base main `216ea74e`. The two new tests pass: `taint::tests::amendment_candidates_and_verdicts_are_not_scanned` and `taint_skips_frozen_and_docs_and_flags_other_tracked_files`.
+- **Main** is now `3d590705`. Between `216ea74e` and it are the #97 merge (three `st_6b` transcripts) and one rulings commit. That is not a rulings-only move, so main cannot fast-forward to `b65e0f6b`. The paths are disjoint from this PR (`xtask/src/taint.rs`). The steward makes a base merge with its own gate, and I send a Q7 receipt on that merge head.
+- **The note on step 2** (name a `.rs`/`.ts`/`.js` file under `amendments/` or `verdicts/` in BUILD.md) stays a note. It is not a finding of this PR.
+
+My finding F1 is closed. CLEAN on `b65e0f6ba8fe7d6338a800fddc4d6410097d5d3e`.
