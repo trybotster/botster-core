@@ -4226,3 +4226,47 @@ The inherited ev_2 exclusion earns no catch credit. The fuzz step selects no cha
 No source, body, or supplied-evidence finding remains. Sol-B's integration verdict and authorized current-base delivery review remain due.
 
 The live base has advanced through train 5. This initial evidence does not validate a later import or merge tree. I ran no execution job.
+
+## Train 6 — #308 package delta
+
+- Exact train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+- Current v1 base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Frozen #308 member: `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+- VERDICT: CLEAN (#308 source delta only; 0 open).
+
+The lead assigns this delta in `msg_plugin-w_1791832618_035db2`. The requested scope is #308's fit with train 5's changed CI source.
+
+The train merges #303, #309, #308, and #311 in that order. I inspect the merge objects and #308's complete applied patch.
+
+#308 merge `b40b5235a00fc3be951282f181bdb2cffc12ae44` has parent `d5a59447fbd942c788a08c660cfaa07bf3dfcdf4` and the frozen member.
+
+Static comparison confirms that its complete patch equals the accepted member patch after index lines and hunk positions are removed.
+
+The three own paths remain ci/known-flaky.toml, xtask/src/known_flaky.rs, and xtask/src/ci.rs. The following #311 merge changes none of those blobs.
+
+The final list and parser equal the accepted member byte for byte. The ev_2 signature, owner RC, and removal by #316 remain exact.
+
+The obsolete in_8 entry remains absent. The accepted retirement repair stays closed. The train adds no known-flaky exclusion or failure matcher.
+
+The final CI blob differs from the accepted member only through #306's import, name-check call, and two slow-filter assertions.
+
+It retains step_names over the unchanged JOBS table. Signature step validation still uses those actual gate names.
+
+It retains the signature in the listed-test fixture. That fixture still checks that a package-only listed test cannot earn catch credit when the workspace list lacks it.
+
+#306's built_in command remains in taint. Its two stage-2 assertions use test_budget::SLOW_FILTER, including the accepted exact root-name term.
+
+The signature schema changes no stage selection, mutation build, catch verdict, binary root, timeout, or retry authorization. The imported coverage checks remain intact.
+
+Relative to the current train base, Cargo.toml and .cargo/mutants.toml do not change. Other members' pending-list removals remain outside this package scope.
+
+The lead's compile, ID-set, and strict-conformance pre-checks remain operator reports. This delta accepts no completed train gate or later head.
+
+All #308 delta findings, including LOW, are closed. Sol-B owns the integration delta and combined train review.
+
+I read the current BUILD Green rule. Per `msg_plugin-w_1791832646_b23aee`, the combined reviewer sends the one final train receipt after the gate.
+
+This package member is unchanged. No package final receipt is due unless it changes. The exact-head train gate and lead merge checks remain required.
+
+I ran no execution job.
