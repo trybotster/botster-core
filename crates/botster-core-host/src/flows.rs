@@ -80,7 +80,7 @@ impl HostEngine {
         }
     }
 
-    fn stop_flow(&mut self, id: &SessionId) -> Option<&mut StopFlow> {
+    pub(crate) fn stop_flow(&mut self, id: &SessionId) -> Option<&mut StopFlow> {
         match &mut self.sessions.get_mut(id)?.flow {
             Flow::Stop(f) => Some(f),
             _ => None,
@@ -370,6 +370,7 @@ impl HostEngine {
                         phase: StopPhase::Finish,
                         deadline: None,
                         end: Some(end),
+                        probing: false,
                     }),
                 );
                 if !matches!(next, Flow::Idle) {
@@ -401,6 +402,7 @@ impl HostEngine {
                     phase: StopPhase::RowWrite,
                     deadline: None,
                     end: None,
+                    probing: false,
                 });
             }
         }
@@ -428,6 +430,7 @@ impl HostEngine {
                     phase: StopPhase::PostEnd,
                     deadline: None,
                     end: Some(end),
+                    probing: false,
                 });
             }
             // A session that is being created or removed has no payload that Core still waits for.
@@ -952,7 +955,9 @@ impl HostEngine {
         match result {
             Ok(identity) => {
                 let deadline = self.mono().map(|now| now + self.cfg.limits.startup);
-                self.sessions.get_mut(id).expect("kept").worker.identity = Some(identity);
+                let worker = &mut self.sessions.get_mut(id).expect("kept").worker;
+                worker.identity = Some(identity);
+                worker.spawned = true;
                 if let Some(f) = self.start_flow(id) {
                     f.deadline = deadline;
                     f.phase = StartPhase::RowIdentity;

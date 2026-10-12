@@ -819,3 +819,12 @@ fn slow_driver_observer() {
 #[cfg(all(test, feature = "slow"))]
 #[path = "../tests/common/driver_edges.rs"]
 mod slow_edges;
+
+#[cfg(test)]
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    botster_test_process::built_in::assert_built_here(
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_MANIFEST_DIR"),
+    );
+}

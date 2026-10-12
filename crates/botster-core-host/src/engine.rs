@@ -314,7 +314,13 @@ impl HostEngine {
     }
 
     pub(crate) fn send_msg(&mut self, session: &SessionId, msg: HostMsg) -> bool {
-        match self.sessions.get(session).and_then(|s| s.worker.link) {
+        // A link whose write side failed takes nothing more (R-78 item 4).
+        match self
+            .sessions
+            .get(session)
+            .filter(|s| !s.worker.write_failed)
+            .and_then(|s| s.worker.link)
+        {
             Some(link) => {
                 self.act(Action::SendMsg { link, msg });
                 true

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
-fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
+pub(super) fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
     to_launch(rig, name, link);
     rig.worker_says(link, launched());
     rig.settle();
@@ -575,6 +575,14 @@ fn the_driver_takes_the_exits_of_the_process_edge() {
         .unwrap()
         .exits
         .push((worker, ExitStatus::Code(0)));
+    // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .peer_closed = true;
     for _ in 0..6 {
         rig.pump();
         rig.drain_events();
@@ -741,6 +749,14 @@ fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
         },
         ExitStatus::Code(0),
     ));
+    // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .peer_closed = true;
     rig.pump();
     assert_eq!(
         rig.driver.get(&sid("s1")).unwrap().state,
@@ -806,6 +822,14 @@ fn an_exit_reaped_while_the_pump_settles_is_taken_in_that_pump() {
         },
         ExitStatus::Code(0),
     ));
+    // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .peer_closed = true;
     let report = rig.pump();
     assert!(
         rig.mock.lock().unwrap().exits.is_empty(),
