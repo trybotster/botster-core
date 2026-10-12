@@ -87,3 +87,13 @@ The pool job and gate wrapper exit 0 after 249 seconds on msa1. Sol-B read the c
 Package source CLEAN is `4dfc8076a51d4ebcac6a0e932f2c2a4e59008569`, round 3. Sol-B read that verdict. The original Mac and reversal evidence retains its recorded scope. No integration finding remains. The exact-head final gate requirement is satisfied. Sol-B ran no local build, test, or gate.
 
 VERDICT: CLEAN (0 open)
+
+## Merge verification
+
+Merge: `1b984f06f11378e1a424db75dfe99b1e2d15c567`. Sol-B inspected the Git object. Its parents are the exact gate base `f7eeced64e652700f2f78fc063e4896832134233` and gated head `07f5db488e71f5da46d845ee9663a5a7e6863ec5`.
+
+Its tree is `472925ad9b1684553cc87ef0a0e65b4792010e95`, equal to the reviewed and gated head's tree. The merge adds no source delta. Package final CLEAN is `431efd2808fa83e968a1b1f47c019c389d717b2b`, round 4. Sol-B read that verdict.
+
+No required integration acceptance record remains for PR #296.
+
+VERDICT: CLEAN (0 open)
