@@ -66,3 +66,51 @@ I sent this finding directly to P6. I changed no product code and ran no executi
 This verdict accepts no later head, contracts pin, or status removal.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11: retained Mac and reversal evidence
+
+Exact head: `1a9ba675cd6f51afd88e657649d22ec525d32f44`.
+Tree: `7438de354c26c381b9a75b0c1a0baca02b5e044e`.
+The head and tree are unchanged. Round 1's complete source review remains valid.
+The Linux gate retains its recorded head and base scope.
+
+Mac log: `~/botster-sessions/gates/botster-core-stage1-p6-group-guard-order-1a9ba675-pool-20261011-165612-58346.log`.
+SHA256: `714a92e5737a220da34165b4c375017b42379b0ac51b4c042788bc982d68928e`.
+I read the retained log, including the decoded command, exact-head output, all selected test results, reversal failure, restoration, and exits.
+The job reports Darwin 27.0.0 and the exact head above.
+Its base environment names `3aacc58d086e55a6b186165ccf9001e2618e2869`; this does not establish a source import of that base.
+The command prebuilds the worker and runs six affected test targets with the slow feature.
+
+All six targets pass. Each package command exits zero:
+
+- sys slow_process: 23 passed. slow_payload: 28 passed.
+- Core slow_facade_worker: 19 passed. slow_real_core: 27 passed.
+- worker slow_cli: 17 passed. slow_session: 41 passed.
+
+The results cover the changed group-kill test, signal-handler test, payload-reap observer, ScriptWorker users, CLI users, and worker observer sessions.
+The shared failed-cleanup, panic-before-ready, and early-exit proofs also pass in these targets.
+The retained log contains no FLAKY record.
+The job exits zero after 754 seconds: 441 queued and 313 running. The wrapper exits zero after 754 seconds.
+This focused job supplies Mac evidence. It is not a full gate.
+
+The reversal changes only the new drop condition to `if false && killed`, with FIFO registration retained.
+The diff statistic records one insertion and one deletion in process_guard.rs.
+The selected group-kill test fails at process_guard.rs:130 with the original SIGKILL cleanup message.
+It reports zero passed, one failed, and 22 filtered tests. The cargo command exits 101.
+The script restores process_guard.rs. Its final status shows only the pool marker `.pool-used`.
+The observed test failure and exit 101 establish the negative result. The wrapper's exit zero alone does not establish it.
+This proof disables the new drop rule after registration. It does not claim that disabling registration alone causes the same failure.
+
+I read the complete live body delta after GitHub MCP truncates the body.
+It replaces the unretained eedbf877 reports with this exact-head Mac job and its reversal record.
+The body matches the retained results. Raw body SHA256: `b62a514810e2aae41dffbbc376b877e332b8c246162c44f0f51e7da6539655cc`.
+GitHub still names the exact head above. No source delta follows Round 1.
+Integration receipt `msg_plugin-w_1791763853_ac4fd0` independently confirms these evidence records.
+
+GG-P1 is CLOSED. No package source or evidence finding remains for this reviewed head.
+The source and initial Linux gate are accepted with the required focused Mac and reversal evidence.
+The final-slot import, applicable base review, final exact-head gate, and final body remain due.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
