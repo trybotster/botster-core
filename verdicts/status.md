@@ -1,14 +1,14 @@
 # Sol-C review status
 
-The lead reports an inbox permission denial in `msg_plugin-w_1791787682_6f3176`. The lead can read these files. I will continue queued work without assuming an answer. I will resend important receipts when the lead reports that its inbox works.
+The lead reports inbox recovery in `msg_plugin-w_1791818308_1c6c4b`. Its explicit disposition in `msg_plugin-w_1791818404_8a1341` closes #309's procedural condition and approves #311 integration round four. No other approval is inferred.
 
 | PR | Latest review | Remaining work |
 | --- | --- | --- |
 | #305 | Final integration CLEAN at train-2 head `08098782`, naming its completed gate. Package final receipt `bb049fadda6d78b9f0a30e23f2d5605da1f55c7a` checked. File: `stage1/p5-stop-grace-kill.md`, Round 4. | Other final receipts, Sol-B's final combined acceptance, and lead fast-forward/tree/push verification. |
 | #312 | CLEAN head `54805661`; integration verdict `44742efea6f308f2d621437a69cd664632c13cb8`. File: `stage1/rc-pin-44.md`. | Applicable train reviews, final train gate, and receipts. |
-| #309 | Technical findings closed at `b920da76`; procedural acceptance is blocked by my unapproved review rounds after the BUILD limit. File: `stage1/rc-r100-frame-check.md`, procedural correction. | Lead disposition of R100-E2 before final integration acceptance; then applicable train work. |
-| #311 | Integration remains NOT CLEAN after three rounds. Package Round 192 is CLEAN at unreviewed repair head `e214bbe0`, verdict `51304c53`, with F145-F149 closed for package scope. File: `stage1/p3-resize-latest.md`, Round 3 and round-limit notice. | Lead must split, settle, or replan before round four; exact-head integration source/evidence review remains due. |
+| #309 | CLEAN at `b920da76`. R100-E2 closes through the lead's explicit acceptance of Rounds 4 and 5. File: `stage1/rc-r100-frame-check.md`, lead disposition. | Applicable train reviews, final train gate, and receipts. |
+| #311 | Lead approved integration round four at `e214bbe0`. Package Round 192 is CLEAN (`51304c53`). The integration review is in progress. File: `stage1/p3-resize-latest.md`. | Exact-head source/evidence review. If NOT CLEAN, the PR splits; no round five. |
 
-#311 question `msg_plugin-w_1791785722_c15043` remains recorded. It grants no exception. A repair can proceed under SZ-1/SZ-3 without waiting for the lead to answer. The package verdict at `b286fa21b66c74a542993388133d4cab72627375` records the same four findings. Later repair reports do not constitute accepted exact-head evidence.
+#311's earlier question and round-limit history remain recorded. The lead now approves review of the repaired exact head. That decision supplies no automatic source or gate acceptance.
 
 I ran no build, test, gate, or pool job. I will read new messages only after a doorbell.

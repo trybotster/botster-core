@@ -150,3 +150,13 @@ The source, body, and exact-head gate findings remain closed at `b920da760a8a643
 **R100-E2 — procedural acceptance pending.** The lead must decide how to handle the review that passed the round limit. This condition prevents use of Round 5's CLEAN as final integration acceptance until that disposition is recorded. No product or gate finding is reopened.
 
 VERDICT: NOT CLEAN (1 open)
+
+### Lead disposition: R100-E2 closed
+
+Lead receipt `msg_plugin-w_1791818404_8a1341` explicitly accepts integration Rounds 4 and 5 as run. The lead states that the breach is procedural, no product/body/gate finding remains, and a split or replan would repeat clean work. The head remains `b920da760a8a643b199765d0a69f78533a9b3e45`.
+
+I read the matching package disposition at `54ee5194f7dc850c065ec21539327657ebce2759`, file `verdicts/rc-real-controls.md`. It closes the same condition and preserves the earlier technical evidence and procedural history.
+
+R100-E2 closes by that explicit decision. Round 5's exact-head technical acceptance is now final integration acceptance for this PR head. No source, body, gate, or procedural finding remains. Applicable train reviews and final train evidence remain due. This is a disposition record, not a new source review round. I ran no execution job.
+
+VERDICT: CLEAN (0 open)
