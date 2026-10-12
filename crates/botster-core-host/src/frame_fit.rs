@@ -3,8 +3,13 @@
 //! never drops a link for one.
 //!
 //! The check measures the message that the host sends later, with the worst case of each value that is assigned after the
-//! call: the request number `u64::MAX`, the route id `u64::MAX`, and the largest `Size` (DESIGN.md, "R-100"). So a call that
-//! passes the check never fails at the send. It can refuse a message that is up to about 40 bytes under the bound.
+//! call: the request number `u64::MAX`, the route id `u64::MAX`, and the largest `Size` (DESIGN.md, "R-100"). A `Launch` also
+//! has the largest color profile and size policy, because a setter on a `Created` session can change them after the check
+//! of `Start` (RC-R100-3). So a call that passes the check never fails at the send. It can refuse a message that is a little
+//! under the bound.
+//!
+//! The bound of a `Launch` is the worker's bound before its launch, [`DEFAULT_MAX_PAYLOAD`]: the worker learns the link
+//! frame bound from the `Launch` itself (RC-R100-I1). The bound of each other message is the link frame bound.
 //!
 //! The fields are the host-supplied values that no `CoreLimits` value bounds. Each other part of a message is a number, a
 //! flag, a bounded enum or a bounded list (a palette has 256 entries), and all of them together encode in less than
@@ -13,8 +18,9 @@
 
 use crate::engine::HostEngine;
 use botster_core_contract::prelude::*;
+use botster_core_link::frame::DEFAULT_MAX_PAYLOAD;
 use botster_core_link::msg::{json_len, HostMsg};
-use botster_route_codec::prelude::{HexBytes, Key};
+use botster_route_codec::prelude::{HexBytes, Key, Modifier};
 
 /// An upper bound of a message's encoded length without its fields (see the module note; the tests measure it).
 pub(crate) const FIXED_PART: u64 = 64 * 1024;
@@ -29,6 +35,39 @@ pub(crate) const WORST_SIZE: Size = Size {
     }),
 };
 
+/// An upper bound of one modifier's JSON length with its separator: the longest name, `"caps_lock"`, is 11 bytes.
+pub(crate) const MODIFIER_UPPER: u64 = 12;
+
+/// The largest color profile that `begin` admits: a full palette, and each color at its longest JSON.
+fn worst_color_profile() -> ColorProfile {
+    let white = Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    ColorProfile {
+        palette: Some(vec![white; 256]),
+        foreground: white,
+        background: white,
+        cursor: Some(white),
+    }
+}
+
+/// `request` with the largest color profile and size policy, which a setter on a `Created` session can still store
+/// before the `Launch` (RC-R100-3).
+pub(crate) fn worst_launch_request(request: &SpawnRequest) -> SpawnRequest {
+    let mut worst = request.clone();
+    worst.color_profile = Some(worst_color_profile());
+    worst.size_policy = [
+        SizePolicy::Latest,
+        SizePolicy::Smallest,
+        SizePolicy::Largest,
+    ]
+    .into_iter()
+    .max_by_key(json_len);
+    worst
+}
+
 /// A host-supplied field of a worker message, by its name in the call.
 #[derive(Clone, Copy)]
 pub(crate) enum Field<'a> {
@@ -36,12 +75,17 @@ pub(crate) enum Field<'a> {
     Strs(&'static str, &'a [String]),
     Map(&'static str, &'a std::collections::BTreeMap<String, String>),
     Hex(&'static str, &'a HexBytes),
+    Mods(&'static str, &'a [Modifier]),
 }
 
 impl Field<'_> {
     fn name(&self) -> &'static str {
         match *self {
-            Field::Str(n, _) | Field::Strs(n, _) | Field::Map(n, _) | Field::Hex(n, _) => n,
+            Field::Str(n, _)
+            | Field::Strs(n, _)
+            | Field::Map(n, _)
+            | Field::Hex(n, _)
+            | Field::Mods(n, _) => n,
         }
     }
 
@@ -55,6 +99,7 @@ impl Field<'_> {
             Field::Map(_, map) => 2 + map.iter().map(|(k, v)| text(k) + text(v)).sum::<u64>(),
             // `{"$bytes_hex":"<hex>"}` (Codec A.4): two bytes a byte and 17 more.
             Field::Hex(_, bytes) => 2 * bytes.0.len() as u64 + 20,
+            Field::Mods(_, mods) => 2 + MODIFIER_UPPER * mods.len() as u64,
         }
     }
 
@@ -65,6 +110,7 @@ impl Field<'_> {
             Field::Strs(_, list) => json_len(list),
             Field::Map(_, map) => json_len(map),
             Field::Hex(_, bytes) => json_len(bytes),
+            Field::Mods(_, mods) => json_len(mods),
         }
     }
 }
@@ -85,6 +131,7 @@ pub(crate) fn op_fields(op: &Op) -> Option<Vec<Field<'_>>> {
                 }
                 InputPayload::Text { text } => fields.push(Field::Str("payload.text", text)),
                 InputPayload::Key(key) => {
+                    fields.push(Field::Mods("payload.mods", &key.mods));
                     for (name, k) in [
                         ("payload.key", Some(&key.key)),
                         ("payload.shifted_key", key.shifted_key.as_ref()),
@@ -100,6 +147,7 @@ pub(crate) fn op_fields(op: &Op) -> Option<Vec<Field<'_>>> {
                         fields.push(Field::Str("payload.text", text));
                     }
                 }
+                InputPayload::Mouse(mouse) => fields.push(Field::Mods("payload.mods", &mouse.mods)),
                 _ => {}
             }
         }
@@ -163,7 +211,7 @@ pub(crate) fn fit_within(
         ErrorCode::InvalidInput {
             field: Some(field.into()),
         },
-        format!("the message to the worker is {len} bytes, over the link frame bound {bound}; the largest field is {field}"),
+        format!("the message to the worker is {len} bytes, over its frame bound {bound}; the largest field is {field}"),
     ))
 }
 
@@ -173,11 +221,17 @@ impl HostEngine {
         fit_within(u64::from(self.link_frame_bound()), fields, msg)
     }
 
-    /// The `Launch` that `request` gives, at the worst size (R-100).
+    /// The `Launch` that `request` gives, at the worst size, color profile and size policy, within the worker's bound
+    /// before its launch (R-100; RC-R100-3, RC-R100-I1).
     fn fit_launch(&self, request: &SpawnRequest, policy: &'static str) -> Result<(), CoreError> {
-        self.fit(&launch_fields(request, policy), || {
-            HostMsg::Launch(Box::new(self.launch_spec_for(request, WORST_SIZE)))
-        })
+        fit_within(
+            u64::from(DEFAULT_MAX_PAYLOAD),
+            &launch_fields(request, policy),
+            || {
+                let worst = worst_launch_request(request);
+                HostMsg::Launch(Box::new(self.launch_spec_for(&worst, WORST_SIZE)))
+            },
+        )
     }
 
     /// The frame check of `begin` (R-100), after the arguments and the payload size: the op's own `HostMsg::Op`, and the

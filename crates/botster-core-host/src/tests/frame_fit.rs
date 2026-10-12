@@ -2,8 +2,13 @@
 //! `InvalidInput{field}` (no `OpId`, no route, no event: AM-4), and the link stays up.
 
 use super::*;
-use crate::frame_fit::{fit_within, launch_fields, op_fields, Field, FIXED_PART, WORST_SIZE};
-use botster_route_codec::prelude::HexBytes;
+use crate::frame_fit::{
+    fit_within, launch_fields, op_fields, worst_launch_request, Field, FIXED_PART, MODIFIER_UPPER,
+    WORST_SIZE,
+};
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
+use botster_core_link::msg::json_len;
+use botster_route_codec::prelude::{HexBytes, Modifier};
 
 /// A handle with the smallest link frame bound: one byte of paste and of snapshot, so the bound is 1 MiB and six bytes.
 fn small() -> World {
@@ -77,9 +82,8 @@ fn a_create_whose_launch_cannot_fit_is_refused_at_the_call() {
         },
     );
     assert_eq!(code, invalid("request.argv"));
-    assert!(!w.engine.sessions.contains_key(&sid("s2")), "no session");
     link_up(&mut w, "s1");
-    // The id is free: the refusal changed no state.
+    // The id is free: the refusal created no session.
     w.ok(create("s2"));
 }
 
@@ -133,8 +137,9 @@ fn a_created_session_refuses_a_policy_that_its_launch_cannot_carry() {
     link_up(&mut w, "s1");
 }
 
-/// R-100: `Start` checks its `Launch` too. The checks of `Create` and of the setters keep every stored request within the
-/// bound, so this test sets one in the row to prove the check itself.
+/// R-100: `Start` checks its `Launch` too. No public call stores a request whose `Launch` cannot fit: the checks of
+/// `Create` and of the setters prevent it, with the worst color profile and size policy. So this test sets one in the
+/// row to prove the check itself, as a guard.
 #[test]
 fn a_start_whose_launch_cannot_fit_is_refused_at_the_call() {
     let mut w = small();
@@ -159,6 +164,22 @@ fn a_start_whose_launch_cannot_fit_is_refused_at_the_call() {
 fn an_attach_whose_handoff_cannot_fit_is_refused_at_the_call() {
     let mut w = small();
     w.running("s1");
+    w.engine.poll_events(usize::MAX);
+    let sent = w.sent.len();
+    let options = |file_directory: String| AttachOptions {
+        file_directory,
+        file_permissions: None,
+        route_features: vec![],
+        terminal_formats: vec![],
+        owner: None,
+        query_deadline: Some(Duration::from_secs(1)),
+        route_tag: None,
+        route_limits: None,
+        history: None,
+        stall_deadline: None,
+        answers_queries: true,
+        input: true,
+    };
     let directory = format!("/{}", "d".repeat(bound(&w)));
     let refusal = w
         .engine
@@ -166,25 +187,29 @@ fn an_attach_whose_handoff_cannot_fit_is_refused_at_the_call() {
             ClientId("c".into()),
             sid("s1"),
             RouteTransport::Stream(StreamEndpoint::new(())),
-            AttachOptions {
-                file_directory: directory,
-                file_permissions: None,
-                route_features: vec![],
-                terminal_formats: vec![],
-                owner: None,
-                query_deadline: Some(Duration::from_secs(1)),
-                route_tag: None,
-                route_limits: None,
-                history: None,
-                stall_deadline: None,
-                answers_queries: true,
-                input: true,
-            },
+            options(directory),
         )
         .expect_err("refused");
     assert_eq!(refusal.error.code, invalid("file_directory"));
-    assert!(w.engine.routes.is_empty(), "no route");
+    w.pump();
+    // No route: no `AttachRoute` went to the worker, and no event came.
+    assert!(
+        !w.sent[sent..]
+            .iter()
+            .any(|(_, m)| matches!(m, HostMsg::AttachRoute { .. })),
+        "no handoff"
+    );
+    assert!(w.engine.poll_events(usize::MAX).is_empty(), "no event");
     link_up(&mut w, "s1");
+    // The client can attach with a directory that fits.
+    w.engine
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            options("/d".into()),
+        )
+        .expect("a fitting attach is admitted");
 }
 
 /// R-100: each field is named when it is the largest one of a message that cannot fit.
@@ -493,6 +518,8 @@ fn the_upper_bound_is_tight_on_escaped_text() {
         HexBytes(vec![0xab]),
         HexBytes(vec![0xab; 77]),
     );
+    // `"caps_lock",` is the longest modifier with its separator.
+    let mods = vec![Modifier::CapsLock; 5];
     for (i, (field, slack)) in [
         (Field::Str("s", &escaped), 1),
         (Field::Strs("l", &strings), 1),
@@ -500,6 +527,7 @@ fn the_upper_bound_is_tight_on_escaped_text() {
         (Field::Hex("h", &none), 3),
         (Field::Hex("h", &one), 3),
         (Field::Hex("h", &many), 3),
+        (Field::Mods("m", &mods), 1),
     ]
     .into_iter()
     .enumerate()
@@ -656,4 +684,177 @@ fn each_field_of_a_write_is_named() {
         let error = fit_within(msg().encoded_len() - 1, &fields, msg).expect_err(field);
         assert_eq!(error.code, invalid(field), "{field}");
     }
+}
+
+/// The JSON length of the `Launch` that a request with `filler` bytes of argv gives at the worst case.
+fn worst_launch_len(w: &World, filler: usize) -> u64 {
+    let mut r = request();
+    r.argv.push("a".repeat(filler));
+    HostMsg::Launch(Box::new(
+        w.engine
+            .launch_spec_for(&worst_launch_request(&r), WORST_SIZE),
+    ))
+    .encoded_len()
+}
+
+/// RC-R100-I1 and RC-R100-3: a `Launch` is checked at the worker's bound before its launch, with the largest color profile
+/// and size policy. A request whose worst `Launch` is exactly that bound is admitted. Setters that are queued on the
+/// `Created` session before `Start` store the largest color profile and size policy, and the `Launch` that the host sends
+/// still decodes in the shared frame decoder of a worker before its launch. One byte more is refused at `Create`.
+#[test]
+fn an_admitted_launch_decodes_in_the_workers_decoder_before_its_launch() {
+    let mut w = World::offering(Feature::SizePolicyOther);
+    assert!(
+        w.engine.link_frame_bound() > DEFAULT_MAX_PAYLOAD,
+        "the link bound is not the one that applies"
+    );
+    let filler = (u64::from(DEFAULT_MAX_PAYLOAD) - worst_launch_len(&w, 0)) as usize;
+    assert_eq!(worst_launch_len(&w, filler), u64::from(DEFAULT_MAX_PAYLOAD));
+    let with = |filler: usize| {
+        let mut r = request();
+        r.argv.push("a".repeat(filler));
+        Op::Create {
+            session: sid("s1"),
+            request: r,
+        }
+    };
+    assert_eq!(refused(&mut w, with(filler + 1)), invalid("request.argv"));
+    w.ok(with(filler));
+    let white = Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    let profile = ColorProfile {
+        palette: Some(vec![white; 256]),
+        foreground: white,
+        background: white,
+        cursor: Some(white),
+    };
+    let ops = [
+        Op::SetColorProfile {
+            session: sid("s1"),
+            profile: profile.clone(),
+        },
+        Op::SetSizePolicy {
+            session: sid("s1"),
+            policy: SizePolicy::Smallest,
+        },
+        Op::Start { id: sid("s1") },
+    ]
+    .map(|op| w.engine.begin(op).expect("admitted"));
+    w.complete_all(&ops);
+    let launch = w
+        .sent
+        .iter()
+        .find_map(|(_, m)| match m {
+            HostMsg::Launch(spec) => Some(spec.clone()),
+            _ => None,
+        })
+        .expect("a launch was sent");
+    assert_eq!(
+        launch.color_profile,
+        Some(profile),
+        "the setters came first"
+    );
+    assert_eq!(launch.size_policy, SizePolicy::Smallest);
+    let mut payload = Vec::new();
+    HostMsg::Launch(launch).encode(&mut payload);
+    let mut frame = Vec::new();
+    encode_frame(
+        FrameType::HOST_MSG,
+        &payload,
+        w.engine.link_frame_bound(),
+        &mut frame,
+    )
+    .expect("the host encodes it");
+    let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+    decoder.push(&frame);
+    let got = decoder
+        .next_frame()
+        .expect("the worker's decoder takes it")
+        .expect("one frame");
+    assert!(matches!(
+        HostMsg::decode(&got.payload),
+        Ok(HostMsg::Launch(_))
+    ));
+}
+
+/// The worst case of a `Launch` has the longest size policy and color profile that a setter can store (RC-R100-3).
+#[test]
+fn the_worst_launch_request_has_the_longest_setter_values() {
+    let worst = worst_launch_request(&request());
+    for policy in [
+        SizePolicy::Latest,
+        SizePolicy::Smallest,
+        SizePolicy::Largest,
+    ] {
+        assert!(json_len(&worst.size_policy) >= json_len(&Some(policy)));
+    }
+    let white = Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    let full = ColorProfile {
+        palette: Some(vec![white; 256]),
+        foreground: white,
+        background: white,
+        cursor: Some(white),
+    };
+    assert_eq!(worst.color_profile, Some(full));
+}
+
+/// RC-R100-1: the modifiers of a key or a mouse input are a field. A write with a modifier list over the bound is refused
+/// `InvalidInput{payload.mods}` at the call, and the link stays up.
+#[test]
+fn a_write_with_too_many_modifiers_is_refused_with_its_field() {
+    use botster_route_codec::prelude::{Key, KeyEvent, MouseAction, MouseButton};
+    // Paste room for the PTY bytes of one key or mouse input, so `PayloadTooLarge` does not come first.
+    let mut w = World::new(limits(|l| {
+        l.max_paste_bytes = 64;
+        l.max_snapshot_bytes = 1;
+    }));
+    w.running("s1");
+    // `"shift",` is eight bytes.
+    let mods = vec![Modifier::Shift; bound(&w) / 8 + 1];
+    let payloads = [
+        InputPayload::Key(KeyInput {
+            key: Key::Char("a".into()),
+            shifted_key: None,
+            base_layout_key: None,
+            mods: mods.clone(),
+            event: KeyEvent::Press,
+            text: None,
+            repeat: None,
+        }),
+        InputPayload::Mouse(MouseInput {
+            action: MouseAction::Press,
+            button: MouseButton::Left,
+            mods,
+            col: 0,
+            row: 0,
+            x: None,
+            y: None,
+            notches: None,
+        }),
+    ];
+    for payload in payloads {
+        let op = Op::WriteInput {
+            session: sid("s1"),
+            payload,
+            guard: None,
+        };
+        assert_eq!(refused(&mut w, op), invalid("payload.mods"));
+        link_up(&mut w, "s1");
+    }
+}
+
+/// [`MODIFIER_UPPER`] bounds each modifier with its separator, and the longest one meets it.
+#[test]
+fn the_modifier_bound_covers_every_modifier() {
+    use Modifier::*;
+    let all = [Shift, Alt, Ctrl, Meta, Super, Hyper, CapsLock, NumLock];
+    let longest = all.iter().map(|m| json_len(m) + 1).max().unwrap();
+    assert_eq!(longest, MODIFIER_UPPER);
 }
