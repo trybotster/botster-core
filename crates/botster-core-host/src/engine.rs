@@ -606,6 +606,37 @@ impl HostEngine {
         }
     }
 
+    /// The numbers of the ops whose progress this work makes, for `Scheduler::held` (A5-2: the scheduler defers the progress
+    /// of an operation; steward ruling R-88, group E): the op of an op step; for a session's flow, the flow's op and the ops
+    /// that wait for the flow (the `Stop` ops). Empty when the step makes no op's progress: a session with no flow, a
+    /// deadline, a `Silent`, parked route work.
+    pub fn ops_of(&self, work: &Work) -> Vec<u64> {
+        match work {
+            Work::Op(op) => vec![op.0],
+            Work::Session(id) => self.sessions.get(id).map_or_else(Vec::new, |s| {
+                let own = match &s.flow {
+                    Flow::Idle => return Vec::new(),
+                    Flow::Create(f) => Some(f.op),
+                    Flow::Start(f) => Some(f.op),
+                    Flow::Remove(f) => Some(f.op),
+                    Flow::Adopt(f) => Some(f.op),
+                    Flow::Stop(_) => None,
+                };
+                own.into_iter()
+                    .chain(s.waiters.iter().copied())
+                    .map(|op| op.0)
+                    .collect()
+            }),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether a clause fixes the timing of the pending op (R-20), so that the scheduler never defers it. An op that is not
+    /// pending has no timing to fix.
+    pub(crate) fn fixed_timing(&self, op: OpId) -> bool {
+        self.ops.get(&op).is_some_and(|p| p.fixed_timing)
+    }
+
     /// The count of events posted since the last call: the `events_posted` of `PumpReport` (A2-7).
     pub fn take_posted(&mut self) -> u32 {
         self.queue.take_posted()

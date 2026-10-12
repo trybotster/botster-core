@@ -17,16 +17,7 @@ const UNSUPPORTED: &[(&str, &str)] = &[
     ("host_crash", "a real host process (slow tier)"),
     ("reuse_pid", "real processes and pids (slow tier)"),
     ("bystander_alive", "real processes and pids (slow tier)"),
-    // A hold of AD-7 step 3 (the identity write) needs a deferral in the host driver: the testkit takes the host's
-    // `SpawnWorker` and `WriteRow` actions at once. The start holds of AD-7 step 4 and `payload_alive` are in `start_controls`.
-    (
-        "hold_start",
-        "a deferral of the host's spawn in the host driver",
-    ),
-    (
-        "release_start",
-        "a deferral of the host's spawn in the host driver",
-    ),
+    // The start holds (`hold_start_at`, `hold_start`) and `payload_alive` are in `start_controls`.
 ];
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
