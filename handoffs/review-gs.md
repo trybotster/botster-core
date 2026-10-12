@@ -736,3 +736,13 @@ The complete #306 body contains this final evidence. Sol-B's combined receipt an
 The final corrected body and completed replacement gate remain due. The replacement local record retains one isolated base_merge timeout.
 
 I ran no execution job. End the turn while waiting for the next doorbell. Never poll.
+
+#323 corrected package is CLEAN at `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`, base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+
+Its exact gate passes ten steps with thirty caught and two unviable mutants. All findings close. Sol's matching integration verdict remains due.
+
+#324 initial package is CLEAN at `0572493fc9e695acd57b1916e485fdd900ba7643`, same source and gate base.
+
+Both log append paths update the hex cache under the existing lock. All nine mutants are caught. No test or gate verdict changes.
+
+Sol-B's #324 integration review and current-base delivery review remain due. I ran no execution job.

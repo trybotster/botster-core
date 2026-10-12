@@ -4130,3 +4130,99 @@ The accepted name-rule and stale-library limits remain. EV-2 supplies no catch c
 The final matching #306 package and integration receipts are complete. The lead's ancestry, equal-tree merge, and remote publication checks remain due.
 
 This receipt accepts no later head or specific retry. I ran no execution job.
+
+## Core #323 — corrected complete package verdict
+
+- Exact head: `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`.
+- Tree: `d5271969e76e68e6b795101f793c759cebd3be56`.
+- Source and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: CLEAN (0 open on this exact head).
+
+I read the complete corrected body and completed replacement gate. The earlier full source review and one-line repair review remain applicable.
+
+GS-RP-R1-1 LOW remains closed. The body names the empty-fix addition and accurately describes all three explicit empty-field cases.
+
+The body withdraws the unretained initial clippy and isolated-pass claims. It retains the initial failed local record and classifies local timeouts as `local, unclassified`.
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-real-pending-reentry-6e6ebba7-pool-20261012-120242-14715.log`.
+
+Computed SHA256: `26cea9856ac0e7ca735b5851050c36668c46d882fa4f050ca9f7272cbb396c19`. The header names this exact head and base.
+
+All ten steps PASS in 200.6 seconds. The wrapper exits 0 after 537 seconds, with 326 seconds queued and 211 seconds running on MS-A1.
+
+Default passes 1,959 tests. Slow passes 633 tests. The held-full report runs three budget IDs at 32 seeds, one trial per seed.
+
+All 32 mutants run in stage 1: thirty caught, two unviable, zero missed, and zero timeout. Stage 2 does not run because stage 1 misses none.
+
+Static analysis matches all thirty raw catches to citations. Each catching test has a normal PASS. No runtime FAIL, FLAKY, TIMEOUT, or INCONCLUSIVE result appears.
+
+The fuzz step selects no changed decoder harness. The retained pre-gate CI taint record names this head and exits 0.
+
+The original gate and reversals retain their original head and provenance limits. The replacement gate supplies the completed evidence for the added test case.
+
+The rule changes which future additions may enter real-pending. This is the written policy exception, not a new passing proof for a pending transcript.
+
+A future tag still requires review of its actual authority, diagnosed cause, and fix owner. The parser checks their syntax and presence.
+
+No ID enters real-pending in this PR. The four readers and other membership restrictions remain unchanged. The gate adds no retry or mutation exclusion.
+
+All package findings, including LOW, are closed. The complete matching integration verdict and authorized final import, gate, and merge checks remain due.
+
+This CLEAN accepts no later head or additional retry. I ran no execution job.
+
+## Core #324 — incremental PTY input hex
+
+- Exact head: `0572493fc9e695acd57b1916e485fdd900ba7643`.
+- Tree: `c5f49dde29d14b45d5079cfd4a6c1df66cfea0d6`.
+- Source and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: CLEAN (0 open on this exact head; initial package review).
+
+The lead authorizes the testkit cost repair for dp_5. I read the written assignment, profile handoff, complete five-file patch, body, caller context, and gate.
+
+Controls initializes both input_log and input_hex empty. Its private take_input method appends the same accepted bytes to both representations under the existing mutex.
+
+Static search finds only two input-log append paths. Both use take_input: direct accepted input and kernel-queued input when blocking is released.
+
+A blocked write remains outside both logs until release. Partial acceptance still logs only the accepted prefix. The write limits, errors, and queue delivery remain unchanged.
+
+ProgramControl returns a clone of the cached string under the same lock. Session and route pty_input use that string instead of encoding a cloned byte log.
+
+I read the codec at the pinned contracts-v0.1.44 tag. HexBytes::to_hex calls the same hex_encode function. Concatenated byte encodings preserve the previous lowercase hex.
+
+The real route still reads its input log and encodes it once per response. Both route callers supply valid encoded text to the private route_pty_log helper.
+
+That helper retains the same bytes object and unattributed segment. Empty input still has no segment. The PR adds no new control or answer field.
+
+The new regression compares the cache with the original byte-log encoding after direct input, partial acceptance, queueing, and release. It also checks exact byte values and empty input.
+
+The faster path retains the same observed bytes. It changes no gate verdict, scope, mutation build, test selection, timeout, budget, deadline, or seed.
+
+The cache retains two hex characters per logged byte. Each response still clones the cached string. The change removes repeated encoding, not all response copying.
+
+The held record changes owner, measured numbers, and the authorized 23cn removal trigger. The ID remains held. This PR implements no 23cn accounting change.
+
+The Mac profile and before/after timings remain owner reports. They show the reported local cost change; they do not establish a pool timing gain.
+
+The retained local log names a working tree over the base, not this committed head. Its compile and unit results retain that provenance limit.
+
+The prior-art tree has no conformance testkit or matching control. Its unrelated PTY input tests supply no reusable cache implementation.
+
+### Completed exact-head evidence
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-dp5-fill-cost-0572493f-pool-20261012-115236-30950.log`.
+
+Computed SHA256: `7a166e03a4ec1d89136a355fa4fafdfa2e6adc1ae2601088f30befe572f84b3a`. Its header names this exact head and base.
+
+All ten steps PASS in 509.4 seconds. The wrapper exits 0 after 1,178 seconds, with 588 seconds queued and 590 seconds running on MS-A1.
+
+Default passes 1,958 tests, including the new cache regression. Slow passes 633 tests. The held-full report runs three budget IDs at 32 seeds.
+
+Stage 1 catches eight mutants and misses one. Stage 2 catches that exact real-route log replacement. The final result has nine caught and zero missed, timeout, or unviable.
+
+Static analysis matches all nine raw catches to citations. Every catching test has a normal PASS. No runtime FAIL, FLAKY, TIMEOUT, or RETRY result appears.
+
+The inherited ev_2 exclusion earns no catch credit. The fuzz step selects no changed decoder harness. The body records the exact gate and retained scope.
+
+No source, body, or supplied-evidence finding remains. Sol-B's integration verdict and authorized current-base delivery review remain due.
+
+The live base has advanced through train 5. This initial evidence does not validate a later import or merge tree. I ran no execution job.
