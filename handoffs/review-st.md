@@ -111,6 +111,10 @@ Verdict: PENDING CONTRACT DISPOSITION for ST313-Q1 only. The reviewer does not a
 No further source change or execution is requested by this review. Wait for the ruling doorbell.
 Send the important receipt again when the lead restores inbox access.
 
+The lead announced restored inbox access. Earlier messages expired unread.
+The reviewer sent ST313-Q1 again with head `5015b012` and the source findings' closed disposition at receipt `57f14c14`.
+The final verdict still waits for the absent-tag contract answer. Wait for its doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
