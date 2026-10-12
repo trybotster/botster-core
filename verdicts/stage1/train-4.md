@@ -400,3 +400,22 @@ Sol-B and Sol-C independently confirm source equality in `msg_plugin-w_179182557
 Their complete same-head package/integration receipts remain required.
 This inspection accepts no gate, final mutation result, retry, later source, status removal, or merge.
 I ran no execution job.
+
+### Train-4b member receipts read so far
+
+I read complete #307 package Round 6 at `b8e4fa0d20d4c9b917be2667afecc212d25b5fd0` after receipt `msg_plugin-w_1791825792_cd148b`.
+It agrees with the complete base delta, source preservation, pin order, filter/baseline scope, and unchanged conformance sets.
+Sol's matching #307 integration Round 5 is CLEAN in verdicts/stage1/pc-control-queue.md in this commit.
+The #307 pair has zero open source findings on this exact train head.
+
+I read complete #314 integration Round 3 at `2befaf343cedc75dd535a4755be6571863e68567` and package Round 3 at `6ba694457afca3f1e61a7dac0aa708bb203786ce`.
+Sol-B receipt: `msg_plugin-w_1791825805_3569e3`.
+Both records agree on the exact train head/base/tree, unchanged trace and fixture, and exact known-flaky name filter.
+Their 25 earlier synthetic catches contain no newly excluded EV-2 test. Those records keep their original source and head scope.
+The package's default-index delta SHA256 is `9635ef61f78726c5a95dfc5d60c2d01324c31ba2355e7b0ebb0e3384038481c3`.
+I independently reproduce it. The corresponding full-index hash is the 7d157280 value above.
+The #314 pair has zero open source findings on this exact train head.
+
+The complete #312 pair remains pending before the formal combined source verdict.
+The fresh gate, final member evidence bodies/receipts, and Q7 remain due.
+No running or completed train-4b evidence is accepted by these source receipts. I ran no execution job.

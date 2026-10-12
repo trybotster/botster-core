@@ -704,3 +704,42 @@ The combined source verdict is in `verdicts/stage1/train-4.md`.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; #307 source delta on exact train 4 head, final evidence pending)
+
+## Round 5 complete — train-4b base delta before the fresh gate
+
+Exact head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Frozen member: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Lead assignment: `msg_plugin-w_1791825491_e99ad8`.
+
+I read complete package Round 6 at `b8e4fa0d20d4c9b917be2667afecc212d25b5fd0`.
+Package receipt: `msg_plugin-w_1791825792_cd148b`.
+Both reviews cover the same rebuilt train head, base, tree, and complete #317 base change.
+This train does not inherit acceptance through ancestry from the old RED train. The independent content comparison proves source preservation.
+
+The complete train-head delta equals the accepted #317 base delta, with full-index SHA256 `7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6`.
+Only the known-flaky entry and repository-list test change. Both blobs equal the accepted base.
+I read that full delta and the unchanged production parser/filter/baseline context.
+R107-SI-2 permits the exact real EV-2 step-71 step_timeout entry under the .44 pin.
+The mutation stages omit only that built real-tier trial. It supplies no mutation catch.
+Normal slow and the unmutated Stage 2 baseline still run EV-2. This change suppresses no unmutated failure.
+The RC-owned .45-or-later pin through #316 removes the entry and restores the empty-list test. A31 remains separate.
+
+All #307 source, test, design, and runtime-interface blobs equal the previously reviewed train.
+All nineteen own non-list blobs equal the frozen member. Its twenty own added/deleted line sets remain exact.
+The last merge's full-index delta equals the previous train's last merge, SHA256 `174f783bbb6afd333174de13812476977251389c6ae9ef031765f5e6879926ce`.
+The .44 pin still precedes #307. The seeded trace and real probe composition remain as reviewed.
+I independently check all nine conformance set formulas after each merge; all 27 pass.
+Final pending remains 403 and real-pending 34. No accepted removal returns.
+Failed-write mark retirement, failed-side refusal exclusion, cancel precedence, sizing, budget accounting, and room wakes remain unchanged.
+All earlier package and integration findings remain closed. No new #307 source finding remains.
+
+The lead's xtask compile PASS is an operator report, not a completed gate.
+The fresh exact-head gate must supply final runtime, mutation, and fuzz evidence; skipped EV-2 cannot supply a catch citation.
+The historical member and train RED records remain intact. The old train will not be re-gated.
+The formal combined review, other member receipts, fresh gate, final evidence receipts, and Q7 remain due.
+This CLEAN accepts only the exact #307 source/base delta. It accepts no later head, specific retry, final outcome, or merge.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open; #307 exact train-4b source delta before the fresh gate)
