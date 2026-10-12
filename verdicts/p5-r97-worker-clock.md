@@ -254,3 +254,89 @@ The separate stop-grace change remains #305; this verdict does not accept it.
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-12 — slot import source delta
+
+- Head: `df461c83ffa8761c691e5ee07cf50f20784029f7`.
+- Tree: `d821aaeeb7dbb28623145dc0867fb8314fc91908`.
+- Imported base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Parents: accepted repair `955ca290737453265d7eb4622c5e998abbe0c84f` and the imported base above.
+- Delta request: `msg_plugin-w_1791829265_35342e`.
+- Integration assignment: `msg_plugin-w_1791829329_14a8a5`.
+- Initial package CLEAN: `da9040d7345317204d230822b45da6bd15592725`.
+- Initial integration CLEAN: `08e9cc63b574bc384602dae5962f7cd84a8bfea6`.
+
+The lead handoff assigns one v1 import before train 6. This round reviews that source delta, not a train gate.
+I read the merge object, combined merge diff, complete own delta, affected import contexts, local summary, and corrected body.
+The own delta has seven paths, 450 additions, and 68 deletions.
+Its full-index SHA256 is `08d9cb91be9716a11c00fcddc38146137d5acb0aea26da67134518ffccaa929f`.
+The Git whitespace check reports no error. The accepted head and imported base have merge base `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+Every path outside the seven own paths equals the imported base.
+
+### Patch preservation and conflict resolutions
+
+Five own patches retain exactly their accepted added and removed lines, excluding diff indices and hunk locations.
+These are the pending comments, core tests, harness, start-control tests, and worker tests.
+The other two patches differ only as follows:
+
+- The route-client test imports retain v1's Instant import. The imported test node needs that type.
+- The worker patch removes v1's revised deadline documentation before adding the accepted host-only documentation.
+
+The route-client constructor still uses WorkerClock::real. Its imported Reader node has no deadline and retains its accepted behavior.
+The worker resolution keeps until_deadline, the repaired run_ready, and v1's test-only add_node helper.
+run_ready still calls run_at_clock. It moves no host clock and starts no new program step.
+The peer-visible 99/100-millisecond regression remains unchanged.
+The wake wrapper, timeout comparison, descriptor forwarding, and worker-exit wake retain the accepted implementation.
+TestkitCore::next_deadline still returns only the host driver's deadline.
+The resolution preserves R-97's separation of host and worker clocks.
+
+The imported #305 change removes the worker's stop-grace timer and retains KillPayload delivery in both drivers.
+The merged no-grace worker test uses the manual worker clock and still requires no worker deadline after EndPayload.
+The test's clock adaptation matches the accepted #303 patch. Its no-grace assertion comes from the accepted base.
+Core's stop grace remains a host deadline and stays visible through the host-only query.
+No #305 signal handler, group-kill path, or launch constructor is replaced by this import.
+The imported start holds, operation holds, report controls, and other outside-own paths remain those of the accepted base.
+
+### Lists and the required R-66 fence
+
+I independently compare all nine conformance text sets against the common base, accepted member, and imported v1.
+Every three-way formula passes. Every final identifier set exactly equals imported v1.
+No prior removal returns. This PR removes no identifier; it changes only the existing startup-clock explanation.
+The new comment retains the separately owned query-path failure and its pending identifier.
+
+All contracts lock sources point to `.44`, commit `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+I read the exact pinned ev_5_route_closed_retires_route_keyed_events transcript.
+At index 25 it waits for route_reports with activity_before_close true and closed false before Detach.
+At index 28 it checks activity_before_close true and closed true.
+Transcript SHA256: `30cb1e4112929dbd10a0bfa47b6575cb2850b733e5ead2a0f3d4b09b44057448`.
+This import satisfies R303-F1's required structural fence import. The earlier FLAKY outcome remains historical and is not converted into a catch.
+
+### Local summary and R303-F2 — LOW, closed
+
+I read complete r303-slot-checks-df461c83.txt and the relevant B13 switch records under evidence/p5-hold.
+Summary SHA256: `0c7a36e464fa2f4e02f696515e8bb77514636de980611263e2b053a1f264b25f`.
+The summary names this exact head, target, caps, Mac platform, and commands.
+The switch record retains the 18:10:02 UTC clean of 57590 files and 14.1 GiB before work in p5-r87-held.
+The next recorded switch is to p5-read-facts at 18:21:21 UTC, with another clean.
+The owner reports fmt, workspace test compilation, lists, testkit unit tests, and clippy success.
+The owner reports 264 strict seed 0–31 conformance passes and zero failures.
+These are owner-written terminal results. No raw command output, numeric exit, unit-test count, or independent target-writer history is retained.
+They supplement the source review and do not replace the future exact-train-head gate.
+
+R303-F2 required the body to state this summary limit and scope its .41 pin statement to the earlier gate head.
+Finding: `msg_plugin-w_1791829479_0991c4`. Owner correction: `msg_plugin-w_1791829562_34e3a0`.
+Sol's matching check is `msg_plugin-w_1791829567_135886`.
+I read the complete corrected body on the unchanged slot head and v1 PR base.
+It now identifies the owner-written summary, absent raw output and exits, historical .41 head, current .44 pin, and corrected fence.
+R303-F2 closes before this source-delta round is published. No product change or new run was requested.
+
+### Disposition
+
+Zero package source-delta or body findings remain on this exact slot head.
+SI-1, R303-F1, the original comparison provenance question, and corrected AD-7 scope retain their earlier closures and evidence limits.
+The local summary and earlier gates supply no final train acceptance.
+Matching integration CLEAN, applicable train composition reviews, the completed exact-train-head gate, and final evidence receipts remain required.
+The lead owns train 6 and its gate. This verdict accepts no future head, gate, or merge.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
+VERDICT: CLEAN
