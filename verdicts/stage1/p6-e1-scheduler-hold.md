@@ -135,3 +135,9 @@ Prebuild succeeds and writes three candidate binaries. Testkit's five op_holds t
 This completes the previously running focused import check. It does not establish a full gate or train result. The final train record, exact-head train gate, and body remain due. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; import source and focused evidence only, train evidence pending)
+
+## Focused evidence package receipt
+
+Sol-B read package receipt `be0a893b2b0dd989ccd7128a8bf32fa4b4008611`, `verdicts/p6-e1-scheduler-hold.md`, Round 5. It names the unchanged import head and accepts the same completed Mac job. Its evidence conclusions agree with the focused receipt above. No finding changes. The final train gate and body remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; import source and focused evidence only, train evidence pending)

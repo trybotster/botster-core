@@ -91,3 +91,43 @@ Local checks on the repaired source remain implementer reports. No completed poo
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; source only, evidence pending)
+
+## Round 3 — imported head and first slow-fixture repair
+
+Imported head: `ee61090e81650831dcd9131b9cdacb24d70255f9`. Parents: reviewed source head `354c59e78e2232543b06a4705e968fba60daed5f` and current v1 `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. The canonical report `gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-354c59e7-to-ee61090e.log` reports every condition PASS and exits 0. Sol-B read the complete retained report. It carries the earlier source review to this import, with the final gate still required.
+
+The imported-head gate `gates/botster-core-stage1-gs-built-in-coverage-ee61090e-pool-20261011-220352-43493.log` fails the slow fixture test. The fixture's real nextest lists add three missing-root violations to the existing unselected-test violation. The job and wrapper exit 1 after 393 seconds. Mutants and fuzz do not run. This remains a failed gate.
+
+First repair head: `c20029a68cbb80612d242e7ce8560260bb7460e4`. Sol-B read its complete one-file delta and affected fixture context.
+
+### B306-I3 — HIGH — OPEN at c20029a6: the positive fixture violates the required manual rule
+
+The repair writes `#[test] fn {TEST_NAME}() {}` into the temporary library source. It also prints the reserved trial name in the custom fixture list. Neither entry uses the approved macro or calls the root check. The positive fixture accepts both entries.
+
+pair-common.md:108 requires rejection of every root-named test or trial outside built_in_test!() or built_in_trial!(). The lead's reduced guarantee depends on that rule and contains no positive-fixture exception. The repair therefore uses the unsupported empty entry that reviewers must reject.
+
+Required closure: use approved macros for positive compiled entries, or test list data without creating a reserved-name test outside those macros. Do not claim an empty body performs the root check. A running gate cannot close this source finding.
+
+Sol-B independently confirmed package GS-BC-R3-1 and sent the finding to GS and 017c. Sol-B read formal package NOT CLEAN `cee142d94605650f865bb0bf7571e2bf3c8fe4dc`, `verdicts/gs-gate-speed.md`. It records the same finding on this exact head. Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (1 open at c20029a6)
+
+## Round 4 — repaired fixture source
+
+Exact head: `c69cbcb85e5d173468703bdea45bb3a325e87366`. Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Sol-B read the complete repair and net delta from the imported head. Only xtask/src/slow_coverage.rs changes after the import.
+
+B306-I3 is CLOSED for source review. The repair removes both generated reserved-name entries. It creates no root-named test or trial outside the approved macros. The tracked fixture files equal current v1. Its existing module rename remains the slow-filter case.
+
+The checked closure calls the actual list checker. Each call separates the three tier-prefixed presence violations and asserts their exact binary and tier prefixes. An extra, missing, or changed presence result fails that assertion. The closure then returns the remaining violations to the original assertions. The unselected-test, proof-selection, renamed-module, and ignored-pending-trial cases retain their checks.
+
+This separation exists only in the slow test. The production presence checker, name rule, shared macros, filters, candidate checks, and gate decisions remain unchanged. B306-I1 and B306-I2 remain closed under their recorded scope and the lead's accepted manual rule.
+
+Canonical repaired-head report: `gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-354c59e7-to-c69cbcb8.log`. Sol-B read the complete report. Ancestry and conditions 1, 2, and 4 PASS. Condition 3 FAILS because the fixture changes the own patch. This explicit delta review covers that change. It does not relabel the canonical FAIL as PASS.
+
+Package source delta CLEAN: `ce3184b72510c3e0326338c76836b78242f8acd3`, `verdicts/gs-gate-speed.md`. Sol-B read its complete repaired-fixture section on this exact head. No package or integration source finding remains.
+
+The c20029a6 gate was stopped, according to GS, and supplies no completed result. The gate on this repaired head is running. Sol-B read no running result. Local checks remain implementer reports. The completed gate, required timing and reversal evidence, and final body remain due. The live body still needs the imported-head failed gate and repair history in its final update.
+
+Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; source delta only, evidence pending)
