@@ -1175,6 +1175,7 @@ fn op_name(op: &Op) -> String {
         .unwrap_or_else(|| "this operation".to_string())
 }
 
+mod facts;
 mod handoff;
 mod input;
 mod model;
