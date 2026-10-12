@@ -2765,6 +2765,44 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
     assert!(size_reports(&mut w, &all).is_empty());
 }
 
+/// DP-6 `Latest`: a frame that is not input (a paste's begin, steward ruling R-102) is still an input frame of its route,
+/// so it makes its route the most active: the route's last size applies. It advances no `input_rev{client}`.
+#[test]
+fn a_frame_that_is_not_input_still_makes_its_route_the_most_active() {
+    let (mut w, mut one, mut two) = two_routes();
+    read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(1),
+        resize_frame(30, 100),
+    );
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(2),
+        resize_frame(40, 120),
+    );
+    assert_eq!(resizes(&all), [cells(40, 120)]);
+    let begin = ToWorker::Input(botster_route_codec::prelude::Input::PasteBegin {
+        op: Op(7),
+        total_bytes: None,
+        require_bracketed: None,
+    });
+    let all = read_on(&mut w, &mut one, &mut two, RouteId(1), client_frame(&begin));
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert!(
+        !w.reports(&all).iter().any(|m| matches!(
+            m,
+            WorkerMsg::Observed {
+                observation: Observation::ClientInput { .. }
+            }
+        )),
+        "a paste's begin is not input: {all:?}"
+    );
+}
+
 /// DP-6, SZ-1: the latest of a host `Resize` and a policy change wins. A host `Resize` stays while the policy's size does
 /// not change; a route's new report is a policy change, even of the same size as before.
 #[test]
