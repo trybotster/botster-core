@@ -175,22 +175,22 @@ mod slow_tests {
         let deadline = botster_test_process::Deadline::cleanup();
         let wake = core.wake_handle();
         loop {
-            loop {
-                let report = core.pump(Now {
-                    monotonic: std::time::Instant::now(),
-                    unix: 1_000_000,
-                });
-                core.poll_events(usize::MAX);
-                if !report.more {
-                    break;
-                }
-            }
-            if harness.control("a", "edges_quiet", &json!({})) == Ok(json!({"quiet": true})) {
+            let report = core.pump(Now {
+                monotonic: std::time::Instant::now(),
+                unix: 1_000_000,
+            });
+            core.poll_events(usize::MAX);
+            if !report.more
+                && harness.control("a", "edges_quiet", &json!({})) == Ok(json!({"quiet": true}))
+            {
                 return;
             }
+            // Every pass checks the bound, also a pass whose pump reports `more` (R-89).
             assert!(!deadline.expired(), "Core never got quiet");
-            // timer: deadline — the cleanup bound ends a Core that never gets quiet
-            wake.wait(deadline.remaining());
+            if !report.more {
+                // timer: deadline — the cleanup bound ends a Core that never gets quiet
+                wake.wait(deadline.remaining());
+            }
         }
     }
 
