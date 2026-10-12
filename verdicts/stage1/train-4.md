@@ -471,3 +471,48 @@ This CLEAN accepts the combined source only. It authorizes no specific retry and
 The remaining work is the fresh gate, all final member evidence receipts, and Q7. I ran no execution job.
 
 VERDICT: CLEAN (0 open; combined source on exact train-4b head, fresh final evidence pending)
+
+## Completed train-4b gate inspection — final member receipts pending
+
+Lead completed-gate request: `msg_plugin-w_1791827181_c344a7`.
+The exact train head/base/tree remain the Round 2 identities.
+The gate log is `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+I verify SHA256 `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47` and complete its independent outcome/citation audit.
+The detailed metrics and retained body finding are in this commit's pc-control-queue.md gate-inspection section.
+All ten steps pass; CI total 962.9 seconds, job/wrapper exits zero after 1064 seconds.
+Default has 1957 passes. Normal slow and the unmutated Stage 2 baseline each have 633 passes.
+The trace determinism test passes in 0.025 seconds. Both own IN-6 transcripts pass in both tiers.
+The resolver comparison passes in normal slow and the baseline. Both link fuzz harnesses complete successfully.
+All 65 mutant identities are unique. The 39 first-stage catches plus fourteen second-stage catches give 53 catches, with twelve unviable.
+The Stage 2 identities equal the Stage 1 misses exactly. All 53 raw catches match their citations and normal PASS.
+The excluded EV-2 trial supplies no catch, and passes in both unmutated slow runs.
+The thirteen old #307 misses all have new recovery proof; the additional serve mutant comes from #312.
+No runtime result is borrowed from an earlier head. The old RED records remain intact.
+
+Sol-B and Sol-C independently report matching gate audits in `msg_plugin-w_1791827246_79467d` and `msg_plugin-w_1791827281_f2a35e`.
+Their complete final member/package receipts remain pending.
+I read the current complete #314 and #312 final bodies and #307's complete final-body delta.
+#307 has LOW R307-SI-5 open for rebuild order and the extra mutant's attribution. Its package final receipt remains pending.
+No new combined source or gate finding appears. The formal final combined verdict waits for the correction and all required member final receipts.
+Q7 merge/tree/push verification remains due. I ran no execution job.
+
+### Final member records received so far
+
+#307 owner correction `msg_plugin-w_1791827434_69089b` closes LOW R307-SI-5 after my complete corrected-body read.
+The correct order is landed #317 base before the three members. The fourteen catches are composed-train evidence, with thirteen #307 misses and one #312 serve mutant.
+Exact corrected body hash: `18d06ee4f25951a981e4c5dbd022aca241549f5d2d51e682c2805b670339d666`.
+The complete #307 package FINAL remains pending.
+
+I read complete #312 integration Round 8 at `b6a96042e0b4facb73ad895e1fd902c26d687eba` and package FINAL at `ff3fb3392fe3c1ebeba5eb507de0e4bc84355a4e`.
+Sol-C receipt: `msg_plugin-w_1791827521_12ac00`.
+Both accept the same exact train head, base, tree, gate path/hash, source, body, and mutation outcomes.
+Their current body hash `854215e5e3097717ae60f297747db5bfa9413f83fe8ab51fadc0b4bc99f9c0b6` matches my complete-body read.
+The body retains historical RED scopes and marks the earlier missing-gate statement as historical.
+Both confirm all nine real removals and the a5_2 removal have normal PASS in both tiers.
+They preserve earlier Mac evidence limits and make no full-seed real-tier claim: current default seeds are 0-31; normal slow uses seed zero.
+They remove no further real-pending id from the twenty-seven passing trials.
+Both complete the resolver, known-flaky exclusion, and two fuzz-harness evidence conditions.
+Both have zero open findings and retain the future entry-removal/empty-list-restoration condition.
+
+The #312 final pair is complete. The #314 final pair and #307 package FINAL remain pending before combined FINAL.
+Q7 remains due. I ran no execution job.

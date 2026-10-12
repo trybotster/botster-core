@@ -743,3 +743,74 @@ This CLEAN accepts only the exact #307 source/base delta. It accepts no later he
 I ran no execution job.
 
 VERDICT: CLEAN (0 open; #307 exact train-4b source delta before the fresh gate)
+
+## Completed train-4b gate inspection — final body correction pending
+
+Lead completed-gate request: `msg_plugin-w_1791827181_c344a7`.
+Exact train head/base/tree remain e37b91d6 / 9fe97f50 / ad98644e, with full identities in Round 5.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+I independently verify SHA256 `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+I read the exact head/base, pool snapshot and target, relevant step records, complete mutation outcomes/citations, fuzz terminal results, summaries, and exits.
+All ten CI steps PASS on msa1. CI total is 962.9 seconds.
+Jobq and the wrapper exit zero after 1064 seconds: queue one, run 1063.
+
+Default reports 1957 passes, 427 skipped, and 12.302 seconds.
+Normal slow reports 633 passes, 2058 skipped, and 43.673 seconds.
+The two conformance summaries each report 264 passes and zero failures.
+Strict checks 316 of 333 pending transcript ids, with seventeen real-only and four held.
+Lists retains pending 403, real-pending 34, ledger 691, and minimum 69.
+The held-full run covers three budget ids at 32 seeds and reports no failure in 22.93 seconds.
+Both own IN-6 ids have normal testkit and real PASS records. The failed-write retirement test and other accepted unit catchers pass normally.
+
+I independently audit 65 unique Stage 1 outcomes: 39 caught, fourteen missed, twelve unviable, zero timeout, in 160.9 seconds.
+The unmutated Stage 2 baseline passes: 633 passes, eleven slow, 2834 skipped, 43.427 seconds; baseline step 61.1 seconds.
+It includes a normal EV-2 PASS. Normal slow also passes EV-2.
+The stage-2 exclusion line names only the accepted real EV-2 test with its diagnosis, RC owner, and #316 removal.
+Stage 2 tests exactly the fourteen Stage 1 misses and catches all fourteen in 183.9 seconds.
+The raw catch identities equal their unique printed citations: 39 in Stage 1 and fourteen in Stage 2.
+All 53 printed catchers have a normal PASS in the gate. None credits EV-2.
+There is no observed RETRY, FLAKY, TIMEOUT, or INCONCLUSIVE result.
+Final mutation verdict: 65 unique mutants, 53 caught, twelve unviable, zero missed or timed out.
+
+The thirteen misses from the RED 2ed85f93 member gate are a subset of these fourteen, and all now have Stage 2 recovery proof.
+The added miss is program::serve, from #312's new Printed arm. The combined mutation scope explains its additional identity.
+The lock/Cargo-metadata resolver comparison passes in normal slow and the unmutated baseline.
+Both link fuzz harnesses pass: link_decoder completes 6143074 runs and msg_decoder completes 3614151 runs, each in 61 seconds.
+This completed composed gate supplies the runtime, mutation recovery, and fuzz evidence omitted by the historical RED member gate.
+The historical RED member and old-train records retain their results. Neither is re-gated or relabeled green.
+
+### LOW R307-SI-5 — final body labels
+
+Owner final evidence receipts: `msg_plugin-w_1791827268_b998dc` and `msg_plugin-w_1791827331_a59baf`.
+I verify unchanged frozen GitHub member head and base, then read the complete body delta from the previously accepted member body.
+Current body hash without terminal LF: `9967d9b7f909e9906bacb92c57c2007fa7a4e245447da4906ed5d3f1cf5c876d`.
+The owner gh-style body-plus-LF hash independently matches `c5c4e24e379b0c1321ec1a23239dbcc94a7900381eda581da874815ca6ebdfa0`.
+The new section records the exact train head/base/tree, correct gate hash and counts, old RED records, and unmutated EV-2 execution.
+
+Two LOW source/evidence labels remain incorrect.
+The Order line puts #317's base delta after #307. The actual train starts from landed #317 at v1 9fe97f50, then merges #314, #312, and #307.
+The fourteen Stage 2 misses are called this PR's code. Thirteen carry from #307; the extra serve mutant enters through #312's Printed arm.
+Required body correction: state the actual rebuild order and label the fourteen as composed-train catches with that attribution.
+Requests: `msg_plugin-w_1791827413_44b115` and `msg_plugin-w_1791827413_5958f7`.
+The counts and cited catching tests are correct. No source push or new job is required.
+
+No new source or gate finding appears. This LOW correction and the complete package final receipt remain pending.
+The combined final receipt also needs the other members' complete final bodies/evidence receipts.
+Q7 ancestry, equal-tree merge, and remote verification remain due. No merge is accepted.
+I ran no execution job.
+
+### Final body correction — R307-SI-5 closed
+
+Owner correction: `msg_plugin-w_1791827434_69089b`.
+The package's CQ-PC-5 identifies the same LOW labels, in `msg_plugin-w_1791827451_651b96`.
+I verify unchanged frozen member head and base. I read the complete corrected-body delta.
+The body now starts the order from v1 9fe97f50 containing landed #317, then #314, #312, and #307.
+It labels the fourteen Stage 2 catches as composed-train catches: thirteen carried #307 misses and one #312 serve mutant.
+Those labels match the independently audited source and gate identities.
+R307-SI-5 closes. All earlier source and body findings remain closed.
+Raw JSON SHA256: `423a4f859752ee20999b073056c4a7ec7e25ec1658f2db09dcf18c92416df2ca`.
+Exact body SHA256: `18d06ee4f25951a981e4c5dbd022aca241549f5d2d51e682c2805b670339d666`.
+Owner gh-style body-plus-LF hash independently matches `bddf3e92198a6830f8575fc073bc9f6ab650efffb9bc72564e7b78a54af8735a`.
+Closure sent to the package reviewer in `msg_plugin-w_1791827567_d23a9b`.
+The complete package FINAL remains pending before the formal integration FINAL.
+The completed exact-head gate remains GREEN. Q7 remains due. I ran no execution job.
