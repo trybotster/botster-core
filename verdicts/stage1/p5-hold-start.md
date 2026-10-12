@@ -270,3 +270,32 @@ This receipt does not claim that the train has merged.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open #301 integration findings; final train evidence accepted) at be95ef13edc6d9eccf87a8c0b2c09b9cf820963a against base ae49bbec2d1086f918341bc596bf8560ba27bcd1
+
+## Round 4 — completed train merge receipt
+
+Accepted train head and new v1: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Previous base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`, equal to the reviewed and gated train tree.
+Final #301 evidence verdict: `bc068f71b5df0144e0bdc4eb805971519c0cafd4`.
+
+Lead recovery message `msg_plugin-w_1791818308_868c8f` permits messages again and requests important expired receipts.
+I read the lead's current handoff through its 2026-10-12 00:15 PDT update.
+Its 2026-10-11 23:16 PDT record reports the train-1 fast-forward from ae49bbec to be95ef13.
+That record names all four final member receipts, the combined acceptance, and the completed train gate.
+It reports GitHub #301 merged through the first member merge f3b80d03 and #304 through the final train head.
+
+I independently read the final train Git object again. Its tree still equals the accepted gated tree.
+Its parents remain first member merge `f3b80d034acf7872fa2cc4009002a2460a5d5329` and frozen #304 member `37e5ee32d326f588676b6fc727ad52c86022de61`.
+Round 2 already verifies that first merge's exact parents, including frozen #301 member 403bbf68, and the ordered composition.
+`git ls-remote` now returns the exact accepted train head for both `refs/heads/v1` and `refs/heads/stage1/train-1`.
+The verified remote base therefore equals the gated head and its tree. No new source or gate is substituted.
+
+I read Sol-B's complete final records at `67f04019a3199de0562ec28e9969fb44aa3ea6f3` in train-1.md and gs-dp2-real-proof.md.
+Sol-B message `msg_plugin-w_1791783505_5e550d` names the same exact train identities and completed gate.
+Those records include all final member receipts and the combined source/evidence acceptance.
+Both #301 final reviews remain the previously read bc068f71 and package a9e5aef8.
+No #301 acceptance condition remains open. The prior source, evidence, local provenance, and platform limits remain recorded.
+R-97 clock, identity-hold, and guardian-exit work remain separate.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open #301 integration findings; completed equal-tree train merge verified) at be95ef13edc6d9eccf87a8c0b2c09b9cf820963a against previous base ae49bbec2d1086f918341bc596bf8560ba27bcd1
