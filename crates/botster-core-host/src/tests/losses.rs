@@ -70,6 +70,8 @@ fn route_reports_become_events_and_wait_for_room() {
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     let route = attach(&mut w);
+    // The worker bound the route: its reports are this route's (ID-2).
+    w.worker_says("s1", WorkerMsg::RouteReceived { route });
     w.engine.poll_events(64);
     w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 0 });
     let events = w.engine.poll_events(64);
@@ -133,6 +135,8 @@ fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     let route = attach(&mut w);
+    // The worker bound the route: its reports are this route's (ID-2).
+    w.worker_says("s1", WorkerMsg::RouteReceived { route });
     w.engine.poll_events(64);
     // Three route events fill the queue; the next two wait.
     for _ in 0..3 {

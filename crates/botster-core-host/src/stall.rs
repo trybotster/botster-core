@@ -45,6 +45,11 @@ pub(crate) struct RouteClock {
     stalled: Option<(u64, Instant)>,
     /// The due step that was sent and is not answered.
     asked: Option<Due>,
+    /// The host consumed the worker's `RouteReceived` of this route. Before it, a route report with this id is from another
+    /// route: a route that survived a host restart keeps its id in the worker, and this host numbers its routes from 1
+    /// (ID-2; DP-8 maps them later). The worker sends `RouteReceived` before any report of the route that it binds, and the
+    /// link is in order, so every report after it is this route's. The clock takes no report before it.
+    received: bool,
     /// The due step ran in a pump with budget and found no mandatory room: it is parked until a poll frees room (E3-1 item
     /// 4). A due step with no budget is carried first; only a step that ran can be parked (E3-1 items 2 and 4).
     parked: bool,
@@ -58,6 +63,7 @@ impl RouteClock {
             waiting: None,
             stalled: None,
             asked: None,
+            received: false,
             parked: false,
         }
     }
@@ -127,9 +133,36 @@ impl HostEngine {
         }
     }
 
+    /// `RouteReceived` (DP-2) from the worker of `session`: the worker bound this route, so its later reports are this
+    /// route's. A report from another session's worker names a route of that worker, not this one.
+    pub(crate) fn route_received(&mut self, session: &SessionId, route: RouteId) {
+        if let Some(entry) = self.routes.get_mut(&route) {
+            if entry.session == *session {
+                entry.clock.received = true;
+            }
+        }
+    }
+
+    /// The clock of `route` takes this report from the worker of `session`: the route is that session's, and the host
+    /// consumed its `RouteReceived`.
+    fn clock_takes_reports(&self, session: &SessionId, route: RouteId) -> bool {
+        self.routes
+            .get(&route)
+            .is_some_and(|e| e.session == *session && e.clock.received)
+    }
+
     /// `RouteProgress` (OU-3a): the reader deadline runs from this pump while the route waits, and ends when it does not.
     /// A report that differs from the view of a due stall step means that the worker declined it: the slot is given back.
-    pub(crate) fn route_progress(&mut self, route: RouteId, mark: u64, waiting: bool) {
+    pub(crate) fn route_progress(
+        &mut self,
+        session: &SessionId,
+        route: RouteId,
+        mark: u64,
+        waiting: bool,
+    ) {
+        if !self.clock_takes_reports(session, route) {
+            return;
+        }
         let now = self.now;
         let Some(entry) = self.routes.get_mut(&route) else {
             return;
@@ -149,8 +182,11 @@ impl HostEngine {
     }
 
     /// `RouteStalled` (OU-2): the close deadline runs from this pump, and the reader deadline ends. The event goes into the
-    /// slot that the due step held.
-    pub(crate) fn route_stalled(&mut self, route: RouteId, mark: u64) {
+    /// slot that the due step held. False when the report is not this route's (`clock_takes_reports`): it posts no event.
+    pub(crate) fn route_stalled(&mut self, session: &SessionId, route: RouteId, mark: u64) -> bool {
+        if !self.clock_takes_reports(session, route) {
+            return false;
+        }
         self.release_route_slot(route);
         let now = self.now;
         if let Some(entry) = self.routes.get_mut(&route) {
@@ -160,10 +196,15 @@ impl HostEngine {
                     .map(|at| (mark, at))
             });
         }
+        true
     }
 
     /// `RouteResumed` (OU-2): the close deadline ends. The worker's next progress report arms the reader deadline again.
-    pub(crate) fn route_resumed(&mut self, route: RouteId) {
+    /// False when the report is not this route's: it posts no event.
+    pub(crate) fn route_resumed(&mut self, session: &SessionId, route: RouteId) -> bool {
+        if !self.clock_takes_reports(session, route) {
+            return false;
+        }
         if matches!(
             self.routes.get(&route).and_then(|e| e.clock.asked),
             Some(Due::Close(_))
@@ -173,6 +214,7 @@ impl HostEngine {
         if let Some(entry) = self.routes.get_mut(&route) {
             entry.clock.stalled = None;
         }
+        true
     }
 
     /// `RouteClosed` of the worker: a due step's slot is given back, and the close posts into it (or the session's end

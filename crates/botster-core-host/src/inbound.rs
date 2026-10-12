@@ -303,22 +303,26 @@ impl HostEngine {
                 }
             }
             WorkerMsg::RouteStalled { route, mark } => {
-                self.route_stalled(route, mark);
-                self.route_event(route, true);
+                if self.route_stalled(id, route, mark) {
+                    self.route_event(route, true);
+                }
             }
             WorkerMsg::RouteResumed { route, .. } => {
-                self.route_resumed(route);
-                self.route_event(route, false);
+                if self.route_resumed(id, route) {
+                    self.route_event(route, false);
+                }
             }
             WorkerMsg::RouteProgress {
                 route,
                 mark,
                 waiting,
-            } => self.route_progress(route, mark, waiting),
+            } => self.route_progress(id, route, mark, waiting),
+            // The driver closed the host's copy of the stream when it fed the report (DP-2, R-65). The route's stall clock
+            // takes the worker's reports from now on (`stall.rs`).
+            WorkerMsg::RouteReceived { route } => self.route_received(id, route),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
-            // `RouteReceived` changes no state here: the driver closed the host's copy of the stream when it fed the
-            // report (DP-2, R-65). The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
     }
