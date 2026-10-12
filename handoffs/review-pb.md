@@ -15,9 +15,10 @@ The Linux gate reports ten PASS steps and exit 0. Its head matches the CLEAN sou
 The verdict file records the gate log and its SHA256.
 The implementer sent FINAL-READY to the lead. The reviewer waits for B1's design note or a train review request.
 
-B1 round 1 at `d8358ee920892da144c1f6289a735451bafda28f` is NOT CLEAN with one LOW finding, PB1-1.
-The source logic has no open finding. The design or PR description needs BUILD.md's prior-art note.
-The B1 gate is running. The reviewer built nothing locally.
+B1 round 2 at `0e25e27da6606a27cf2ff94df5d139c80f27b4d5` is CLEAN for source.
+PB1-1 is closed by the design's prior-art note. The delta repairs the slow test's discarded Result.
+The first B1 gate failed clippy. The corrected gate is running; READY and integration review remain pending.
+The reviewer built nothing locally.
 
 ## Review authority
 

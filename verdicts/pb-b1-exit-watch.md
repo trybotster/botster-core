@@ -1,5 +1,31 @@
 # PB B1: R-106 exit watch
 
+## Current verdict: round 2
+
+Date: 2026-10-12. Tier: HIGH.
+Reviewed head: `0e25e27da6606a27cf2ff94df5d139c80f27b4d5`.
+Base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+
+VERDICT: CLEAN
+
+PB1-1 is closed. The design now names the pinned old code, reused v1 paths, rejected approaches, custom type, and dependency status.
+The reviewer checked the old source references at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+The design states that it copies no old code or tests and adds no dependency.
+Design SHA256: `6990ade90135444d2e3bf38a359f61dd369072f20fbe00a35b6184fd5afb13d7`.
+
+The delta from the previous head changes one test expression in `tests/common/driver_edges.rs`.
+The test now requires the watch result to be successful after its own group kill.
+This preserves the test's deadline and expected behavior. It changes no production path.
+The reviewer checked the first gate's clippy error and confirmed that this delta repairs that error.
+
+The first gate on `d8358ee920892da144c1f6289a735451bafda28f` failed because the test discarded a required Result.
+Log: `~/botster-sessions/gates/botster-core-stage1-pb-b1-exit-watch-d8358ee9-pool-20261012-130202-26976.log`.
+That red gate is not acceptance evidence. The corrected head's gate is running.
+READY, the corrected gate log, mutation results, and the required integration review remain pending.
+This is a source verdict. The reviewer built nothing locally and ran no tests.
+
+## Historical verdict: round 1
+
 Date: 2026-10-12. Round: 1. Tier: HIGH.
 Reviewed head: `d8358ee920892da144c1f6289a735451bafda28f`.
 Base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
