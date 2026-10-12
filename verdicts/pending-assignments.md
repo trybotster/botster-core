@@ -52,6 +52,11 @@ ST reports that only event-posting flow steps now wait for RouteAdopted, with St
 ST reports a completed green gate at `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-5015b012-pool-20261012-001052-1684.log`.
 These remain author reports. Sol-B has not reviewed this repair or gate. The lead assignment remains pending.
 
+Package update `msg_plugin-w_1791790115_2b3d7e` reports no open source finding on head `5015b0120d7e4c9ad205e8fadf34fb5e6b97070a`.
+Receipt: `57f14c14fb2bc403df4cb7c36c77615752a8b293`, `verdicts/st-stall-clock.md`.
+The package reviewer closes ST313-R1 and ST313-R2. Its final CLEAN waits for the absent-tag contract answer, ST313-Q1.
+Sol-B has retained this package report without independent review. The integration assignment remains pending.
+
 ## Assigned work
 
 Train 2 source verdict: `af670a7dd20cc852239738925293f78d50e4fe19`, `verdicts/stage1/train-2.md`.
