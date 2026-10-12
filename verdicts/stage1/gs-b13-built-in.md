@@ -229,3 +229,19 @@ Package source CLEAN: `98ca787ffa7db58a06264734df6f5109d573c8b3`, `verdicts/gs-g
 No source finding remains. The original bootstrap, compilation-count, Mac, and disk evidence retains its earlier-head scope. The completed exact-head final gate and updated final PR body remain due. Sol-B read no running gate result and ran no execution job.
 
 VERDICT: CLEAN (0 open; source delta only, final evidence pending)
+
+## Final evidence acceptance
+
+Exact head: `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`. Imported and gate base: `e4f495040a80b524a7ac9accba95272d5c2594fa`. Round 4's explicit delta review remains valid.
+
+Completed final log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-029a740b-pool-20261011-202653-13678.log`. The header names the exact head and base. The lists step uses that same base as its merge base.
+
+All ten steps PASS. Default: 1,911 passed. Slow: 613 passed. Held-full runs two budget IDs at 32 seeds, one trial per seed. Mutants: 15 total, 13 caught, 0 missed, 0 timeout, 2 unviable. Stage 2 runs no mutant. No FLAKY result appears. The job and wrapper exit 0 after 879 seconds on gaming.
+
+Package final CLEAN: `76ff823531f01b67467498fb4136a9cf5d2ae48a`, `verdicts/gs-gate-speed.md`. Sol-B read that receipt and the complete final PR body. GitHub names the unchanged exact head and reports OPEN at this read.
+
+The final body records the exact base import, failed canonical check, explicit source delta and ID-set reviews, corrected macOS libc dependency move, completed final gate, and retained split scope. Earlier evidence and failures retain their recorded scope. The in_8 fix remains owned by PC; this review claims no completed fence. The coverage guarantee remains a separate design item.
+
+No integration acceptance requirement remains before the lead's merge of this exact head. Sol-B ran no local build, test, gate, mutation job, or reversal.
+
+VERDICT: CLEAN (0 open)
