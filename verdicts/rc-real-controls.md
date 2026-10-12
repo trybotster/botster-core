@@ -3966,3 +3966,58 @@ The combined reviewer sends the single final train receipt for an unchanged memb
 The package reviewer sends no message that only restates the integration receipt.
 No later head, future #313 composition, PC fix, new control, specific retry, or final gate result is accepted.
 The reviewer runs no execution check and waits for an assigned review doorbell.
+
+
+### Core #316 — train 7b source delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Frozen #316 member: `f1ac08b998f15f062f123a996e2688344c33c3ba`.
+Package source delta: `723c6ec226ffd32b347bd4ca39f5f98062e1aa52`.
+Integration source delta: `975c4f0fbeaa53a8756b2c8d9aacd9f9d9b6cee7`.
+Lead request: `msg_plugin-w_1791836260_e509e4`.
+Open #316 package delta findings: 0, including LOW findings.
+
+The reviewer independently reads the ordered merge parents.
+#316 merges first at `e9485b94bfc2476be07cb1642ccec4a5437b9952`.
+#323 member `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307` merges second at `cd9af56fd6b0d238ad606aae9fec3ab9b431ebbf`.
+#302 member `953aa2ba300df85bff1df7a8be15f5214b6ca67b` merges third at `abdae8913136fe68f51121d95cf40b15149ced99`.
+#322 member `25fbc9ec7bae580d28e3b29f7f43f0d6e0ff78b2` merges last at the train head.
+The frozen heads match the request. This verdict covers only #316's fit on this train.
+
+All six #316 own blobs equal their accepted member blobs.
+The .46 manifest and lock, A22 ledger addition, pending reason, sole IN-8 entry, and repository-list test retain their content.
+Both prior LOW body closures retain their accepted source and evidence scopes.
+The only final-tree differences from the #316 member are xtask/src/lists.rs and the worker test's shared session helper.
+#302's own list and worker changes are already present through the accepted base; the train adds no further final difference from them.
+The reviewer checks all nine conformance set formulas after each of the four merges. Every formula matches.
+The final pending and real-pending blobs equal the #316 member, with 388 and 38 IDs respectively.
+No imported removal is reversed. A22_1 stays pending and is absent from real-pending.
+The ledger remains 692 IDs; the minimum remains 69 IDs.
+
+The imported lists change allows an existing active ID to re-enter real-pending only with a parsed authority, cause, and fix-owner tag.
+The check still rejects an ID that is pending, deferred, withdrawn, real-only, testkit-proven, or outside the ledger.
+This train's real-pending file has no re-entry tag. #316 introduces no real-pending entry.
+The new branch therefore supplies no exception for A22_1 and changes none of #316's set obligations.
+The command still reads the pinned ledger and replacement map. The .46 pin supplies both through the unchanged dependency selection.
+#323's assigned reviewers own its complete check review and authority; this delta grants no separate acceptance of that PR.
+
+The shared worker test helper changes its count FIFO reader to head -n 1 and holds the FIFO until the next write completes.
+That helper is outside #316's code and contracts driver. It changes no control, probe protocol, RouteAdopted constructor, or pin interface.
+Its process and cancellation proofs belong to #322's reviewers and the combined review.
+The imported Core still constructs no RouteAdopted, so #313's future A22 adaptation remains separate.
+The known-flaky entry retains only the exact real IN-8 step-6 timeout signature, owner PC, and removal PR #321.
+The .46 pin still lacks the R-111 fix. The EV-2 entry stays removed under R107-SI-2.
+No test, private-state assertion, terminal expectation, or control model is added by #316's composition delta.
+The mutation configuration and every exclusion equal the previously accepted #316 member. No new exclusion appears.
+
+The lead reports successful id-set and test-target checks, and strict conformance with 281 passes and zero failures.
+The reviewer treats these as lead reports, not independently audited execution logs.
+The source delta claims no completed train gate.
+Matching integration delta, other required member reviews, combined review, exact train gate, and lead merge/tree/push verification remain due.
+Sol-C sends the single final train receipt under the current BUILD Green rule if the member remains unchanged.
+This verdict accepts no later head, changed member, #313 composition, future control, PC driver fix, specific retry, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
