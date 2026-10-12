@@ -150,9 +150,11 @@ impl Worker {
         let output = self.unfed_output(route);
         let sequence = match sequence {
             Ok(frames) if frames.iter().all(|frame| route.fits(frame)) => frames,
+            // The route stays `Stalled` at its mark, as the host sees it (0181's ST298-R2). The worker sends no
+            // `RouteResumed`, because the route did not resume, so the host keeps its close step. If the close is not
+            // delivered first, that step finds the route `Stalled` at its mark and ends it with the first reason, and the
+            // host releases the step's slot at that `RouteClosed`.
             _ => {
-                let route = self.routes.routes.get_mut(&id).expect("read above");
-                route.stall.stalled = None;
                 self.close_healthy(id, RouteCloseReason::SnapshotTooLarge);
                 return;
             }

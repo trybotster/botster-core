@@ -577,3 +577,101 @@ fn a_second_stall_before_the_resync_is_written_drops_the_first_resync() {
     expected.extend(RESUMED);
     assert_eq!(kinds(&client.frames[before..]), expected);
 }
+
+/// A route whose `baseline_begin` the mouse modes grow over its `max_frame_bytes`, `Stalled` at a mark with a write of the
+/// output out, and the client that read it. Returns the world, the client, the write that is out, and the stall's mark.
+fn stalled_with_a_resume_over_the_bound() -> (World, Client, Vec<u8>, u64) {
+    let (_, client, _) = attached(limits());
+    let begin = client
+        .frames
+        .iter()
+        .find(|f| matches!(f, ToClient::BaselineBegin(_)))
+        .expect("the baseline_begin of the attach")
+        .encode()
+        .len();
+    let mut tight = limits();
+    tight.max_frame_bytes = begin.try_into().unwrap();
+    let (mut w, client, write, mark) = waiting_route_with(tight, 10);
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    w.feed(Input::PtyOutput(b"\x1b[?1003h\x1b[?1006h".to_vec()));
+    (w, client, write, mark)
+}
+
+/// One byte of the started frame is accepted, so the route tries to resume and cannot; then the transport takes nothing.
+fn one_byte_then_blocked(w: &mut World, client: &mut Client, write: &[u8]) -> Vec<WorkerMsg> {
+    client.reader.push(&write[..1]);
+    let mut actions = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    actions.extend(w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    }));
+    w.reports(&actions)
+}
+
+/// OU-2, OU-9 (0181's ST298-R2): a resume whose baseline cannot be formed starts the `SnapshotTooLarge` close and sends no
+/// `RouteResumed`. The route stays `Stalled` at the stall's mark, as the host sees it, so when the close is not delivered,
+/// the host's close step at that mark ends the route with the close's reason, and the host is told.
+#[test]
+fn a_failed_resume_with_blocked_writes_is_closed_by_the_close_step() {
+    let (mut w, mut client, write, mark) = stalled_with_a_resume_over_the_bound();
+    let reports = one_byte_then_blocked(&mut w, &mut client, &write);
+    assert!(
+        !reports.iter().any(|r| matches!(
+            r,
+            WorkerMsg::RouteResumed { .. } | WorkerMsg::RouteClosed { .. }
+        )),
+        "{reports:?}"
+    );
+    let actions = w.send(&HostMsg::RouteCloseDue {
+        route: RouteId(1),
+        mark,
+    });
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a, Action::RouteClose { route: RouteId(1) })));
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::SnapshotTooLarge,
+            route_tag: None,
+        }]
+    );
+}
+
+/// OU-2 (0181's ST298-R2): the same with a healthy close that began while the route was `Stalled`. The failed resume keeps it, and the
+/// close step ends the route with that first reason.
+#[test]
+fn a_failed_resume_of_a_closing_route_is_closed_by_the_close_step_with_its_first_reason() {
+    let (mut w, mut client, write, mark) = stalled_with_a_resume_over_the_bound();
+    w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Detached,
+    });
+    let reports = one_byte_then_blocked(&mut w, &mut client, &write);
+    assert!(
+        !reports.iter().any(|r| matches!(
+            r,
+            WorkerMsg::RouteResumed { .. } | WorkerMsg::RouteClosed { .. }
+        )),
+        "{reports:?}"
+    );
+    let actions = w.send(&HostMsg::RouteCloseDue {
+        route: RouteId(1),
+        mark,
+    });
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::Detached,
+            route_tag: None,
+        }]
+    );
+}
