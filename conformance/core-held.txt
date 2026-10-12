@@ -7,7 +7,9 @@
 # - `unproven`: the id passes on the testkit, but that pass does not prove the clause; the line names the missing proofs.
 #   It runs at every seed. Its line leaves this file in the PR that adds the last missing proof, which also flips the id.
 # A real-only id needs no line here: core-real-only.txt comes from the replacement map.
-# A held id must pass: when it fails, the strict run fails until its line is removed (the id stays pending).
+# A held id must pass. A pending held id runs in the strict run: when it fails, the strict run fails until its line is
+# removed (the id stays pending). A `budget` id out of core-pending.txt does not run in the strict run; it must pass the
+# held-full run at every CI seed, or the gate's slow step fails.
 # A pending `budget` id runs at the first seed in the `lists` step's strict run (an id out of core-pending.txt does not). Every
 # `budget` id runs at every CI seed (0-31) in the held-full run of the gate's slow step, one trial a seed (lead, 2026-10-11).
 # Its `because:` states that proof location as `Full-seed proof: the gate's slow step, held-full run` (`parse_held` checks
