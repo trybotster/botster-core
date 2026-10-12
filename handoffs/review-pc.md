@@ -2459,3 +2459,40 @@ All six closures, additive resolutions, own-source preservation, status formulas
 Both complete import reviews are CLEAN. The old gate stays scoped to aeff and .44. A26 stays separate and on hold.
 Train 11 composition review, exact gate, single final receipt, and lead Q7 remain due.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Publication: matching #320 import receipt is pushed at a35324a7b1cbaaf55f29ac5a870e40bd9bd2672b.
+P5 and Sol receive the complete matching CLEAN record. The unchanged lead source verdict is not repeated.
+Train acceptance remains due. Wait for the doorbell. Never poll.
+
+## #320 complete train 11 package delta CLEAN
+
+Lead request: msg_plugin-w_1791847277_b1204b. No base move.
+Head: 131024f3936898a3106af299e6751553c55bbc82. Tree: 3934701063c7651b5ac2c62194721ad4b36801c0.
+Base: 644f632f194f62ad7fe14e66482ee01083706e30.
+Members: #298 7a8592fb493450c8b046a076cf484317eb58d96e; #320 48ff7a038d7c466776ae114acf32fd4f2f6d22da.
+Predecessor: 2d544e361beb2fffba21330c083899209f81a89e, tree baf0c3dc73bee4ff7ae3892f30fb7e16b97db3b0.
+The final parents match that predecessor and frozen #320. The reviewer verifies the published train branch.
+All 47 own added/removed line sequences remain exact; 16 paths overlap #298. The other 31 blobs remain exact.
+Every changed non-own blob equals the predecessor. The only manual conflict is core-real-pending.txt; both blocks remain.
+Own insertion hash: 889dd81239f8d567be7e0d485f970788643070f63364dcce37638ecb9c4ea83a.
+Member-to-train hash: b77089a189721b70f5f167e2c7c052ab94f194423dba2698ce4d5ff2b45695ae. Whitespace passes.
+
+The reviewer reads all applicable overlap source, shared tests/design changes, both new stall modules, and the resolution diff.
+All six finding closures remain valid. Facts, retention, input, model, receipt, and both decoder harness blobs remain exact.
+The link adds stall messages without changing launch ordinals, facts observations, or the derived frame bound.
+Route progress flushes before Output and later reports. Output still flushes before Facts Done on the ordered link.
+Input status frames stay kept. Stall drops only droppable frames. Both close paths preserve pending-input discard and status updates.
+The host retains both Activity guards and client revisions. Close releases the slot before the existing route removal.
+Facts Done and Observed do not enter the mandatory-message slot rule. No own read or test module disappears.
+DP-8 route adoption remains explicitly incomplete in #298; this package delta grants no completion of it.
+All nine status set formulas pass. Counts: ledger 692, pending 361, real-pending 45, minimum 69, held seven.
+The own 18 removals and one cost exception remain. Contracts stay .46; no new pin, own removal, exclusion, or retry is accepted.
+
+The lead handoff reports train local check --tests, strict 305/0, host 408/0, and worker-core 302/0.
+These remain producer reports here. The older aeff gate stays scoped to its actual head and .44 composition.
+R320-Q4 ceilings are now backlog B-7, on hold. The new Core A26 is a separate managed-process amendment.
+The accepted over-cap exception remains unchanged. No new configuration refusal is accepted.
+Formal package verdict: CLEAN, zero open, exact train 11 source delta for #320.
+Sol-C owns both integration deltas and combined review, per msg_plugin-w_1791848118_51d3fe.
+Complete integration review, exact train gate, the single final receipt, and lead Q7 remain due.
+No reviewer execution job runs. Wait for the doorbell. Never poll.

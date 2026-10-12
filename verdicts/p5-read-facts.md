@@ -449,3 +449,88 @@ No later source, amendment, pin, extra pending removal, retry, or completed merg
 No reviewer execution job runs. Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; matching complete import reviews recorded, train acceptance remains due).
+
+## Train 11 — complete #320 package delta CLEAN
+
+Lead request: `msg_plugin-w_1791847277_b1204b`.
+Train head: `131024f3936898a3106af299e6751553c55bbc82`.
+Train tree: `3934701063c7651b5ac2c62194721ad4b36801c0`.
+Base: `644f632f194f62ad7fe14e66482ee01083706e30`. The base does not move.
+Frozen #298 member: `7a8592fb493450c8b046a076cf484317eb58d96e`.
+Frozen #320 member: `48ff7a038d7c466776ae114acf32fd4f2f6d22da`.
+The #298 merge produces predecessor `2d544e361beb2fffba21330c083899209f81a89e`.
+Its tree is `baf0c3dc73bee4ff7ae3892f30fb7e16b97db3b0`.
+The final merge has that predecessor and the frozen #320 member as its exact parents.
+The reviewer verifies the published train branch with git ls-remote.
+Own insertion full-index SHA-256: `889dd81239f8d567be7e0d485f970788643070f63364dcce37638ecb9c4ea83a`.
+Member-to-train full-index SHA-256: `b77089a189721b70f5f167e2c7c052ab94f194423dba2698ce4d5ff2b45695ae`.
+The whitespace check passes.
+
+### Complete preservation and resolution review
+
+The reviewer compares all 47 own paths from base to member against their insertion after #298.
+Every own added/removed line sequence remains exact. Sixteen paths overlap #298.
+All 31 other own blobs remain byte-identical to the frozen member.
+Every changed non-own blob equals the #298 predecessor. No additional source change enters this composition.
+
+The overlaps are both pending lists, both DESIGN files, five host production/module files, and the host driver tests.
+They also include link msg.rs, testkit edge_tap tests, worker.rs, route.rs, worker route tests, and real-worker common/session.rs.
+The reviewer reads the complete applicable source delta, both new stall modules, design changes, and shared test changes.
+The reviewer reads the complete remerge resolution diff. Only core-real-pending.txt has a manual conflict.
+The resolution retains both the #298 stall-clock exception block and the #320 bounded-cost exception block.
+No source file needs a manual resolution.
+
+All six package finding closures remain valid, including LOW. No finding reopens.
+The pure facts, retention, input, model, receipt, and decoder harness blobs remain exact.
+The shared link file adds stall messages and marks without changing the facts observation fields or launch ordinal.
+The derived frame bound and actual large-tail reply test remain exact, within the accepted R320-Q4 scope.
+The host durable ordinal counter, launch hooks, and client revision rules remain unchanged.
+
+### Shared behavior
+
+The worker still flushes waiting Output observations before a read's Done.
+The #298 change flushes route progress before Output and before later reports on the same ordered link.
+This change does not replace the Output flush or send Done through another path.
+The route progress sender uses send_report directly. It does not recursively enter report.
+The real-worker helper skips Output and RouteProgress while it waits for the requested report.
+It still returns Facts Done reports. Both own props modules and the read tests remain present.
+
+The route queue now identifies droppable, kept, and resync frames.
+InputDone and InputRefused remain kept frames. Stall handling drops only droppable frames.
+The worker still creates and ends the input records through the same receipt and completion paths.
+The stall close path calls end_route, which discards pending received input before RouteClosed.
+The failed-resume close path calls close_healthy, which also preserves the input discard path.
+Stalled routes leave the output-read budget. Their input-read allowance still uses the existing rule.
+
+The host still guards both ClientInput and ClientInputEnded Activity updates with the live route set.
+The host still advances the client revision for each accepted report.
+A route close releases its deadline slot before the existing mandatory close and route removal.
+The new reserved-slot rule applies to mandatory messages; Observed and Facts Done do not use that rule.
+The stall clock accepts a route's reports only after RouteReceived from the correct session.
+The worker clears old-link progress state before Adopted and reports surviving route progress after Adopted.
+The #298 design explicitly leaves DP-8 route adoption for later work. This review grants no DP-8 completion.
+No new interaction breaks the reviewed #320 receipt, retention, status, tail, or reply behavior.
+
+### Contracts, status, and evidence limits
+
+The train retains contracts-v0.1.46. It introduces no new pin or ST-7 expected value.
+All nine conformance text sets satisfy the three-way formula against the unchanged base.
+The own eighteen ST-7 removals and one real-pending cost entry remain exact.
+Final counts are ledger 692, core-pending 361, real-pending 45, minimum 69, held seven, real-only 26, and seven proof rows.
+The #298 status changes belong to its package review. This delta adds no own removal, exclusion, or retry authority.
+The source review retains the complete member reviews and their original evidence limits.
+The aeff gate remains evidence for its exact older head and .44 composition. It is not a train gate.
+The shared lead handoff reports local check --tests, strict 305/0, host 408/0, and worker-core 302/0 on this train.
+Those are producer reports here. The reviewer does not independently promote them to an audited train gate.
+
+The lead handoff renames the former R320-Q4 ceilings proposal to backlog B-7, which remains on hold.
+The new Core A26 concerns managed processes. This review grants no acceptance of that separate amendment.
+The accepted #320 over-cap exception remains unchanged. No new configuration refusal enters the train.
+
+No new package finding remains. Sol-C now owns both integration deltas and the complete composition review.
+Applicable complete integration review, the exact train gate, the single final receipt, and lead Q7 remain due.
+This package verdict grants no final train acceptance, later head, pin, amendment, or completed merge.
+No reviewer build, test, gate, mutation, reproduction, measurement, or executable base-check job runs.
+Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; complete #320 package source delta on exact train 11, 131024f3).
