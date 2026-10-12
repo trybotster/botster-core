@@ -202,3 +202,15 @@ R-107's case says the Output Ack follows bytes reaching the PTY slave. The sourc
 An Ack alone therefore proves enqueueing, not the actual PTY write before Stop. OU-7 remains binding for bytes actually written before exit. The timeout's attribution solely to A31 needs a steward disposition for this boundary or retained actual-write evidence. I send the lead supporting QUESTION `msg_plugin-w_1791823724_34f4d9`.
 
 This question does not diagnose another observed defect or reopen the old source verdict. It limits acceptance of the proposed known-flaky diagnosis. The old re-gate stays withdrawn. No future PR, train, or gate is accepted. I ran no execution job.
+
+### R107-SI-1 disposition: both candidate causes retained
+
+Lead receipt `msg_plugin-w_1791823877_ad0305` supplies contracts commit `fe209c65`. I read the complete R-107 follow-up there. It confirms that Output Ack means queued and corrects the earlier premise. The retained logs cannot distinguish unwritten probe output from a missing worker tail drain.
+
+The default Ack keeps its meaning. The new read-only control `pty_output_written` will report bytes whose write_all and flush returned. EV-2 must await that count before Stop. P6 owns the contracts patch. Core must serve the control on both tiers. A31 remains the P3 worker fix for actual tail bytes.
+
+The proposed EV-2 known-flaky entry must name both candidate causes and both owners. It is removed only after both fixes land and the required identifiers pass at their failing seeds. R107-SI-1 closes as a question by this explicit disposition; it supplies no implementation acceptance.
+
+The follow-up also confirms that EV-1 step 10 and EV-2-retired step 121 have no intervening exit. Their fix is an R-57 state fence, not A31 alone. They receive separate known-flaky entries only if they fail before that patch lands, with their own recorded signatures. The sentinel for EV-2-retired must preserve the live-instance and loss-marker conditions.
+
+The new HIGH PR and train 4b still require exact-head reviews. The withdrawn unchanged re-gate stays withdrawn. I ran no execution job.
