@@ -493,6 +493,14 @@ impl RouteClient for RealRoute {
         }
     }
 
+    /// Steward ruling R-86: the client is an independent actor. Sends the waiting bytes that the stream takes now; the
+    /// worker process reads the stream on its own. True when a byte moved.
+    fn progress(&mut self) -> bool {
+        let waiting = self.unsent.len();
+        self.flush();
+        self.unsent.len() < waiting
+    }
+
     fn has_control(&self, op: &str) -> bool {
         CONTROLS.contains(&op) || (op == "pty_input" && self.input.is_some())
     }
