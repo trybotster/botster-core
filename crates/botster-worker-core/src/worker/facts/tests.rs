@@ -169,8 +169,12 @@ fn an_oversize_newest_record_is_truncated_then_minimal() {
     let r = record(&read.records[0]);
     assert!(r.payload_truncated);
     let kept = r.payload.as_ref().unwrap().0.len();
-    assert!(kept > 0 && kept < 100, "{kept}");
+    // The room is the empty prefix and 20 characters: 10 bytes, two hex characters each.
+    assert_eq!(kept, 10);
     assert!(facts.list_len() <= bound);
+    // The kept record itself fits its room. The list alone does not prove it: the room keeps space for the largest status
+    // update, and this one is shorter.
+    assert!(json_len(&InputRecordEntry::Record(r.clone())) <= bound - 3 - probe.status_room);
     // The longest prefix that fits: one byte more does not.
     let mut longer = r.clone();
     longer.payload = Some(HexBytes(vec![0xab; kept + 1]));
