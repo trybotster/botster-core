@@ -3596,3 +3596,45 @@ Both verify SHA256 `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b
 Other member FINAL receipts, combined FINAL acceptance, and lead ancestry, equal-tree merge, and push verification remain due.
 No later head, future pin, specific retry, #309/#311 composition, or A31 implementation is accepted.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — train 5 replacement delta, round 1
+
+VERDICT: NOT CLEAN (1 open).
+Exact head: `7a2d53d999800afa266e3a10f025ee24e288a0ca`.
+Tree: `9bca0030a0c72beca8ff59b2574527064ccdc9e7`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+READY message: `msg_plugin-w_1791828562_5d3c9c`.
+Earlier source receipt: `ade8bbee15558c8c592e0eec573e91d43afa8a6f`.
+
+RC-R100-6 — MEDIUM — the changed queue-bound test asserts private driver state.
+Evidence: `crates/botster-core-host/src/tests/driver.rs`, `the_control_queue_bound_is_the_admitted_traffic_and_four_cancels`, lines 1271–1283.
+The test reads `rig.driver.control_message` and asserts `rig.driver.control_bound` against the formula.
+The user requires that no test assert private state. The composition commit changes this same test's expected frame bound.
+Earlier acceptance of the imported #307 source does not close this observed violation in the touched test.
+Required change: test the pure queue-bound decision through its inputs and returned value, or test the public boundary behavior.
+Derive any encoded cancel length through the message/frame boundary. Do not assert fields of the driver subject.
+Keep coverage of the frame multiplier and queue formula. A public getter added only for this assertion does not close the finding.
+
+The reviewer reads both new commits and checks the full own-file difference against the accepted base.
+The merge has parents `f41b7e82ba98e76f2487185eba0af2a3a0de8918` and the stated base.
+The DESIGN resolution retains every line from both parents before the composition correction.
+The composition correction changes the documented multiplier, approximate default queue bound, one test expectation, and one comment.
+The frame-fit implementation, its tests, launch constructor, host module declarations, and encoded-length implementation retain their accepted blobs.
+The remaining own-file differences import #307's cancellation room path and removal of Observation::Writable.
+The queue uses the engine's actual frame bound. Its largest-frame term includes the five-byte header.
+The six-times multiplier gives 97 MiB with the default 16 MiB snapshot limit; 288 frame terms give approximately 27 GiB.
+The queue still takes the minimum of its retained-byte room and the link edge's room. No further product change is observed.
+The mutation configuration and all exclusions equal the accepted base. No transcript, status list, or new control model changes.
+
+The reviewer reads the local script and retained log; the reviewer executes neither.
+The log names this exact head and tree, clean tracked status, target directory, and removal of 5638 files totaling 1.1 GiB.
+The script unsets RUSTUP_TOOLCHAIN and sets both parallelism caps to four. The clean has no separate numeric exit record.
+Fmt exits zero. Host and link tests pass 430 cases and exit zero.
+The scratch reversal to 65 MiB fails with actual 101711872 and expected 68157440; the script restores the file.
+These records support the composition expectation. They supply no final pool gate.
+The complete updated PR body matches its exact UTF-8 SHA256 `68554df90eb8881d99b5e65f6a85c12fffac9df5a61859d24b5d2119c3fc6bb3`.
+The body retains historical gate scopes and states that the future train-5 gate remains due.
+
+The finding must close before an exact-head source CLEAN. Matching integration review and final train evidence remain due.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
