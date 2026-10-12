@@ -226,3 +226,13 @@ It matches the exact train head, base, tree, frozen member, preserved source edi
 Both reviews retain the lead's pre-checks as reported evidence. Neither claims a completed train gate.
 Sol owns the combined review, the dp_3 real-pending trigger check, and the one final train receipt.
 No additional review round or final acceptance follows from this matching record.
+
+
+### Combined train-6 source record
+
+I read complete train-6 Round 1 and #303 Round 4 at `a3250c8cb1a1b2ceb34eae8d2a6c4f5c1bffb8be`.
+Sol's combined review matches train head `3e655eff46d36f8c337339a1a17d401c8c662594`, base `2683de7ccbb1360d124422b3b6a2dd196b046c7e`, and tree `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+It reads all member deltas and closes the combined #303/#311 source scope with zero findings, including LOW findings.
+It confirms all 36 conformance formulas and retains dp3 in real-pending until valid current-pin evidence supports removal.
+The completed exact-head gate, Sol's one final train receipt, and lead merge verification remain due.
+This record supplies no duplicate final receipt or new review round. I ran no execution job.

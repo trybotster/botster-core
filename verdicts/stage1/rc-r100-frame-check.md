@@ -291,3 +291,13 @@ The train gate has not run. Combined review, exact-head gate, Sol's train receip
 This delta accepts no #316 pin, future known-flaky composition, or final gate result. I ran no execution check.
 
 VERDICT: CLEAN (0 open, including LOW; #309 source delta only)
+
+
+### Combined train-6 source record
+
+I read complete train-6 Round 1 and #303 Round 4 at `a3250c8cb1a1b2ceb34eae8d2a6c4f5c1bffb8be`.
+Sol's combined review matches train head `3e655eff46d36f8c337339a1a17d401c8c662594`, base `2683de7ccbb1360d124422b3b6a2dd196b046c7e`, and tree `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+It reads all member deltas and closes the combined #303/#311 source scope with zero findings, including LOW findings.
+It confirms all 36 conformance formulas and retains dp3 in real-pending until valid current-pin evidence supports removal.
+The completed exact-head gate, Sol's one final train receipt, and lead merge verification remain due.
+This record supplies no duplicate final receipt or new review round. I ran no execution job.
