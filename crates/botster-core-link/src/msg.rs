@@ -299,9 +299,9 @@ impl HostMsg {
         serde_json::from_slice(payload).map_err(|e| MsgError::from_decoder(&e))
     }
 
-    /// The length of [`HostMsg::encode`]'s output: the frame payload of this message. It encodes into a counter and keeps no
-    /// byte, so a check of a large message allocates nothing (steward ruling R-100: a call whose message can never fit the
-    /// link frame is refused at the call).
+    /// The length of [`HostMsg::encode`]'s output: the frame payload of this message. It encodes into a counter, so no buffer
+    /// of the encoded output is kept (steward ruling R-100: a call whose message can never fit the link frame is refused at
+    /// the call). The serializers can still allocate on their own (`HexBytes` makes its hex string).
     pub fn encoded_len(&self) -> u64 {
         json_len(self)
     }
