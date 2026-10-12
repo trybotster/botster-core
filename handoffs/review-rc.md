@@ -1730,3 +1730,35 @@ Its remaining acceptance condition is the completed current-head gate, full muta
 The separate synthetic proof retains its limits and supplies no timing-only retry attribution.
 Final-slot current-base import, applicable checks, exact-head gate, and final reviews remain due after both source CLEANs.
 The reviewer accepts no running gate output. The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — missed progress mutant and two-send proof
+
+Head: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Message: `msg_plugin-w_1791775399_e073a5`.
+The reviewer reads the completed d919844d gate summary and missed-mutant record, complete new source delta, and reversal log.
+Failed gate: `gates/botster-core-stage1-rc-pin-42-d919844d-pool-20261011-200604-66397.log` under `~/botster-sessions`.
+Eight steps pass. Mutants fails; fuzz does not run.
+Its unmutated stage-2 baseline passes, including the corrected resume test.
+Stage 1 catches thirteen of 26 mutants. Stage 2 catches twelve of thirteen; one mutant remains missed, with no timeout or unviable result.
+The surviving mutant replaces `+` with `-` in TestkitRoute::progress at route_client.rs line 359.
+The step total is 602.7 seconds; the wrapper exits 1 after 834 seconds.
+This gate is not accepted as green evidence.
+
+The new commit adds a clause-level test and a cfg(test) simulation injection method in Workers.
+It changes no production progress behavior, pin, pending list, CI file, or mutation exclusion.
+The test gives the route eight bytes, reads two peer bytes, then runs an injected reader through the workers' real run_ready path.
+The first send moves ef; the reader receives cdef; the second send moves gh.
+The test observes public progress and peer-read logs cdef, then cdefgh. It asserts no private queue or worker-machine state.
+The reader's recorded bytes are the test peer's output observation, not subject state.
+The injection method is test-only; run_ready retains its existing finite simulation step bound.
+The test adds no sleep, process, terminal semantics, or real-control model.
+
+Reversal log: `evidence/rc-pin-42/reversal-progress-7c7dadd1.log` under the shared core-stage1 directory.
+The subtraction, always-false progress, >= comparison, and empty injection method each fail the new behavior test.
+The multiplication reversal passes this new test; the record does not claim otherwise. The earlier progress test covers that reversal.
+The log identifies the source head and target directory, filters output, and ends with restored source status.
+The completed new-head gate must confirm the surviving mutant is caught and supply the full combined result.
+No new source finding is added by this test correction. RC-PIN43-1 through RC-PIN43-4 remain closed.
+Final source CLEAN still awaits completed exact-head evidence and the matching body result.
+The reviewer ran no test, build, gate, or diagnostic.
