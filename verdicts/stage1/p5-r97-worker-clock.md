@@ -174,3 +174,117 @@ Repair READY and its applicable source, evidence, body, and package review remai
 I ran no execution job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — source repair and evidence dispositions
+
+Head: `955ca290737453265d7eb4622c5e998abbe0c84f`.
+Parent: `cd0a468873fc9c318b5002a640d5c6b753007a35`, the reviewed head.
+Tree: `cf37a37e2f982bb699fd41365cb1252eeebcb59c`.
+Stacked base: `403bbf689cc9f745a9552cc518374a6a8f2cdb32`, #301.
+Gate reference: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`, not imported.
+READY receipt: `msg_plugin-w_1791779445_a012e4`.
+I read the complete two-file repair: 33 additions and five deletions.
+Its full-index SHA256 is `206d58bc080fe35b410caa2ed9e8eea5e15209e26800043bac37b37362e58dbf`.
+I also read affected source paths, the complete body, replacement scripts/logs, raw outcome maps, retained FLAKY record, and completed gate.
+Body snapshot SHA256: `28c3f8ea95f60e491524339f136dcdd82fe669aef30ab842ca8b2651691c7684`.
+
+### R303-SI-1 — MEDIUM — CLOSED in source and evidence
+
+`run_ready` now calls `run_at_clock`, which advances the Sim to `WorkerClock::now` before it runs worker work.
+The helper does not call `program.new_step` or a host pump. It does not advance injected host time.
+Thus route reads and `input_blocked` use the same worker clock as the other worker execution paths.
+
+The new manual-clock regression observes a peer as well as the worker deadline.
+At 99 ms the peer returns WouldBlock. At 100 ms it returns EOF after the worker ends.
+The exact-head gate supplies normal PASS for this test.
+The retained reversal reports an old-source failure at the due-deadline assertion.
+Original filtered reversal SHA256: `831b9c06168525e8f93d52bf810d9d0285024543fbed8c55fd707372b1f8886b`.
+P5 adds a marked provenance note after the run. I read the complete updated record, SHA256 `4fb847372ade7388bc575d7bf994a20fbbea1375b4ce5852ac018dc6208be91d`.
+The note names this head, the old cd0a4688 body, the exact test command, restoration, and the one-worktree writer condition.
+The independent switch log records the 04:12:12 UTC clean of 20100 files and 5.3 GiB.
+The note remains an owner statement added after execution, rather than a contemporaneous command header.
+The filtered test output has no numeric exit or restored PASS. The source and independent current gate support the closure.
+I performed no reversal or runtime reproduction.
+
+### R303-F1 — MEDIUM — CLOSED by retained diagnosis and accepted disposition
+
+The body now retains the earlier FLAKY result and its failed-then-passed retry.
+I read the mutant identity, failure block, retry PASS, and final FLAKY summary from the retained raw mutant record.
+Raw SHA256: `5f2039919e2f02d190bab0b2c75b4608f5c08969042303c57f7474462c1d424c`.
+The real slow-conformance test fails at seed 0, zero-based step 28.
+It expects `activity_before_close: true, closed: true` and receives `activity_before_close: false, closed: true`.
+The record supplies no catch for the mutation. The earlier gate remains RED and the mutation remains historically MISSED.
+
+I independently match that signature to the R-66 follow-up for the real-tier race in #285.
+The .41 transcript index 25 is `await_quiet`; index 26 begins Detach; index 28 checks the two report fields.
+The .42 and .43 transcripts replace index 25 with a non-polling `route_reports` fence.
+That fence requires `activity_before_close: true, closed: false` before Detach.
+The R-66 follow-up names RC as the owner of this structural transcript fix.
+
+The own #303 diff changes no real harness or real Core source.
+`RealCoreHarness::open` builds real Core and its host driver with real edges and its own wake.
+It does not build `TestkitCore` or `WorkerDeadlineWake` on this test path.
+Thus this testkit-clock mutation does not interfere with the accepted real-tier race disposition.
+The body identifies the structural fix in .42, its .43 import through #299, and the required final-slot v1 merge.
+The old FLAKY record remains. This closure accepts its diagnosis and disposition, not a new real-tier fence proof on the .41 head.
+The final integration must import that pin fix. The current gate catches the wait mutation in stage 1.
+
+### Original raw provenance condition — CLOSED by withdrawal and replacement
+
+P5 explicitly withdraws the old `r97-raw-*` files because their producer and command cannot be confirmed.
+Their observed outcome maps remain historical observations, with no accepted execution provenance.
+I read the complete replacement `r303-compare.sh` and `r303-compare.log`.
+The script writes each raw file directly, with its exact head, command, target directory, and list overrides.
+It sets both parallelism caps, removes the toolchain override, and uses seeds 0–31.
+The log records the initial clean of 6320 files and 1.9 GiB, then one physical worktree writer.
+The two revisions run in that same physical worktree. The final log restores the branch and clean tracked status.
+The script/log do not retain numeric exits for the clean or each failed full comparison.
+
+Before raw SHA256: `5dbac2495ec22755d27d7f0dc059b15df4f5a84aab3ee4c541c32acdad577084`.
+After raw SHA256: `2766155c391f7024766ae82d4cc864fd2e35ec51025786e6d3c5bce2232cbe1d`.
+I independently compare all 691 cells in both files: 262 PASS, 341 FAIL, 88 ignored, every outcome unchanged.
+Their diagnostic signatures differ only for the startup id: seed 0, step 7 before and step 24 after.
+The replacement is #301 versus this exact repair head. It supplies no real-tier full-corpus run.
+The forced AD-7 trials still report unsupported `wait_worker_exit`; the steward correction and lead disposition already close that condition.
+
+### Completed current evidence
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p5-r97-worker-clock-955ca290-pool-20261011-212423-85992.log`.
+SHA256: `b51fd95ae9cecf2333aafcb9232b92f0cdd8321fbf1cc53812cd79f9249407fd`.
+All ten steps PASS in 335.4 seconds.
+Job exits zero after 347 seconds on msa1, with zero queued seconds and 347 run seconds.
+The wrapper exits zero after 348 seconds.
+Default: 1876 PASS, 432 skipped, 22.925 seconds. Slow: 611 PASS, 2055 skipped, 47.356 seconds.
+Both strict summaries report 259 PASS and zero failures.
+The strict check runs 321 of 339 pending ids, with eighteen real-only ids excluded and three held.
+Held-full runs two budget ids at 32 seeds: 64 expected ignored results, zero failures, 19.28 seconds.
+Both required R-97 unit tests and the new peer regression have normal PASS records.
+All 33 reported passing ignored real ids remain in the unchanged 44-entry real-pending list.
+
+I independently match all 49 unique mutation identities: 35 caught, fourteen unviable, zero missed, zero timeout.
+All 35 raw catches equal their citations. Every cited test has normal PASS.
+The mutation outcomes take 162.1 seconds; the whole step takes 164.8 seconds.
+Stage 2 does not run because stage 1 misses no mutation. The log has no FLAKY token.
+Fuzz selects no changed decoder harness.
+
+The complete local-check script/log names this exact clean head, both parallelism caps, and the prior target clean.
+Log SHA256: `41f74d502f0d20887a0460eec649d56b67890d76bee809d4cfb1e709d195c4f7`.
+It records fmt/clippy completion, 305 host, 436 testkit, and 192 worker-core passes.
+It records 259 strict passes with seeds 0–31, taint PASS, and clean final status.
+The filtered pipelines retain no numeric exits for every command. The no-other-worktree condition remains the producer's recorded statement.
+No reviewer execution supplies additional cache proof.
+
+### Disposition
+
+No integration source, body, or evidence finding remains.
+I read complete package Round 2 at `da9040d7345317204d230822b45da6bd15592725`.
+Package receipt: `msg_plugin-w_1791779977_db1c63`.
+Its exact head, source closures, evidence dispositions, current gate audit, and retained limits agree with this review.
+Both initial stacked reviews have zero open findings.
+The repair leaves the status files byte-identical to cd0a4688; their id sets equal the #301 stack.
+The gate reference remains outside the head's ancestry, so the gate tests #301 plus #303 against their v1 merge base.
+#301 must merge first. Final-slot import/checks, applicable delta reviews, exact-final-head gate, final reviews, and Q7 remain due.
+Stop-grace, identity hold, guardian exit, and a testkit AD-7 control remain separate work.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open initial findings; final integration remains due) at 955ca290737453265d7eb4622c5e998abbe0c84f against stacked base 403bbf689cc9f745a9552cc518374a6a8f2cdb32
