@@ -2780,4 +2780,50 @@ fn the_model_snapshot_is_what_a_capture_sends_now() {
     assert_eq!(pages[0].bytes.0, live);
 }
 
+/// AD-3: the adopting host reads the size that the session has now, not the launch size: after a `Resize`, the `Adopted`
+/// report carries the new size.
+#[test]
+fn an_adopting_host_reads_the_size_after_a_resize() {
+    let mut w = World::running();
+    w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    let actions = adopt(&mut w, EPOCH + 3);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(
+        report.terminal.map(|t| t.size),
+        Some(Size {
+            rows: 30,
+            cols: 100,
+            cell_px: None,
+        })
+    );
+}
+
+/// DP-6: `SetSizePolicy {Latest}` (the only policy of 0.1) completes `Unit`; another policy is `Unsupported`, as this worker
+/// offers no `size_policy_other`.
+#[test]
+fn set_size_policy_latest_completes_and_another_policy_is_unsupported() {
+    let mut w = World::running();
+    let set = |policy| Op::SetSizePolicy {
+        session: sid(),
+        policy,
+    };
+    assert_eq!(
+        op(&mut w, 1, set(SizePolicy::Latest)),
+        OpResult::Ok(OpOutput::Unit)
+    );
+    for (req, policy) in [(2, SizePolicy::Smallest), (3, SizePolicy::Largest)] {
+        let OpResult::Err(error) = op(&mut w, req, set(policy)) else {
+            panic!("{policy:?}");
+        };
+        assert_eq!(
+            error.code,
+            ErrorCode::Unsupported { what: None },
+            "{policy:?}"
+        );
+    }
+}
+
 mod routes;
