@@ -479,6 +479,15 @@ fn a_newer_report_waits_until_the_link_wrote_the_last_one() {
     assert!(progress(&w.reports(&short)).is_empty(), "{short:?}");
     let reached = w.feed(Input::LinkWritten { total: sent });
     assert_eq!(progress(&w.reports(&reached)), [(mark + 2, true)]);
+    // The link wrote exactly the last report: the next change goes out at once.
+    let sent = w.sent;
+    w.feed(Input::LinkWritten { total: sent });
+    w.feed(Input::RouteWritable { route: RouteId(1) });
+    let next = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    assert_eq!(progress(&w.reports(&next)), [(mark + 3, true)]);
 }
 
 /// R-90 Q3: a new host has none of the old link's reports. After `Adopted`, a waiting route reports its state again on the

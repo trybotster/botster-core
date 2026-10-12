@@ -284,9 +284,8 @@ impl HostEngine {
     fn accepts_at(&self, input: &Input, room: bool) -> bool {
         use botster_core_link::msg::WorkerMsg;
         match input {
-            // The answer to a route's due step has the slot that the step holds (R-90, E3-1 item 4).
-            Input::LinkMsg { msg, .. } if self.answer_has_slot(msg) => true,
-            // A frame ahead of a due step's answer on the same link takes over the step's slot (`take_over_slot`).
+            // While a due step of the link holds a slot (R-90, E3-1 item 4), the step's answer takes it, and a frame ahead of
+            // the answer on the same link takes it over (`take_over_slot`).
             Input::LinkMsg { link, msg } if needs_room(msg) => {
                 room || self.slot_of_link(*link).is_some()
             }
