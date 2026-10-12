@@ -45,6 +45,13 @@ The verdict distinguishes ST's copied reversal excerpts from independently check
 The round-2 Mac evidence covers unchanged worker and operating-system paths; its broader failures remain recorded.
 This source CLEAN is not a final-slot merge receipt. Wait for the next doorbell.
 
+DP-8 design review: revision 3, SHA-256 `84c85f149fab45954a2b251cc0c8013bfdd17c455a32f65721e50b4907fc92a6`.
+Declared base: #298 head `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Verdict: NOT CLEAN (4 open). Findings cover the complete rename, route-keyed observations, bounded messages and adoption event phases.
+R1 is closed under R-98 at contracts `4fd81f1cb4063659b709ba8aa72a662e4cc2937b`.
+R2 remains a contract question for the lead. The reviewer accepts R3's completion barrier.
+The implementer must wait for the lead's design approval before code. Wait for a revised design doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

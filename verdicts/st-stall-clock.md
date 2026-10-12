@@ -1,8 +1,91 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (4 open; DP-8 design revision 3)
+
+## DP-8 route adoption: design revision 3
+
+Artifact: `shared/core-stage1/handoffs/st-dp8-route-adoption-design.md`.
+SHA-256: `84c85f149fab45954a2b251cc0c8013bfdd17c455a32f65721e50b4907fc92a6`.
+Declared Core base: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Risk tier: HIGH. This is a design review. The reviewer ran no local build or test.
+The reviewer read revisions 1 and 2 before revision 3 arrived. This verdict applies only to revision 3.
+The #298 source verdict remains CLEAN at the declared base.
+
+### STDP8-D1 — HIGH — The rename must include the transport and pending input
+
+Section 5.4 renames the worker's route table, but the real driver also indexes its streams by `RouteId`.
+At the base, `botster-worker/src/route_io.rs` keeps `Routes.routes: BTreeMap<RouteId, RouteIo<S>>`.
+Its writes, read allowances, closes and returned inputs use that key.
+The input machine also retains route ids in admitted input records (`worker/input.rs`).
+Renaming only the route machine leaves its transport under the old key.
+A new-id write then finds no stream, and an old-id callback can name the wrong route after an id collision.
+
+Required change: define the rename for every route-id reference in the machine, real driver and testkit edge.
+Include pending writes, read allowances, poll tokens, admitted input and queued actions or callbacks.
+Specify an atomic boundary that preserves the connected stream and bytes already in flight.
+Add driver proofs with crossed ids and a pending partial write or input when the rename runs.
+Include a second host loss before `RouteIds` arrives, so the next adoption can recover the remaining routes.
+
+### STDP8-D2 — HIGH — The report hold omits route-keyed observations
+
+Section 5.3 holds five named route reports and claims that no message on the new link names an old id.
+However, `Observation::ClientInput` also contains `route: RouteId`.
+At the base, `worker/route.rs::client_received` sends that observation through `report`.
+Client input continues while the worker waits for `RouteIds`, so this path can send an old id on the new link.
+Section 5.2 also excludes closing routes without defining how their later reports avoid old ids.
+
+Required change: cover every route-keyed report, including client activity and reports from excluded routes.
+Define whether the worker retains, suppresses or translates each report during the mapping window.
+Keep the required event order and bounded memory. Do not replay pre-adoption history.
+Add a proof that client input during the mapping window cannot name an old id on the new link.
+
+### STDP8-D3 — HIGH — The aggregate route messages can exceed the link frame bound
+
+Sections 4 and 5 place every live route in one `Adopted` frame and every mapping in one `RouteIds` frame.
+The design gives no bound that proves either frame fits.
+Each route adds tags and applied limits. Many individually valid attaches can exceed the bound in one aggregate report.
+At the base, `Worker::send_frame` sends nothing when `encode_frame` rejects the payload against `frame_bound`.
+An oversized adoption report can therefore leave a live worker unreachable to the adopting host.
+
+Required change: define a bounded transfer that preserves every live route and the adoption completion barrier.
+Account for both messages, the metadata size, and closes retained while the mapping waits.
+Do not silently drop routes, enlarge existing limits, or add an unsupported route-count limit.
+Add boundary proofs for a report near the link bound and a route set that needs more than one bounded transfer.
+
+### STDP8-D4 — HIGH — Adoption needs a barrier for later route events and state changes
+
+Section 6.1 treats consumption of `Adopted` as the step that posts `SessionState`.
+At the base, `adopt_report` selects a flow; `post_adoption` posts the state in a later step with room.
+The proposed immediate `RouteIds` lets the worker send resumes and closes while the state or adoption events still wait.
+Parking an adoption event only when the queue lacks room does not define this complete ordering boundary.
+
+A route can be reported stalled, resume after `RouteIds`, and have its resume consumed before its adoption event posts.
+Section 6.3 would then arm the old stalled deadline at the adoption post, after Core already removed it for that resume.
+This repeats the stale-deadline problem that #298's posting guard prevents.
+
+Required change: define the state, route registration, mapping send and event-post phases separately.
+Ensure that each adopted route's events follow its `SessionState` and `RouteAdopted`, including with one mandatory slot and one event budget.
+Apply consumed resumes and closes to the pending adoption snapshot so its later post cannot restore an ended stall.
+Keep the row pending until all required adoption events post, including a route that closes during this interval.
+Add driver proofs for queue backpressure, budget exhaustion, a resume before the adoption post, and a close before that post.
+
+### Contract questions and accepted parts
+
+- R1: CLOSED. The reviewer read R-98 at contracts `4fd81f1cb4063659b709ba8aa72a662e4cc2937b`.
+  Revision 3 correctly keeps protocol 1 and removes compatibility defaults for required DP-8 fields.
+  Both DESIGN.md files must state that protocol 1 becomes fixed at the first release.
+- R2: refer to the lead. A closing route can still have a connected transport while it delivers its final frame.
+  The reviewer does not decide whether DP-8's "per live route" excludes that route.
+  The design must use the lead's contract disposition before code starts.
+- R3: the proposed completion barrier is correct. `AdoptAll` must not complete before its required `RouteAdopted` events post.
+  STDP8-D4 requires the design to define the intervening state and event phases.
+- The old Core comparison and the choice of new handle-owned route ids satisfy the stated design intent.
+  The five listed DP-8 ids and full-seed evidence plan remain required.
+  The real driver rename adds socket-path scope, so the implementation needs focused Mac evidence before READY.
 
 ## Core #298: round 3
+
+VERDICT: CLEAN
 
 Reviewed head: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
 Reviewed source base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
