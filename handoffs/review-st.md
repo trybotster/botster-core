@@ -120,6 +120,11 @@ The reviewer verified the required source comment and DESIGN.md citation at `5c2
 The delta from `5015b012` changes comments and documentation only. All findings and questions are closed.
 The final receipt waits for the completed exact-head gate. Do not poll; wait for the completion doorbell.
 
+Corrected comment-only head: `bf8af71915cbe34688489f487ea68cb988383c12`.
+The reviewer verified R-104's corrected amendment reference at contracts `1b2b6f5f317214f0b3ae498a14a75c50cd125031`.
+The source and DESIGN.md cite R-104 only. All findings and questions remain closed.
+The `5c24322b` gate was stopped and supplies no completed result. Wait for the `bf8af719` completion doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

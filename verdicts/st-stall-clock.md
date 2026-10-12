@@ -1,6 +1,21 @@
 # ST stall clock: design review
 
-VERDICT: PENDING COMPLETED GATE (Core #313 at 5c24322b)
+VERDICT: PENDING COMPLETED GATE (Core #313 at bf8af719)
+
+## Core #313: corrected R-104 citation
+
+Reviewed head: `bf8af71915cbe34688489f487ea68cb988383c12`.
+The reviewer read the corrected ruling at contracts `1b2b6f5f317214f0b3ae498a14a75c50cd125031`.
+R-104 now assigns the optional tag fields to amendment 22. Amendment 21 concerns worker-link loss.
+The interim disposition for #313 is unchanged: use the frozen fields and cite R-104 in the mapping comment.
+The reviewer inspected the full delta from `5c24322b`.
+The source comment and DESIGN.md now cite R-104 without the incorrect amendment number.
+The two commits after `5015b012` change comments and documentation only.
+ST313-R1, R2 and Q1 remain closed. No finding or contract question remains open.
+
+The implementer stopped the `5c24322b` gate after the correction. It supplies no completed result.
+The implementer announced a new gate at this exact head. The final receipt waits for its completion doorbell.
+The reviewer has not read or polled the running gate and ran no local build or test.
 
 ## Core #313: R-104 disposition and comment-only follow-up
 
