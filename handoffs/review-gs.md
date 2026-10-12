@@ -1,5 +1,15 @@
 # GS reviewer handoff
 
+## Current Core PR #304 result
+
+Package CLEAN at `37e5ee32d326f588676b6fc727ad52c86022de61`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open findings: 0.
+
+The three named proofs cover the approved DP-2 clause map. The new EOF assertion preserves buffered tail bytes and catches the supplied window write.
+
+Linux gate and focused Mac proofs pass. The local reversal's cleanup is an after-run owner statement; no original clean record exists. The verdict states that limit.
+
+Sol-B's same-head review remains due. Then the final-slot flow requires the current-base import and exact-head final gate.
+
 ## Current Core PR #293 result
 
 The final-slot import is package source CLEAN at `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`, base `e4f495040a80b524a7ac9accba95272d5c2594fa`.

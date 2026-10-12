@@ -2899,3 +2899,77 @@ I verified its parents: base `e4f495040a80b524a7ac9accba95272d5c2594fa` and revi
 The merge tree equals the reviewed and gated tree, `f2c6afb1e85a47a8fd59112fd6bfd16c1c4539a9`.
 
 This completes the package integration and merge receipt. The separate coverage design and PC's structural fix remain separate owned work. I ran no execution job.
+
+### Core PR #304: DP-2 named real proofs
+
+- Head: `37e5ee32d326f588676b6fc727ad52c86022de61`.
+- Base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package source and supplied evidence).
+- Open findings: 0.
+
+I read the approved option-A design, its clause map, all four changed files, the affected helpers and test bodies, and the complete PR body.
+
+I checked DP-2 and R-65 at the pinned contracts commit. The proof mapping retains the worker-receipt requirement before the host closes its copy.
+
+The PR removes only dp_2 from core-pending and adds three named proof lines. It retains the real-only class and changes no real-pending entry.
+
+The first facade proof drops the worker's copy before acknowledgement. The client's write succeeds while the host still holds its copy.
+
+After acknowledgement, a later capture's completion proves that the host processed the link. The client observes close and BrokenPipe, as the R-65 proof requires.
+
+The second facade proof receives one descriptor with the expected route identity. Its worker side reads every client byte to EOF from that descriptor.
+
+The client reads the worker's exact first line. The new assertion then reads the remaining bytes to EOF after stop and requires an empty result.
+
+I read `first_line`, `Bounded::line`, and `Bounded::to_eof`. They preserve bytes after the first newline. The new assertion cannot lose an already-buffered extra byte.
+
+The EOF read has the existing cleanup deadline. It fails on a read error or deadline. The unchanged stop helper joins the worker-side thread and ends Core before that read.
+
+The third proof runs the real worker binary with a handed-off descriptor. The route carries attached, baseline, live, client input, and payload output.
+
+The composition limit is explicit: no named proof combines real Core and the real worker binary in one test. The lead approved these separate proofs.
+
+The transcript's own real-tier proof remains a follow-up after its fence pin. This review approves no bypass of that fence for the transcript.
+
+Each proof's doc comment cites the id and clause. The chosen worker-bin form retains its current build-root test. The separate facade binary's coverage gap remains in the owned coverage item.
+
+The unchanged real-proofs check requires every named test to PASS in the slow run's JUnit file. A missing or failing case does not prove the id.
+
+The Linux gate names the exact head and base. All ten steps pass in 366.6 seconds. The default tier passes 1911 tests; the slow tier passes 613.
+
+All three exact proof tests have normal PASS results. The real-proofs check reports each one and checks seven named proofs in total.
+
+The suite credits dp_2 by those three named proofs. The diff lists no mutant and changes no decoder crate. The gate contains no FLAKY token.
+
+The job queues one second and runs 453 seconds. The job and outer wrapper exit zero after 454 seconds.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-dp2-real-proof-37e5ee32-pool-20261011-205649-66612.log`.
+
+I read the complete focused Mac job. It prebuilds the candidate, runs exactly the two facade proofs and the one worker-bin proof, and checks both command statuses.
+
+All three tests pass on Darwin 27.0.0 in slot-2. Both commands exit zero. The job and wrapper exit zero after 106 seconds.
+
+Mac evidence: `~/botster-sessions/gates/botster-core-stage1-gs-dp2-real-proof-37e5ee32-pool-20261011-210444-97216.log`.
+
+The Mac job exercises the R-65 EOF branch; Linux exercises its ConnectionReset branch. The job's short TMPDIR changes no Core socket-path rule.
+
+I read the local reversal's scratch delta and original red/green output. A host write of `!` while handling RouteReceived fails the new tail assertion with `Ok([33])`.
+
+The first-line assertion passed before that failure. The R-65 close assertion also fails. After restoration, both facade tests pass.
+
+Reversal: `~/botster-sessions/shared/core-stage1/evidence/gs-dp2-proof/reversal-window-write.log`.
+
+The cleanup evidence has a limit. GS added its clean command, reported output, and no-intervening-build statement after the runs. No separate original clean record exists.
+
+I do not independently verify that local cleanup or artifact provenance. I retain GS's statement as an owner report. I found no contrary evidence.
+
+The observed failure shows that the new tail assertion executed. The source helper retains the tail bytes. The independent pool jobs validate the positive proof paths.
+
+The approved local reversal requirement states no contemporaneous clean-log requirement. This review accepts the supplied reversal with the explicit provenance limit above.
+
+The prior-art search at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` supplies no corresponding proof file or dp_2 mapping. No old test is copied.
+
+No product code, mutation exclusion, timeout, seed, or gate verdict rule changes. Sol-B must complete the HIGH integration review.
+
+This CLEAN applies only to the exact head above. The final-slot import and required final gate remain due after both reviews. I ran no execution job.
