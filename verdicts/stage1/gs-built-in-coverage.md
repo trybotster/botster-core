@@ -131,3 +131,19 @@ The c20029a6 gate was stopped, according to GS, and supplies no completed result
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; source delta only, evidence pending)
+
+## Round 5 — slow-target feature requirements
+
+Exact head: `2fa58b79291f44023778a8a53f8bd05387e93cfb`. Base remains `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Sol-B read the complete five-manifest delta from `c69cbcb8`, all eleven affected file headers and root macro entries, the owning feature declarations, and tier selection.
+
+The c69cbcb8 gate remains failed. Log: `gates/botster-core-stage1-gs-built-in-coverage-c69cbcb8-pool-20261011-221807-53060.log`. Its slow tests pass, but the presence check rejects eleven empty default-tier binaries. The slow step fails with eleven violations. Mutants and fuzz do not run. The job and wrapper exit 1 after 586 seconds, with 469 queued and 117 running. Sol-B read the named violations and completed exits.
+
+Every affected source file already requires the slow feature at crate level and contains the approved root macro. Every owning package declares that feature. The manifest now requires slow for the corresponding test target. Cargo therefore does not build its empty default-tier artifact. The slow tier enables those package features and selects the same target names. Mutation stage 2 enables the same slow-package features.
+
+The repair removes no previously executable default-tier test. It deletes or renames no target. The slow test bodies, selected slow tests, macros, presence decisions, and public product paths remain unchanged. The empty-binary rejection remains intact. No fake root entry or presence exception is added.
+
+Package source delta CLEAN: `90cdc8686f24e25b62216e39193aaa12e3dda535`, `verdicts/gs-gate-speed.md`. Sol-B read the complete manifest-delta section. No package or integration source finding remains. The accepted manual name rule and mixed stale-library limit remain.
+
+The new-head gate is running. Sol-B read no unfinished result. Local list and check results remain implementer reports. Completed gate, mutation evidence, timing comparison, required evidence, and the final body remain due. All failed gates retain their original results. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; source delta only, evidence pending)
