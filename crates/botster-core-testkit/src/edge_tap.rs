@@ -282,6 +282,9 @@ pub struct Tap<E> {
     /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
     /// and the bytes that they gave count, never the tap's take-ahead.
     reports: RouteReports,
+    /// The worker instances whose control link takes no more control bytes (`control_queue`, Core IN-6, steward ruling
+    /// R-91): the link edge reports no room for them.
+    control_full: BTreeSet<InstanceId>,
     /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted (Core A5-2, R-88 group E). The tap's
     /// scheduler answers `Scheduler::held` from it.
     op_holds: SharedHolds,
@@ -600,6 +603,32 @@ impl<E: HostEdges> Tap<E> {
         self.fail_handoff = true;
     }
 
+    /// `control_queue` (Core IN-6, steward ruling R-91): `on` makes the link of the worker of `instance` report no room, so
+    /// Core's room check refuses a `cancel` `Full`; `off` gives the room back. It is not a report to Core.
+    pub fn control_queue(&mut self, instance: InstanceId, on: bool) {
+        if on {
+            self.control_full.insert(instance);
+        } else {
+            self.control_full.remove(&instance);
+            // The next pump finds the room: Core posts `SessionWritable` if a cancel was refused (IN-6).
+            self.inner.wake().signal();
+        }
+    }
+
+    /// The room of `link` (Core IN-6): none while `control_queue` holds the link's worker, else the inner edge's.
+    fn link_room(&self, link: LinkId) -> usize {
+        let full = self
+            .links
+            .get(&link)
+            .and_then(|t| t.instance.as_ref())
+            .is_some_and(|instance| self.control_full.contains(instance));
+        if full {
+            0
+        } else {
+            self.inner.link_room(link)
+        }
+    }
+
     /// Arms `hold_handoff` (Core OU-9, A5-1): the next `link_send_descriptor` is `Blocked`, and so is every later one on
     /// its link until [`Tap::release_handoff`]. The driver keeps the frame and the endpoint in order, so `attach` returns
     /// and the worker has no transport for the route. A held hand-over is not a report, so it does not make the edges
@@ -769,6 +798,7 @@ impl<E: HostEdges> EdgeTap<E> {
             handoff: HandoffHold::Off,
             stream_bytes: BTreeMap::new(),
             reports: RouteReports::default(),
+            control_full: BTreeSet::new(),
             op_holds: SharedHolds::default(),
         }));
         let weak = Arc::downgrade(&tap);
@@ -890,6 +920,10 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         };
         reports.received(link, &buf[..n]);
         Ok(n)
+    }
+
+    fn link_room(&self, link: LinkId) -> usize {
+        self.tap().link_room(link)
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
