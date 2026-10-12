@@ -3052,3 +3052,15 @@ Its current verdict is NOT CLEAN (1 open). Round 5's CLEAN cannot supply final i
 This matches package procedural receipt `90d5d4ff14d6d9972ca55a4c69ae80a4668501a0`.
 No product or gate finding is reopened. No later integration round is authorized by this receipt.
 The reviewer waits for the lead's decision and runs no execution job.
+
+
+### Lead inbox recovery and required resends
+
+Lead recovery message: `msg_plugin-w_1791818308_a6f2d5`.
+The lead reports that the user authorized inbox recovery. Earlier messages expired unread.
+The reviewer sends the #309 round-limit QUESTION again as `msg_plugin-w_1791818353_27b211`.
+The reviewer sends #312's matching source CLEAN receipts again as `msg_plugin-w_1791818353_3bdc7d`.
+The reviewer informs Sol-C of the resends. No lead disposition is inferred.
+R100-E2 remains open at #309 head `b920da760a8a643b199765d0a69f78533a9b3e45`.
+The #312 source CLEAN remains scoped to `54805661b93f7acc7c548d0a429d429247c54255`.
+The reviewer waits for the lead's decision and runs no execution job.
