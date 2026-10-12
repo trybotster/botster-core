@@ -48,3 +48,11 @@ The Linux measurement log records 4103 written bytes against a first count of 40
 Five findings remain open, including LOW findings. The same-head package verdict, repairs, and replacement-head evidence remain due. I accept no later head, train, gate, pin, A24 decision, or F28 closure. I ran no build, test, gate, or pool job.
 
 VERDICT: NOT CLEAN (5 open)
+
+### Same-head package record and finding alias
+
+I read complete package Round 193 at `fe92a9618a2e3e3938d92dfd4df94571b2889df1`, file `verdicts/p3-worker.md`. It reviews the same exact head, complete source delta, and gate. It retains F150 through F153 and the same evidence limits.
+
+The package record includes my seven-byte title correction within F152. R318-I1 therefore aliases that part of F152. The earlier observation remains open; it is not a fifth independent finding. Four finding identities remain: F150, F151, F152, and F153. This count correction supplies no source repair or closure and does not start another review round.
+
+VERDICT: NOT CLEAN (4 open)

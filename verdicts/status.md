@@ -9,7 +9,7 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #309 | Replacement member source delta CLEAN at `f41b7e82`. Same-head package `ade8bbee` checked. RC-R100-TRAIN-1 closes through the fixture repair. | The lead excludes #309 from train 4 after a conflict. Train 5 work remains separate. |
 | #311 | Authorized Round 4 CLEAN at `e214bbe0`. Package Round 192 `51304c53` checked. | The lead excludes #311 from train 4 after conflicts. Final import and train 5 evidence remain separate. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
-| #318 | Round 1 NOT CLEAN at `7010f755`: F150–F153 and R318-I1. Gate is green, but source documentation and test/evidence findings remain. | Repairs, complete same-head package verdict, and replacement-head evidence. No F28 closure accepted. |
+| #318 | Round 1 NOT CLEAN at `7010f755`: four findings, F150–F153. Complete package Round 193 `fe92a961` checked. R318-I1 aliases F152's title-length correction. | Repairs and replacement-head evidence. No F28 closure accepted. |
 
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 
