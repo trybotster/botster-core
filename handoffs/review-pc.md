@@ -1701,3 +1701,11 @@ The current list counts are ledger 691, testkit pending 412, real pending 44, he
 Verdict CLEAN for the source delta, zero source findings, in verdicts/pc-pin-41.md Round 4.
 The updated body, completed exact-head gate, Sol's matching review, and Q7 remain due. No final merge is approved.
 The #291 current body still remains due. No reviewer execution job runs. Never poll.
+
+The #289 four-transfer verdict is pushed at fc643a29d9bf552855dbbaa14f6f5356b1372e2b; PC and Sol received it.
+Sol receipt msg_plugin-w_1791765902_7ad08f and published verdict 2cd7aae57da51ed95f58f23097a49124207e0c60 are read.
+Publication is verified. Both source delta CLEANs cover 69d41499 and base b0c0a419.
+The reviewer reads the complete current body and GitHub head/base. The final-slot section correctly names both identities and all conflict resolutions.
+Its counts and later transfers match the reviewed files. Old evidence stays tied to old heads; the final gate is marked RUNNING.
+The stale body metadata correction is checked. The completed gate and final body receipts remain due.
+The final gate must show all eleven own testkit removals as normal PASS. No running output is read. Never poll.

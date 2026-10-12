@@ -366,3 +366,21 @@ PC reports stopping the 8ab0f6d5 gate before execution. That report supplies no 
 The one final gate on 69d41499 is still running. A running gate does not supply approval.
 The current body correction, completed exact-head gate, Sol's matching delta review, and Q7 remain due.
 The earlier source and evidence limits remain binding. No final merge is approved. No reviewer execution job runs. Never poll.
+
+### Round 4 matching integration receipt and current body
+
+Sol receipt: `msg_plugin-w_1791765902_7ad08f`.
+Published integration verdict: `2cd7aae57da51ed95f58f23097a49124207e0c60`, `verdicts/stage1/pc-pin-41.md`, Round 3.
+The package reviewer reads the complete round and verifies publication on `origin/stage1/integration-review-sol`.
+Both source delta CLEANs cover 69d41499 and base b0c0a419, including the four transfers.
+Sol preserves the same source, list, evidence, and plain-v1 limits.
+
+The package reviewer reads the complete current body through `gh`, the authorized GitHub fallback.
+GitHub reports exact head 69d414995408a21a32b73d01608a798202057462 and base b0c0a419af27259006b5e06d4e5da3b3d00083e6.
+The final-slot section names both identities, three conflicts, two list-only commits, current counts, and old evidence heads.
+The body preserves the earlier EV-5 failure and IN-7 trial. It claims no plain-v1 result for the four new removals.
+The body correctly marks the final gate RUNNING. It still awaits the completed gate and final review receipts.
+The stale body metadata identified by Sol as P289-SI-3 is corrected in this read.
+Sol records body SHA-256 `97ea97bf34f8f82aa2b66924619cf25e87748534644bdd556b4eef4d3cdb319d`; the package reviewer does not independently hash this read.
+The completed final gate must report all eleven own testkit removals as normal PASS.
+Final evidence approval and Q7 remain due. No running output is read. Never poll.
