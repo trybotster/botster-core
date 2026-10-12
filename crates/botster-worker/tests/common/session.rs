@@ -533,7 +533,7 @@ fn sz_1_resize_sets_the_real_pty_size() {
         out = quoted(&root.path().join("out")),
         go = quoted(go.path())
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     assert_eq!(
         out.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("24 80\n"),
