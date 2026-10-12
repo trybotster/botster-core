@@ -438,13 +438,14 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   A3-1). `attach` checks the route's `AttachRoute` after the applied limits and before `RouteLimit`. The `Launch` comes
   from one constructor, `launch_spec_for`, for the send and for the check.
 - **Worst case (lead ruling).** The check measures the message with the worst case of each value that is assigned after
-  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
-  the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
-  `Created` session can store them after the check of `Start` (RC-R100-3). It also has the largest cursor ordinal
+  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also
+  has the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on
+  a `Created` session can store them after the check of `Start` (RC-R100-3). It also has the largest cursor ordinal
   (`MAX_CURSOR_ORDINAL`): `Start` reserves the ordinal after the call (ST-7, `design/cursor-ordinal.md`). A call that
-  passes never fails at the send. The cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
-  size), and for a `Launch` up to several kilobytes, because a full palette is about 6.7 KB of JSON (RC-R100-5). Assigning
-  the request number at `begin` would change the op-number order, so it is not done.
+  passes never fails at the send. The cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op`
+  or an `AttachRoute` (the numbers and the size), and for a `Launch` up to several kilobytes, because a full palette is
+  about 6.7 KB of JSON (RC-R100-5). Assigning the request number at `begin` would change the op-number order, so it is
+  not done.
 - **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
   `DEFAULT_MAX_PAYLOAD` (1 MiB), and learns `link_frame_bound` from the `Launch` itself. So a `Launch` is checked at
   `DEFAULT_MAX_PAYLOAD`, and every other message at `link_frame_bound`. A bound sent before the `Launch` would change worker
