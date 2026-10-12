@@ -1050,7 +1050,6 @@ mod held_starts {
             notification_policy: NotificationPolicy::default(),
             size_policy: SizePolicy::default(),
             link_frame_bound: DEFAULT_MAX_PAYLOAD,
-            stop_grace_ms: 250,
             limits: CoreLimits::default(),
         })))
     }
