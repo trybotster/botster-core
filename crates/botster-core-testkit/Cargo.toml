@@ -14,11 +14,12 @@ unsafe_code = "deny"
 [features]
 # The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
 # It also builds `real::RealCoreHarness` (plan 4.2) over the real `Core::open` and the group guard of `botster-test-process`.
-slow = ["dep:botster-core", "dep:botster-test-process", "dep:tempfile"]
+slow = ["dep:botster-core", "dep:tempfile"]
 
 [dependencies]
 botster-core = { workspace = true, optional = true }
-botster-test-process = { workspace = true, optional = true }
+# The build-root check of the test binaries (bug catalog B13), re-exported as `built_in`.
+botster-test-process.workspace = true
 tempfile = { workspace = true, optional = true }
 botster-core-contract.workspace = true
 botster-conformance.workspace = true
