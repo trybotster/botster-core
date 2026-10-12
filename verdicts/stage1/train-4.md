@@ -181,3 +181,48 @@ No retry, new gate, known-flaky entry, matcher change, or final acceptance is au
 Final evidence receipts and Q7 remain due. I ran no execution job.
 
 VERDICT: BLOCKED (requested NO-MEMBER-CAUSE certificate; active #312 producer path changed; exact train gate remains RED)
+
+## P6 diagnosis and one-re-gate request — REFUSE on supplied evidence
+
+Lead diagnosis/request: `msg_plugin-w_1791823366_364dc2`.
+Exact train head, base, and tree remain unchanged.
+I read the lead's complete diagnosis and its matching live handoff entry.
+I independently read Tap::quiet, the real oracle read, the acknowledged history update, the Stop admission, and the complete R-57 ruling.
+The source supports the proposed race: an Output ack records the intended bytes before the worker must read and apply them.
+Tap::quiet checks the host's inbound edges. It does not prove that the worker applied the final TB title.
+The oracle replays the acknowledged bytes and therefore can return TB before Core receives its TitleChanged.
+The subsequent Stop can race the worker's read and title observation. The transcript has no await_title fence before Stop.
+The train changes no worker or terminal implementation source. Its new control-room branch is inactive for this transcript.
+
+I read the complete governing retry rule in pinned plan revision 23cm, section 8, line 511: revisions 23al and 23bl.
+The rule explicitly says that the condition concerns the cause, not the changed path.
+Thus my preceding MEMBER-CAUSE label answers the lead's original path question only.
+It is not proof that #312 causes this failure, and it does not itself defeat a cause-based exception.
+For this request, I supersede any inference that a changed Wire path alone blocks revision 23al.
+The empty known-flaky file also does not by itself exclude that separate one-re-gate exception.
+
+The exception still requires trace evidence of the diagnosis and the same mechanism on plain v1.
+Revision 23bl permits a timing-only controlled reproduction on a v1 tip instead, with the exact id, step, and symptom.
+The lead must accept that reproduction in writing. The diagnostic must change timing only, and no tested behavior.
+The lead must also record written one-re-gate approval, the cause, its owner, and the fixing PR.
+
+The supplied prior report is the B1 comparison on `2ea249028b61c8d2cf194b7139271dd5457d7caa`, six commits after ae49bbec.
+It is not a run on the plain v1 tip. Absence of these three frozen members does not make it that tip.
+The retained log also changes to b1-vendor path overrides for the after side.
+The comparison reports the same id and step failing before and passing after; it supplies no retained event trace of the missing item.
+The current gate similarly records step_timeout, but does not identify which of the four collected events was missing.
+No accepted timing-only controlled reproduction on v1 is supplied in this request.
+These records support the existence of an earlier race. They do not complete the rule's same-mechanism evidence condition.
+
+Requested reviewer line: REFUSE — the supplied record lacks the required plain-v1 failure or accepted controlled reproduction and the mechanism trace.
+This refusal concerns evidence for retry authority. It does not reject the source-supported diagnosis or identify a new member defect.
+I cannot certify the full cause attribution for a countable unchanged re-gate from the current records.
+The lead can supply retained qualifying evidence for another static review. I request no reviewer execution job.
+If the lead chooses a separate explicit exception, the lead must identify and record that exception; this review does not infer one.
+
+The steward questions about draining on Stop or restoring the state fence remain unresolved in the supplied diagnosis.
+The source CLEAN remains valid. The exact train gate remains RED; mutants and fuzz remain unexecuted.
+No re-gate, train change, list edit, matcher edit, or final acceptance follows from this record.
+I ran no build, test, gate, mutation, reproduction, measurement, or executable base check.
+
+VERDICT: BLOCKED (REFUSE the requested one unchanged re-gate on supplied evidence; revision 23al/23bl evidence conditions remain unmet)
