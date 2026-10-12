@@ -862,6 +862,8 @@ impl Worker {
                 // (`Input::check`) are of that class.
                 Decoded::Invalid { op, .. } => Some(Received::Refused(op, RefusalReason::Refused)),
             };
+            // DP-6: every decoded input frame of the route, input or not (a paste's begin, a resize), is its activity.
+            self.route_active(id);
             let received = match (receipt, received) {
                 (Receipt::Input(kept), Some(received)) => {
                     self.client_input(now, id, &kept, received)
@@ -1007,14 +1009,17 @@ impl Worker {
         self.end_route(id, reason);
     }
 
-    /// The receipt of one client input, applied or refused: `input_rev{client}` advances, and the activity carries its route
-    /// (IN-4). An ignored extension frame is not input, nor is a paste's or a file's begin, chunk or abort (R-102).
-    fn client_received(&mut self, id: RouteId) {
-        // DP-6: the route's activity is the receive order of its last input frame of any kind.
+    /// DP-6: the route's activity is the receive order of its last input frame of any kind.
+    fn route_active(&mut self, id: RouteId) {
         self.routes.activity += 1;
         if let Some(route) = self.routes.routes.get_mut(&id) {
             route.activity = self.routes.activity;
         }
+    }
+
+    /// The receipt of one client input, applied or refused: `input_rev{client}` advances, and the activity carries its route
+    /// (IN-4). An ignored extension frame is not input, nor is a paste's or a file's begin, chunk or abort (R-102).
+    fn client_received(&mut self, id: RouteId) {
         let input_rev = self.input.client_received();
         self.report(&WorkerMsg::Observed {
             observation: Observation::ClientInput {
