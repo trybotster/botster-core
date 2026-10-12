@@ -845,7 +845,7 @@ fn a_lost_session_without_a_link_removes_with_an_unknown_outcome() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    w.exited("s1");
+    w.worker_ends("s1");
     w.pump();
     w.engine.poll_events(64);
     assert!(matches!(
@@ -1136,7 +1136,7 @@ fn a_lost_worker_completes_the_pending_op_once() {
         .begin(Op::ReadModeFlags { session: sid("s1") })
         .unwrap();
     w.pump();
-    w.exited("s1");
+    w.worker_ends("s1");
     let result = w.complete(read);
     assert!(matches!(result, OpResult::Err(e) if e.code == ErrorCode::WorkerLinkFailed));
     for _ in 0..3 {

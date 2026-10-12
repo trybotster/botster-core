@@ -47,6 +47,29 @@ pub trait Scheduler {
 
     /// Chooses a count from `1..=max` (a work bound, a batch size or a chunk size). Returns 0 only when `max` is 0.
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize;
+
+    /// Whether the policy holds one step of ready work until it lets it go (Core A5-2: "the scheduler defers the operation's
+    /// progress"; steward ruling R-88, group E: the testkit's `scheduler_hold`). `ops` are the numbers of the `OpId`s whose
+    /// progress the step makes: the op of an op step, or the ops of a session's flow. It is empty when the step makes no op's
+    /// progress.
+    ///
+    /// A held step is not runnable work: the driver does not run it, does not ask any other choice point about it, and does
+    /// not count it in `PumpReport.more`. The policy signals the wake when it lets the step go. The default holds nothing
+    /// and draws nothing, so a policy that does not hold steps makes the same choices as before. Clause: Core A5-2.
+    fn held(&mut self, ops: &[u64]) -> bool {
+        let _ = ops;
+        false
+    }
+
+    /// The driver tells the policy of each operation that it admits: `op` is the number of its `OpId`, and `fixed_timing` is
+    /// whether a clause fixes its timing (R-20), so that no step of it is ever held. The driver calls it once per admitted
+    /// operation, in `begin`, after the admission and before `begin` returns. It is a report, not a choice: it draws
+    /// nothing. A policy that holds steps uses it to know which operations exist (steward ruling R-88, group E: the
+    /// testkit's `scheduler_hold` refuses an operation that Core did not admit or whose timing is fixed). The default does
+    /// nothing and allocates nothing; `Production` runs it on every admission. Clause: Core A5-2.
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        let _ = (op, fixed_timing);
+    }
 }
 
 /// The production policy: no variation, and a round-robin visit of sessions.
@@ -144,5 +167,43 @@ mod tests {
     #[test]
     fn no_candidate_gives_index_zero() {
         assert_eq!(Production::new().pick(ChoicePoint::Session, 0), 0);
+    }
+
+    /// A policy that records every choice that it is asked.
+    struct Recorded(Vec<(ChoicePoint, usize)>);
+
+    impl Scheduler for Recorded {
+        fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+            self.0.push((point, candidates));
+            0
+        }
+
+        fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+            self.0.push((point, max));
+            max
+        }
+    }
+
+    /// The default `held` holds nothing, and neither default asks a choice point, whatever the ops (none included), so a
+    /// policy that does not hold steps makes the same choices as before the methods existed (steward ruling R-88, group E).
+    #[test]
+    fn the_default_holds_nothing_and_draws_nothing() {
+        let mut policy = Recorded(vec![]);
+        policy.admitted(7, false);
+        policy.admitted(9, true);
+        assert!(!policy.held(&[]));
+        assert!(!policy.held(&[7, 9]));
+        assert_eq!(policy.0, []);
+        // `Production` makes the same choices after `admitted` and `held` as a policy that was never told of an op.
+        let mut told = Production::new();
+        let mut untold = Production::new();
+        told.admitted(1, false);
+        assert!(!told.held(&[1]));
+        for count in [3, 3, 2, 5] {
+            assert_eq!(
+                told.pick(ChoicePoint::Session, count),
+                untold.pick(ChoicePoint::Session, count)
+            );
+        }
     }
 }

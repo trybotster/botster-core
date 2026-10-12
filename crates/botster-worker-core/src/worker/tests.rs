@@ -39,7 +39,6 @@ fn spec() -> LaunchSpec {
         notification_policy: NotificationPolicy::All,
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 16,
-        stop_grace_ms: 250,
         limits: CoreLimits::default(),
     }
 }
@@ -560,35 +559,35 @@ fn a_leader_that_ended_alone_stays_unreaped() {
     assert_eq!(reaps(&actions), 1);
 }
 
-/// LC-5 without the link (`EndPayload`): the graceful request at once, the group kill at `stop_grace`. A repeated signal
-/// changes nothing.
+/// LC-5 without the link: `EndPayload` is the graceful request, at once, and arms no timer: `stop_grace` is the Core
+/// library's deadline (steward ruling R-97, follow-up). However far the worker's clock moves, it kills nothing by itself.
+/// `KillPayload`, which Core sends at its due `pump`, kills the group at once. A repeat of either changes nothing.
 #[test]
-fn end_payload_asks_then_kills_after_stop_grace() {
+fn end_payload_asks_and_only_kill_payload_kills() {
     let mut w = World::running();
     assert_eq!(w.feed(Input::LinkClosed), []);
     assert_eq!(signals(&w.feed(Input::EndPayload)), [SIGTERM]);
-    let at = w.now + Duration::from_millis(250);
-    assert_eq!(w.worker.next_deadline(), Some(at));
+    assert_eq!(w.worker.next_deadline(), None, "no grace timer");
     assert_eq!(w.feed(Input::EndPayload), [], "idempotent");
+    w.now += CoreLimits::default().stop_grace * 2;
     assert_eq!(
-        w.worker.next_deadline(),
-        Some(at),
-        "a repeat does not move the grace"
+        w.feed(Input::Timer),
+        [],
+        "the worker's clock past stop_grace kills nothing"
     );
-    w.now = at - Duration::from_millis(1);
-    assert_eq!(w.feed(Input::Timer), []);
-    w.now = at;
-    assert_eq!(signals(&w.feed(Input::Timer)), [SIGKILL]);
-    assert_eq!(w.worker.next_deadline(), None);
+    let actions = w.feed(Input::KillPayload);
+    assert_eq!(signals(&actions), [SIGKILL]);
+    assert_eq!(w.feed(Input::KillPayload), [], "idempotent");
     let mut actions = w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
     actions.extend(w.feed(Input::PtyDrained));
     assert_eq!(reaps(&actions), 1);
     assert!(w.reports(&actions).is_empty(), "no link: the exit waits");
 }
 
-/// LC-5: a `Stop` that came on the link before it broke still gets its group kill when the host repeats the stop by signal.
+/// LC-5: a `Stop` that came on the link before it broke still gets its group kill when Core sends `KillPayload` at its
+/// due `pump`; the repeat of the stop by signal asks nothing more.
 #[test]
-fn end_payload_after_a_linked_stop_still_kills_at_the_grace() {
+fn kill_payload_after_a_linked_stop_kills_the_group() {
     let mut w = World::running();
     w.send(&HostMsg::Stop);
     w.feed(Input::LinkClosed);
@@ -596,8 +595,18 @@ fn end_payload_after_a_linked_stop_still_kills_at_the_grace() {
         signals(&w.feed(Input::EndPayload)).is_empty(),
         "already asked"
     );
-    w.now += Duration::from_millis(250);
-    assert_eq!(signals(&w.feed(Input::Timer)), [SIGKILL]);
+    w.now += CoreLimits::default().stop_grace;
+    assert_eq!(w.feed(Input::Timer), []);
+    assert_eq!(signals(&w.feed(Input::KillPayload)), [SIGKILL]);
+}
+
+/// LC-5: `KillPayload` after the leader ended kills what remains of its group and reaps the leader, as `Kill` does.
+#[test]
+fn kill_payload_after_the_leader_ended_kills_the_group_at_once() {
+    let (mut w, _) = World::exited(ExitStatus::Code(0));
+    let actions = w.feed(Input::KillPayload);
+    assert_eq!(signals(&actions), [SIGKILL]);
+    assert_eq!(reaps(&actions), 1);
 }
 
 /// LC-5: when the leader already ended, `EndPayload` kills what remains of its group at once and reaps the leader.
@@ -608,22 +617,6 @@ fn end_payload_after_the_leader_ended_kills_the_group_at_once() {
     assert_eq!(signals(&actions), [SIGKILL]);
     assert_eq!(reaps(&actions), 1);
     assert_eq!(w.worker.next_deadline(), None);
-}
-
-/// The grace set by the launch is the one that `EndPayload` uses; an older host's launch has the table default.
-#[test]
-fn the_grace_comes_from_the_launch() {
-    let mut w = World::linked();
-    w.send(&HostMsg::Launch(Box::new(LaunchSpec {
-        stop_grace_ms: 7000,
-        ..spec()
-    })));
-    w.feed(Input::Spawned(Ok(PAYLOAD)));
-    w.feed(Input::EndPayload);
-    assert_eq!(
-        w.worker.next_deadline(),
-        Some(w.now + Duration::from_secs(7))
-    );
 }
 
 /// LC-6, A2-1: `Signal` reaches the payload group and completes `Ok` after it was sent.
@@ -844,8 +837,9 @@ fn an_exit_before_the_spawn_answer_is_reported_after_the_launch() {
     );
 }
 
-/// F2 (LC-5): `EndPayload` that comes while the spawn is out applies when the spawn succeeds: the graceful request and the
-/// grace. When the spawn fails, nothing is signalled (no proven group).
+/// F2 (LC-5): `EndPayload` that comes while the spawn is out applies when the spawn succeeds: the graceful request, and no
+/// timer. `KillPayload` while the spawn is out kills the group when it succeeds. When the spawn fails, nothing is signalled
+/// (no proven group).
 #[test]
 fn end_payload_during_the_spawn_applies_after_it() {
     let mut w = World::linked();
@@ -853,10 +847,13 @@ fn end_payload_during_the_spawn_applies_after_it() {
     assert_eq!(w.feed(Input::EndPayload), []);
     let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
     assert_eq!(signals(&actions), [SIGTERM]);
-    assert_eq!(
-        w.worker.next_deadline(),
-        Some(w.now + Duration::from_millis(250))
-    );
+    assert_eq!(w.worker.next_deadline(), None);
+    let mut killed = World::linked();
+    killed.send(&HostMsg::Launch(Box::new(spec())));
+    assert_eq!(killed.feed(Input::EndPayload), []);
+    assert_eq!(killed.feed(Input::KillPayload), []);
+    let actions = killed.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert_eq!(signals(&actions), [SIGKILL], "a kill wins over the request");
     let mut failed = World::linked();
     failed.send(&HostMsg::Launch(Box::new(spec())));
     failed.feed(Input::EndPayload);
