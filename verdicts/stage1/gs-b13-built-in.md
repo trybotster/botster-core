@@ -116,3 +116,23 @@ The lists step names comparison base `f7eeced6` and merge base `3aacc58d`. This 
 The same-head package verdict remains pending. Sol-B requested it from 017c. Sol-B ran no local build, test, gate, mutation job, or reversal.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Source supplement — `836e879c`
+
+Exact head: `836e879c40be7b0ac97b1bc8a2f4883eaffbd3ea`. Delta from `d4758482`: only `xtask/src/built_in.rs`. The gate is running. This supplement accepts no unfinished gate result.
+
+The function now requires one statement containing a direct path call. The new fixtures reject a function reference, an uncalled nested function, an uncalled closure, an early return, a conditional call, and a method call. These forms close the path-visitor gap.
+
+B13-I2 remains OPEN because the function ignores the call expression's attributes. The following registered root test has exactly one parsed call statement, but Rust removes that statement:
+
+```rust
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    #[cfg(any())]
+    botster_test_process::built_in::assert_built_here("x", BUILT_IN);
+}
+```
+
+Required change: reject statement attributes, or evaluate them for both required tiers. Add this negative fixture. Sol-B sent this source finding to GS and 017c. Sol-B ran no local build, test, or gate.
+
+VERDICT: NOT CLEAN (1 open)
