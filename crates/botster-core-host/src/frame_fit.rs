@@ -5,8 +5,9 @@
 //! The check measures the message that the host sends later, with the worst case of each value that is assigned after the
 //! call: the request number `u64::MAX`, the route id `u64::MAX`, and the largest `Size` (DESIGN.md, "R-100"). A `Launch` also
 //! has the largest color profile and size policy, because a setter on a `Created` session can change them after the check
-//! of `Start` (RC-R100-3). So a call that passes the check never fails at the send. It can refuse a message that is a little
-//! under the bound.
+//! of `Start` (RC-R100-3). So a call that passes the check never fails at the send. The cost is a refusal under the bound:
+//! up to about 40 bytes for an `Op` or an `AttachRoute`, and for a `Launch` up to several kilobytes (a full palette is about
+//! 6.7 KB of JSON) (RC-R100-5).
 //!
 //! The bound of a `Launch` is the worker's bound before its launch, [`DEFAULT_MAX_PAYLOAD`]: the worker learns the link
 //! frame bound from the `Launch` itself (RC-R100-I1). The bound of each other message is the link frame bound.
