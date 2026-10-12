@@ -3301,3 +3301,75 @@ No final gate result is claimed. Combined review, the exact-head gate, Sol's sin
 This check covers #309 only; it does not accept the separate #311 verdict in that commit.
 Under the corrected BUILD Green rule, the reviewer sends no message that only restates the integration receipt.
 The reviewer runs no execution check and waits for an assigned review doorbell.
+
+
+### Core #316 — train 7 SLOT import delta
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact member head: `f1ac08b998f15f062f123a996e2688344c33c3ba`.
+Tree: `76fab1bfcbc23fafbd358964620a6929795f97bf`.
+Imported base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Previous source head: `0844f9dfadee637197d1bbbfc4ea5dcd7c951325`.
+READY message: `msg_plugin-w_1791835547_a9d6cb`.
+Earlier package CLEAN: `dca58cff40d50021d3a50484a7e02bca33bbec94`.
+Earlier integration CLEAN: `adda76b49f727bb88db1e59949968586b57e1edb`.
+Open package delta findings: 0, including LOW findings.
+
+The new head is one merge with the previous source head and imported base as its parents.
+The lead assigned the train 7 SLOT; the implementer reports rerere off and two known-flaky conflicts.
+The reviewer reads the complete resolution. Against the imported base, only the same six own paths change.
+The manifest and lock equal their earlier accepted #316 blobs. The .46 tag and dependency revision remain unchanged.
+The ledger adds only a22_1; the pending list retains its same owned addition and reason.
+All nine conformance set formulas match the merge-base, both parents, and new head.
+The ledger has 692 IDs. Pending has 388 IDs; real-pending has 38 IDs; minimum has 69 IDs.
+The merge imports sixteen pending removals and four real-pending additions. Their owners retain their proof responsibilities.
+No #316 removal or new transcript appears. The imported Core still constructs no RouteAdopted.
+#313's A22 event construction and pending removal remain separate future work.
+
+The list resolution retains #308's structured-signature header and parser shape.
+It deletes the EV-2 entry and its signature together, as R107-SI-2 requires for this .46 pin.
+The sole IN-8 entry retains its diagnosis, owner PC, and removal PR #321.
+Its signature is step slow, symptom step_timeout, any seed, and literal text step=6 limit=step_timeout.
+That table matches the recorded c34bfe9f failure and R-111. It covers no step-8 timeout or other symptom.
+The repository-list test uses #308's tuple form: exact binary, test, and removal PR. It names only IN-8 and #321.
+The document comment retains the separate retirement of the old step-8 IN-8 entry through #312.
+The production parser and filters equal the imported base; the resolution changes no behavior in them.
+The pin does not contain PC's R-111 fix, so #321's removal trigger remains unsatisfied.
+The normal slow and unmutated baseline requirements remain binding. Stage 1 exit still needs an empty list.
+This source verdict grants no retry authority.
+
+The reviewer reads R-114 at contracts `e22baecc1be444c96c3b7c099162eeb53b605164`.
+Its kernel-state shape is consistent with the IN-8 diagnosis. It also records a separate future oracle_resume fence requirement.
+That separate requirement adds no control or transcript to this .46 pin. The pin introduces no real-form model.
+The reviewer reads the current R-115 freeze. This resolution changes data and an existing repository-list test, not a check family.
+No new xtask check or lint appears in this Core delta.
+The mutation configuration equals the imported base.
+Relative to the previous #316 head, only the already reviewed capacity exclusion moves one line.
+Its expression, scope, and reason are unchanged. No new exclusion appears; all earlier exclusion reviews retain their scopes.
+
+The reviewer reads strict-slot.sh and the retained log without executing them.
+Log: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-pin-46/strict-f1ac08b9-20261012-195821.log`.
+The header names this exact head, tree, and imported base, with no tracked difference.
+The script unsets RUSTUP_TOOLCHAIN, sets both caps to four, and runs quiet cargo clean before the checks.
+The log has a clean marker but no separate numeric clean exit or removal count. It establishes no other target-writer history.
+Fmt, all-feature workspace test-target check, lists, ledger, six known-flaky tests, and prebuild exit zero.
+Strict conformance at seeds 0–31 passes 281 cases and exits zero.
+It checks 301 of 318 pending transcripts; seventeen real-only transcripts do not run there.
+All four held IDs retain their recorded status. A22_1 still fails as expected under pending rules.
+These records supply local source evidence, not a completed train gate or full-seed real-tier proof.
+The earlier GREEN and RED gates retain their earlier heads and bases.
+
+RC-PIN46-2 — LOW — closed before this verdict.
+The initial merged body retained the earlier count of eleven real-pending IDs without exceptions.
+The merged set has twelve: the same eleven and imported dp_3_route_codec_matches_client_appendix_a4_a5.
+Correction `msg_plugin-w_1791835646_98f391` gives both head-specific counts and preserves their evidence scopes.
+The reviewer independently checks that no real-pending ID from either head loses an exception from .44 to .46.
+The complete corrected body matches exact UTF-8 SHA256 `1e730f0684003f90945e0b382babad88f9c47a955aaf05ebc419d9757d0aa687`.
+The source head remains fixed.
+
+Matching integration delta, applicable train and combined reviews, exact-head train gate, and lead merge/tree/push verification remain due.
+The lead's order uses the train 7 gate as the merge gate; this review claims no separate new-head gate.
+Under the current BUILD Green rule, the combined reviewer sends the single final train receipt when the member remains unchanged.
+This verdict accepts no later head, future #313 composition, new control, PC fix, specific retry, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
