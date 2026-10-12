@@ -235,3 +235,27 @@ I read the complete updated body. It identifies the imported base, conflict reso
 One integration finding remains. A repaired exact head, matching package closure, applicable train reviews, final gate, final receipts, and equal-tree merge verification remain due. No later head or train is accepted. I ran no build, test, gate, or pool job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Replacement repair delta: round 2
+
+- Head: `cfcc438d8eac85108d64237bdc11fa215dc85104`.
+- Tree: `d4c777abd1140d37ce0b59530f10e976a8035fd6`.
+- Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Parent: `7a2d53d999800afa266e3a10f025ee24e288a0ca`.
+- Reviewed delta: one commit; queue-bound helper visibility and the repaired pure-decision test.
+- Package verdict: `6b821a1614c9b6ea277a260d26016d298a88241c`, file `verdicts/rc-real-controls.md`, complete RC-R100-6 repair section.
+- READY receipt: `msg_plugin-w_1791829061_ebf7be`.
+
+I read the complete same-head package verdict and source delta. It reports zero open findings. The helper becomes pub(crate), with no body change. No product behavior changes.
+
+**RC-R100-6 — MEDIUM — closed.** The test obtains the frame bound through existing public methods. It derives the largest Cancel length through message and frame encoding. It checks the pure control_bound return from explicit inputs. It no longer reads or asserts private driver fields and adds no subject getter. The 97 MiB multiplier and four-cancel formula remain covered. The untouched test that sets a fixture bound receives no new acceptance here.
+
+Local evidence: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-r100/local-cfcc438d-20261012-181459.log`.
+
+I read the exact-head/tree header, statuses, and results. The log records 4030 removed files totaling 857.1 MiB, but no separate numeric clean exit. Fmt exits zero; host and link tests pass 430 cases and exit zero. The old 65 MiB expectation fails. Replacing four cancels with three also fails, with actual 29295117866 and expected 29295117912. Both reversals exit 100, and the script restores both files with clean tracked status. These results support the repaired coverage, not a final gate.
+
+I read the current body repair and evidence sections and verify the exact UTF-8 body hash `42b762e87e972f6770e7b48633f9ef9a48dcedfcf2bf6a5c97c2dd847f6335a3`. They match the source and local record. The body retains the historical gate scopes and names train 6 as the current completion path. The prior R-100 and queue-composition closures remain valid. No pin, conformance file, mutation exception, or control model changes.
+
+Zero integration delta findings remain. This CLEAN accepts source only at the stated head. Applicable train delta and combined reviews, the final train-6 gate, final member receipts, and equal-tree merge verification remain due. No later head, specific retry, or final gate is accepted. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
