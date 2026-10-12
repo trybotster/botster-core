@@ -113,3 +113,78 @@ R-97, the identity hold, and guardian-exit remain separate work.
 I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-11 — train-1 source composition
+
+- Train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- Train tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`.
+- Train base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Frozen #301 member: `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+- Frozen #304 member: `37e5ee32d326f588676b6fc727ad52c86022de61`.
+- Lead request: `msg_plugin-w_1791781317_2b50f3`.
+- Integration assignment: `msg_plugin-w_1791781562_614267`.
+- Initial package verdict: `9f100371edc7b754d0ae6d466a32db909b36be96`.
+- Initial integration verdict: `500639cb61565a1a42adadf7e46938728fdb6d81`.
+
+### Scope and train identity
+
+The lead approved the train policy from BUILD PR #86 at `b6c7ea9d6abd37d723ecf491c618013eb36d9da7`.
+I read that policy and the complete PR body. This round reviews #301's source composition before the train gate.
+Sol reviews #301's integration delta. Sol-B reviews #304 and the combined train diff.
+
+The first merge is `f3b80d034acf7872fa2cc4009002a2460a5d5329`.
+Its parents are the train base and frozen #301 member. Its tree is `8ffdc4aaee69ecb159f569b9027b567c707b3375`.
+The train head's parents are that first merge and frozen #304 member. The order matches the lead's request.
+The complete train diff against its base has twelve paths, 401 additions, and 39 deletions.
+Its full-index SHA256 is `528c21f21fe4413e0cf1d2510ad3592b6b92855947a0aad3ae77f96da5adcd78`.
+I read that complete diff. The Git whitespace check reports no error.
+
+### #301 source preservation and imported helper
+
+Seven of #301's eight source blobs exactly equal the accepted member blobs.
+The eighth, `worker.rs`, equals its accepted member blob after removal of the single imported `add_node` helper.
+The helper is the complete six-line worker delta from #301's reviewed base `bfef88653bb59ad8d3cd38da1e206f7aba64ce92` to the train base.
+The added and removed lines of #301's worker patch remain identical. Only patch metadata and offsets differ.
+
+`add_node` is private to the crate and compiled only for unit tests.
+Its only caller creates a test node for the imported route-progress test.
+The node reads route bytes and has no deadline. The helper adds it to the existing simulation.
+The helper changes no hold map, process identity, accept order, link report, or production worker path.
+The train preserves both the helper and #301's report filter.
+
+The quiet check still includes worker ready work, process exits, other connections, and every unheld worker's control report.
+Only the explicitly held workers' control reports are excluded.
+The hold controls, release wake, buffered-byte behavior, per-host scope, and their tests retain the accepted source.
+The train contains no `WorkerClock` implementation. R-97 remains separate work, as Round 1 permits.
+
+### Shared lists and #304 interaction
+
+The #301 paths overlap the base move only at `worker.rs` and `core-pending.txt`.
+The #301 and #304 paths overlap only at `core-pending.txt`.
+I independently compare the pending identifier sets using each member's merge base.
+The final set equals the base set after these two removals, with no added identifier:
+
+- #301 removes `conf::a2_1_attach_state_rules`.
+- #304 removes `conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`.
+
+Every removal already present in the train base remains removed.
+The final list retains #301's explanatory comments and its separate startup-clock, identity-hold, and guardian-exit pending identifiers.
+The three other #304 blobs exactly equal the frozen #304 member blobs.
+They add three real-proof entries, extend the real stream-ownership test to check for trailing bytes, and update proof comments.
+They change no testkit hold control or worker report filter.
+This interaction review does not replace #304's package review or Sol-B's combined review.
+
+The train base retains #299's accepted tree `9423da03abc7b905308920570cf767216e0f3ee5`.
+I read #299's final integration section at `d66bdc9abd610a26aa59d69ddfaddcb8cdf49fde`.
+It records the completed exact-head gate and matching package acceptance at `4a9011bf0b2485f7eb1e6b86ecd17b7a877d5ea7`.
+The train changes no imported pin, dependency profile, build-root check, mutation exclusion, or CI file.
+
+### Disposition
+
+Zero #301 source-composition findings remain on this exact train head.
+The initial #301 gate remains initial evidence. It does not establish a train gate result.
+The matching member delta reviews and Sol-B's combined review remain required before the lead starts the train gate.
+The completed exact-train-head gate and each member's final reviewer receipts remain required before merge.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
+VERDICT: CLEAN
