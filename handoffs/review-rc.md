@@ -2071,3 +2071,17 @@ Both final reviews have zero open findings, including LOW findings.
 The earlier failed gates, canonical FAIL with explicit delta reviews, and all evidence limits remain recorded.
 The lead's Q7 check and equal-tree merge receipt remain due. This receipt accepts no later head or merge.
 The reviewer runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — verified merge receipt
+
+Lead message: `msg_plugin-w_1791781190_26f4d4`.
+The lead reports Q7 complete and Core #299 merged.
+Merge commit: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The reviewer independently reads its Git object.
+Its parents are imported base `fcc09461cb0c0de4ef067c160f24d205f0f65c30` and accepted head `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Its tree is `9423da03abc7b905308920570cf767216e0f3ee5`, exactly equal to the reviewed and gated tree.
+Package final CLEAN `4a9011bf0b2485f7eb1e6b86ecd17b7a877d5ea7` and integration final CLEAN `d66bdc9abd610a26aa59d69ddfaddcb8cdf49fde` cover that exact head.
+No source, body, evidence, or merge condition remains open for Core #299.
+The separate cost follow-ups and previously assigned pending work retain their recorded scope.
+The reviewer runs no test, build, gate, or diagnostic.
