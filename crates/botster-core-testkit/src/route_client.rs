@@ -78,22 +78,15 @@ pub(crate) struct FrameEnds {
 const FRAME_PREFIX: usize = 4;
 
 impl FrameEnds {
-    /// The client handed `bytes` to the stream, after every byte before.
-    pub(crate) fn push(&mut self, mut bytes: &[u8]) {
-        while !bytes.is_empty() {
+    /// The client handed `bytes` to the stream, after every byte before. The walk takes one byte per step, and each step
+    /// moves `seen` by one, so it ends after `bytes.len()` steps whatever a length prefix says.
+    pub(crate) fn push(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.seen += 1;
             match self.body_end {
-                Some(end) => {
-                    let want = usize::try_from(end - self.seen).unwrap_or(usize::MAX);
-                    let n = want.min(bytes.len());
-                    self.seen += n as u64;
-                    bytes = &bytes[n..];
-                    self.end_frame_at(end);
-                }
+                Some(end) => self.end_frame_at(end),
                 None => {
-                    let n = (FRAME_PREFIX - self.prefix.len()).min(bytes.len());
-                    self.prefix.extend_from_slice(&bytes[..n]);
-                    self.seen += n as u64;
-                    bytes = &bytes[n..];
+                    self.prefix.push(byte);
                     if let Ok(prefix) = <[u8; FRAME_PREFIX]>::try_from(self.prefix.as_slice()) {
                         self.prefix.clear();
                         let end = self.seen + u64::from(u32::from_be_bytes(prefix));
