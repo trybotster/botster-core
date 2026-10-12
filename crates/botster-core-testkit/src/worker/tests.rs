@@ -311,6 +311,35 @@ fn a_wait_with_no_worker_deadline_is_one_host_wait_on_the_hosts_descriptor() {
     assert_eq!(wake.fd(), 42);
 }
 
+/// R-97 (R303-SI-1): the route data plane's run (`run_ready`, with no host pump) runs the workers at their clock. A deadline
+/// that is due on the workers' clock acts there: the worker ends, and its control link's peer reads the end of file. Before
+/// it is due, the worker and its link stay.
+#[test]
+fn the_route_data_plane_runs_the_workers_at_their_clock() {
+    let ms = Duration::from_millis;
+    let (workers, clock, now, mut peer) = workers_with_an_orphan_deadline(ms(100));
+    *lock(&clock) += ms(99);
+    workers.run_ready();
+    assert_eq!(workers.next_deadline(), Some(now + ms(100)));
+    assert_eq!(
+        peer.recv(&mut [0]).map_err(|e| e.kind()),
+        Err(io::ErrorKind::WouldBlock),
+        "the worker and its link stay before the deadline"
+    );
+    *lock(&clock) += ms(1);
+    workers.run_ready();
+    assert_eq!(
+        workers.next_deadline(),
+        None,
+        "the worker acted at its deadline"
+    );
+    assert_eq!(
+        peer.recv(&mut [0]).unwrap(),
+        0,
+        "the worker's end closes its link"
+    );
+}
+
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
 fn worker_identities_do_not_repeat() {

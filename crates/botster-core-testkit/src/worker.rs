@@ -522,12 +522,11 @@ impl Workers {
         Some(due.saturating_duration_since(self.clock.now()))
     }
 
-    /// Runs the workers' ready work at the virtual clock, with no step of the program edge and no host pump: the route data
-    /// plane is the worker's, so a route progresses with no pump (Core TH-3, OU-9).
+    /// Runs the workers' ready work at their clock (R-97), with no step of the program edge and no host pump: the route data
+    /// plane is the worker's, so a route progresses with no pump (Core TH-3, OU-9). A worker deadline that is due on the
+    /// workers' clock acts first, and a new input is stamped with that clock, as in a worker process.
     pub fn run_ready(&self) {
-        if let Err(livelock) = lock(&self.sim).run_until_idle(SIM_STEP_LIMIT) {
-            panic!("the in-process workers did not settle: {livelock:?}");
-        }
+        self.run_at_clock();
     }
 
     /// True when a worker has ready work at the virtual clock, a PTY write waits for the next step of `pty_chunk`, or an
