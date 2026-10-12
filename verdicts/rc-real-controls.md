@@ -3297,3 +3297,16 @@ It is CLEAN for the reduced #310/#312 composition at `b78df725177d1a931e1eddb9bb
 Its base, tree, nine list formulas, checkout-resolver interface, and absence of #308/#309 match the package record.
 The abandoned-train findings remain history. No #308/#309 acceptance carries from that composition.
 Final train gate and member receipts remain due.
+
+
+### Core #309 — matching repaired-member integration delta
+
+Integration message: `msg_plugin-w_1791819685_862915`.
+Integration verdict: `35c2f96eedcde78ba4eb353954600f8b216c10d2`, in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete replacement-member delta section and its retained train finding.
+It is CLEAN for the source delta at `f41b7e82ba98e76f2487185eba0af2a3a0de8918`, base `080987829a2e2245a7ea97606020400392c974d6`, tree `9d8580367fe0852fc82b4847880a8738fa75c1d0`.
+Its repair, nine list formulas, body, local evidence, and deferred train-gate scope match package receipt `ade8bbee15558c8c592e0eec573e91d43afa8a6f`.
+Both reviewers close RC-R100-TRAIN-1 and retain all earlier technical and procedural closures.
+Both repaired-member source delta reviews have zero open findings.
+FINAL-READY may follow the lead's repair order. Applicable train reviews, final gate, member receipts, and equal-tree merge verification remain due.
+The reviewer runs no execution job and waits for the next assigned review doorbell.
