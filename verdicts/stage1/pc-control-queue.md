@@ -608,3 +608,43 @@ R307-SI-4 closes. No source or body finding remains in inspection.
 The complete formal package delta verdict remains pending.
 The current RED gate and canonical FAIL retain their meanings. No final train evidence is accepted by this inspection.
 I ran no execution job.
+
+## Round 3 complete — current-base member delta before the train
+
+Exact head: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `b117637b809c37c63b869e4da2696015dbdf5918`.
+Previously accepted own head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+
+I read the complete package Round 4 at `ad4750f9cc30669c2d431814e75c6a4cbb653d55`, including its final body closure.
+Package receipt: `msg_plugin-w_1791820875_1727e6`.
+That final section supersedes the package's premature 4fb39c62 CLEAN and closes CQ-PC-4/R307-SI-4 after the exact corrected-body read.
+The complete package source, conflict, interface, all-list-set, canonical-check, RED-gate, body, and ruling audit agrees with this review.
+Both reviews accept the same head, base, tree, and final body hash `05305586c1683a2d42fbdaa1988e3eee625e7e9310bbeea1128d39f60f412587`.
+
+The source delta retains both conflict sides and every accepted own change, except the required deleted Launch test field.
+The imported scheduler holds retain the driver's independent room service and budget term.
+Failed-write mark retirement, no failed-side Full, cancel precedence, frame-bound sizing, and wake behavior remain intact.
+All nine conformance text sets match their independent three-way formulas. No removed base id returns.
+The own pending removals remain exactly the two IN-6 ids; the current pending count is 404.
+All earlier MEDIUM and LOW findings remain closed. R307-SI-4 closes through accurate shared-path counts, tier labels, fix order, and list scope.
+No source, body, or supplied-record finding remains under this exact member review.
+
+The canonical base-merge-check remains FAIL. Its overlaps and conflict resolutions require these two completed manual delta reviews.
+The current exact-head gate remains RED at the unmutated real Stage 2 baseline.
+It supplies no current Stage 2 catch proof for the thirteen initial misses, and fuzz did not run.
+The previously accepted parent gate is not a substitute for the final train gate.
+Local filtered-output and numeric-clean-exit limits remain. Imported compatibility, platform, and provenance limits remain.
+
+The lead's independently read 2026-10-12 02:05 PDT handoff ruling permits this member to reach FINAL-READY without re-gating 2ed85f93.
+It requires #312's contracts-v0.1.44 structural fix before #307 in train 4.
+The exact composed train gate must supply the final evidence after the ordered import and applicable reviews.
+This is explicit lead authority. It does not declare the RED gate green or apply the empty known-list exception.
+If that ordered structural fix is absent, this verdict supplies no alternative completion path.
+
+This CLEAN covers the exact member source delta, corrected body, and supplied records before train construction.
+The ordered pin import, applicable member and combined train reviews, exact-train-head gate, final evidence receipts, and Q7 remain due.
+This verdict accepts no train head, final mutation outcome, new pending removal, later source, or merge.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open integration findings; exact member before the ordered final train, under the explicit lead ruling) at 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54 against imported base 080987829a2e2245a7ea97606020400392c974d6
