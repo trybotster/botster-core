@@ -13389,3 +13389,94 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All earlier verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 188 — #302 route semantic inputs and DP-5 outcomes, 2026-10-11
+
+Exact head: `c4ea4032456ed26605da3efb6fbabf1ba1061b6d`.
+Source merge base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Supplied gate base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+Risk: HIGH, as assigned by the lead for this worker change.
+Lead assignment: `msg_plugin-w_1791777105_47be0b`. Owner READY: `msg_plugin-w_1791777148_f5f43a`.
+This is the first package NOT CLEAN round on #302.
+
+### Source review
+
+The reviewer reads the complete five-path delta and the affected receipt, admission, encoding, and allowance paths.
+Route::decide preserves every Key and Mouse field and the Focus value. A route key has no repeat.
+The existing admission point encodes each semantic input at transaction start through libghostty.
+The new NotReported return produces no write or frame. Unsupported preserves the encoder's wire name and the route op.
+ModePreconditionFailed remains unchanged. Resize remains refused in the approved PR A scope; PR B owns its implementation.
+The four new unit tests use the real encoder for expected semantic bytes. They add no sleep, polling, global lock, or process fixture.
+The source contains two bound defects on the newly enabled route path.
+
+**F142 HIGH — queued semantic inputs bypass the route input byte bound. OPEN.**
+Evidence: input.rs:72-77 returns zero from payload_len for Key, Mouse, and Focus.
+Route::decide now sends those kinds into Pending::Route. input.rs:146 charges queued input through that zero value.
+route.rs:789-802 computes each read allowance from route_bytes and the reader's pending bytes.
+When a host transaction blocks admission, semantic inputs remain queued, but their receipt restores the route's input allowance.
+Key.text retains UTF-8 bytes that this counter never charges.
+The separate reservation for one refusal per input can stop reads later. It does not enforce the DP-5 input byte bound.
+DP-5 and steward R-53 require backpressure at the effective bound, max(route_input_queue_bytes, max_frame_bytes + 4).
+Required change: retain and charge the size of queued semantic input. Keep encoding at transaction start.
+Add a behavior test with blocked admission and a small input bound.
+Prove that reads stop at the bound, resume after room returns, and preserve input order without loss.
+Use actions and transport progress; do not inspect private queue state.
+Finding receipts: P3 `msg_plugin-w_1791777264_8cf37d`; Sol `msg_plugin-w_1791777264_b2d933`.
+Sol independently confirms the defect in `msg_plugin-w_1791777326_6b235d`, integration R302-SI-1.
+
+**F144 HIGH — route key text bypasses the configured A15-1 bound. OPEN.**
+Evidence: route.rs:196 accepts Key.text and sends it to start_route without a size check.
+start_route, encoded, and model::encode pass that text to libghostty. Worker-core never reads max_key_text_bytes.
+The pinned codec's Input::check checks key scalars and modifiers, but it does not bound text.
+The binding's encode_key takes the supplied text directly. It does not receive the configured Core limit.
+Pinned A15-1 requires a route key above max_key_text_bytes to receive input_refused{too_large}, with zero effect and the route open.
+That check must precede any other key size computation.
+Required change: apply the configured UTF-8 byte bound on the route path before encoding.
+Add behavior proof at the configured boundary and one byte above it.
+Preserve the route op. Prove that refusal writes no PTY bytes and leaves the route open.
+Finding receipts: P3 `msg_plugin-w_1791777310_357850`; Sol `msg_plugin-w_1791777310_eb163c`.
+Sol independently confirms the defect in `msg_plugin-w_1791777407_82a45b`, integration R302-SI-2.
+
+**F143 LOW — the PR evidence record overstates or mislabels supplied results. PARTLY CLOSED; OPEN.**
+The first body names reviewer 017e, claims before/after runs for all 23 identifiers, and labels the historical local log as c4ea4032.
+The supplied before script runs four identifiers. The local log names 8c7cfa75180689ad568823078ee4e598eadb7a19 and reports 261 passed, one failed.
+The current body corrects the reviewer to 0165, limits before evidence to four identifiers, and marks the dp_3 before cells not run.
+It records the historical local failure and identifies the later unlogged local run as an owner report.
+It distinguishes the source merge base, parent, and gate base. These portions close after the live-body comparison.
+The remaining condition covers fourteen focus trials: testkit results are FAIL/no matching event; real results are INCONCLUSIVE/step_timeout.
+The body still assigns one FAIL classification to both tiers.
+Required change: preserve the separate result for each tier. No new execution is needed for this record correction.
+Body records: /private/tmp/review-p3-pr302.json and /private/tmp/review-p3-pr302-latest.json.
+Correction request: P3 `msg_plugin-w_1791777384_385c41`; Sol `msg_plugin-w_1791777384_873d5f`.
+
+### Supplied evidence and limits
+
+The Mac scripts explicitly clean targets/p3 before each worktree switch, prebuild the worker, and set BOTSTER_SEEDS=0-31.
+The before run names bfef8865. The after run names 28c7be7737c5ab36c3e93f2424ab5c79d2f95e10.
+Both runs use the unchanged contracts-v0.1.41 tree at 2fcd7739708fe6de1390ff9bd9f90da5a8bc6d87.
+The three changed worker source/test blobs are byte-identical between that after head and this reviewed head.
+The supplied results support three removals on both tiers and dp_4's move to real-pending.
+The dp_4 real trial is INCONCLUSIVE at seed 0 step 20. Its fence diagnosis remains the owner's recorded diagnosis.
+The dp_3 refusal remains at step 23; resize remains pending. No DP-12 focus acceptance follows from this review.
+The claim that four new unit tests fail on old source remains an owner report; no separate reversal log is supplied here.
+
+Supplied gate: gates/botster-core-stage1-p3-route-semantic-input-c4ea4032-pool-20261011-204236-1219.log.
+SHA256: 3eb7c10edc4e03c4cbaf3eb2b9880ac5baba0fd23f28ca23932540a2a4c35fca.
+The header names the exact reviewed head and gate base above. All ten steps PASS.
+Default: 1869 passed, 429 skipped, 14.945 seconds. Slow: 613 passed, 2039 skipped, 42.298 seconds.
+The four new unit tests pass. The three removed identifiers pass on both tiers; dp_4 passes on the testkit.
+Minimum: testkit 65/69; real 58/68 passing, 59/69 accepted.
+All five raw mutation outcomes and four named catcher records are read and matched.
+Four mutants are caught; one is unviable. Zero mutants are missed or timed out. No FLAKY record appears.
+Stage 2 does not run because stage 1 misses no mutant. Fuzz selects no changed decoder harness.
+Total step time is 313.7 seconds. Jobq and the wrapper exit zero after 412 seconds on msa1.
+This green gate does not close either source finding. The head has not imported the gate base or a later final-slot base.
+No final import, merge, later head, additional pending removal, or future gate is accepted.
+
+F142 and F144 remain HIGH OPEN. F143 remains LOW OPEN for the focus result classification.
+F39 and F61/F62 retain separate scopes. All earlier verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: NOT CLEAN
