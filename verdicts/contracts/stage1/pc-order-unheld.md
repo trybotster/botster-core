@@ -41,3 +41,18 @@ The ruling lists these fences: "`route_frames_taken` after route frames, and, af
 4. **A `Completed` of the host write's op.** This is in the ruling's "a fence that proves the write reached the worker".
 
 Items 1-3 decide 7 ids that the first form of the rule flagged (dp_12, dp_3, dp_5_every, e6_1, ou_10 and both in_10 ids). I find them sound, but they widen the ruling's list. I ask the steward to confirm them, or to rule otherwise, before the final CLEAN.
+
+### Update after the steward's ruling (main `10a0b70b8b0911b987efb725b6c5e6d95664c26b`, R-93 "PC's two additions in contracts #87")
+
+The steward accepted both additions, with conditions, and also accepted `route_closed` as a fence: "after it, every earlier frame of the route was received or is never written, because a route that has ended takes no more input". This answers Q1.
+
+- **F1: withdrawn.** It conflicts with the ruling. A frame that a close drops is "never written", and the ruling accepts that.
+
+### F2 (MEDIUM): the lint at this head does not meet the ruling's conditions
+
+1. **(1)(b), the answered frame itself.** The ruling: "An answer fences only frames that the route sent before the answered frame." `route_answer` (`unheld.rs:299-300`) sets `upto` to the last frame of the answered op X, so X itself is fenced too. The doc comment says the same ("an op sent on the route at or after the input"). The answered frame must not be fenced by its own answer.
+2. **(1)(c), where `input_done` counts.** The ruling allows `input_done` only for a `paste_commit{want_result: true}` or a `file_commit`. `route_answer` counts any `input_done`. The positive self-test (`unheld.rs:821`, `:835`) answers a `paste_commit` that has no `want_result`.
+3. **(2), when a zero is proven.** The ruling: an `input_refused{failed}` or `{session_ended}` without `written_bytes` means "unknown", not zero, so that input stays in the order. Only `written_bytes: 0`, another refusal reason, or a host `NotWritten` proves a zero. `route_answer` sets `zero` for every `input_refused` whose `written_bytes` is absent or 0, whatever the reason (`unheld.rs:301-304`).
+4. **(1)(a), the self-test.** The ruling asks for a negative self-test: an answer that the transcript reads only after the other link's send still flags. I find none among the 18 tests. The ruling also asks for a negative test for (1)(b), an answer for an earlier frame. That one exists as the `early` case. It asks for (2)'s `failed` without `written_bytes` (still flags), which does not exist.
+
+Fix: meet (1)(b), (1)(c) and (2) in `route_answer`. Add the ruling's positive and negative self-tests for each addition. Check that the corpus count does not change: the 7 ids must still pass, or each one that is now flagged gets its fence or a line. This gives a new head, and the gate runs on that exact head.
