@@ -21,3 +21,14 @@ Three commits: `165efab` (the 9 transcripts), `b78efba` (merge of main `3756a34c
 - **Gate PASS on the exact head**, all ten steps, exit 0 after 410 s on msa1, base main `3756a34c` (current main): `~/botster-sessions/gates/botster-contracts-p3-r94-e4-1-ev-8-held-fill-4f8ab836-pool-20261011-211145-14813.log`.
 
 No finding. CLEAN on `4f8ab836d9a181707033df39b35ba4131dadb452`. If main moves before the merge by more than rulings, I re-check the delta per Q7.
+
+016c's round 1 (REJECT on `4f8ab836`): two MEDIUM package findings in `order.rs` (a variable rebound after its input write; a concatenation rebuilt from its dependencies' latest values). They are 016c's scope; I do not re-review them.
+
+## Round 2: CLEAN on 6bf07fc73f04e1fccc760463016c43188fe449a6
+
+- **The delta.** One commit on `4f8ab836`, `fence lint: resolve each value through the binding in effect where it is read`. It changes only `fence_lint/order.rs` (016c's findings, 016c's scope). No transcript, exception line or list changes, so round 1's integration facts hold.
+- **Red/green** (`shared/core-stage1/evidence/p3-r94/red-lint-r2.log`): with `4f8ab836`'s lint code the new self-test `a_value_is_resolved_through_the_binding_in_effect_where_it_is_read` fails (76 passed, 1 failed); with this head's code 77 of 77 pass.
+- **Main.** Main is `b11db6b5476f50ba1e0b4d2a962477a0faa99188`. The gate base `4fd81f1cb4063659b709ba8aa72a662e4cc2937b` is on main, and both `git diff 3756a34c 4fd81f1c` and `git diff 4fd81f1c b11db6b5` change only `docs/steward-rulings.md`: rulings-only moves, no merge needed.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 181 s on msa1, base main `4fd81f1c`: `~/botster-sessions/gates/botster-contracts-p3-r94-e4-1-ev-8-held-fill-6bf07fc7-pool-20261011-212834-25294.log`.
+
+No finding. CLEAN on `6bf07fc73f04e1fccc760463016c43188fe449a6`.
