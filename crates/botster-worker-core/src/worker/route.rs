@@ -231,16 +231,17 @@ impl Route {
     /// DP-5: `modes` coalesces to one latest unstarted frame per route. An unstarted `modes` frame leaves the queue, and the
     /// new one goes at the end. A frame that has started (the front one, while a write of it is out or part of it is
     /// written) completes. So `modes` adds at most one frame to the route's queue, and a frame never in the baseline
-    /// sequence, which has no `modes` frame.
+    /// sequence, which has no `modes` frame. The frame is droppable: a stall drops it when it is not started (OU-3b), and the
+    /// new baseline's `baseline_begin` carries the modes and the size again (OU-9).
     fn push_modes(&mut self, frame: &[u8]) {
         let started = usize::from(self.writing || self.written > 0);
         let unstarted = (started..self.queue.len())
-            .find(|&i| self.queue[i].get(STREAM_PREFIX) == Some(&TYPE_MODES));
+            .find(|&i| self.queue[i].bytes.get(STREAM_PREFIX) == Some(&TYPE_MODES));
         if let Some(i) = unstarted {
             let old = self.queue.remove(i).expect("found above");
-            self.queued -= old.len();
+            self.queued -= old.bytes.len();
         }
-        self.push_encoded(frame);
+        self.push_encoded(frame, Kind::Droppable, false);
     }
 
     /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt. `None` is a

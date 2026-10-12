@@ -252,14 +252,15 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
 - **No feature gate.** An older worker never sends `RouteProgress`, so the host never arms a deadline for its routes and
   sends no due message; an older worker also ignores an unknown host message. The two messages need no negotiated
   feature (a deviation from the design note's feature gate).
-- **No affected query yet.** The worker sends no `terminal_query` and no `modes` frame on a route yet, so a stall discard
-  retires no query today. When those frames come, the stall applies EV-8(i) as below.
+- **No affected query yet.** The worker sends no `terminal_query` frame on a route yet, so a stall discard retires no query
+  today. When that frame comes, the stall applies EV-8(i) as below. A `modes` frame (DP-6) is droppable: a stall drops it
+  when it is not started, and the new baseline's `baseline_begin` carries the modes and the size again.
 
 ### The output queue and the resync sequence (OU-4, OU-9, DP-5)
 
 Each queued frame has a class:
 
-- **droppable**: `output` and the baseline frames (`baseline_begin`, `screen`, `history`, `baseline_end`, `live`);
+- **droppable**: `output`, `modes` and the baseline frames (`baseline_begin`, `screen`, `history`, `baseline_end`, `live`);
 - **kept**: `input_refused`, `input_done` and `route_closed`. A stall or a resync never drops them;
 - **bounded**: `modes` and `terminal_query`, as DP-5 defines their bound.
 
