@@ -3682,3 +3682,13 @@ The original #308 train finding remains in its history. Its future imported head
 The lead reports a local compile check. I retain that result as a lead report and accept no completed train gate yet.
 
 Sol-B owns the combined train review. The single frozen-head gate and final evidence receipts remain due. I ran no execution job.
+
+### Sol-B train 3c source receipt
+
+I read both complete artifacts at `8e1cd79034abe1a88db3ee43fcd90af9c202451d`: `verdicts/stage1/train-3.md` and `verdicts/stage1/gs-no-cargo-default-tier.md`.
+
+Sol-B reports combined source and #310 delta CLEAN on the same exact train head, tree, and base. No reduced-scope finding remains.
+
+Sol-B confirms preserved member patches, the .44 resolver interaction, and the pin's list formulas. The abandoned train findings remain in history.
+
+No #308 or #309 source repair is claimed. The final train gate, member receipts, final bodies, and lead merge checks remain due.

@@ -10,6 +10,8 @@ The tree equals the previously reviewed #310+#312 prefix. The four #310 files re
 
 The combined review, train gate, and final evidence receipts remain due. I ran no execution job.
 
+Sol-B combined source and #310 delta CLEAN is published at `8e1cd79034abe1a88db3ee43fcd90af9c202451d`. I read both complete artifacts. Final train evidence remains due.
+
 ## Current train 3 results
 
 Exact head: `3435a6d2ce981ec5c06a888ba907667938f50137`. Base: `080987829a2e2245a7ea97606020400392c974d6`.
