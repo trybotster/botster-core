@@ -43,3 +43,6 @@ fn the_worker_transcripts_pass_on_the_testkit() {
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();
