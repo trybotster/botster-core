@@ -10,6 +10,8 @@ The macro doc, PR body, and pair-common rule satisfy the lead's conditions. The 
 
 This verdict is source-only. It supplies no completed gate result for the amended head.
 
+Sol-B publishes the same source-only CLEAN in `cb65d372b6d03cfbb2a034cd0ed10e1cf8ff752b`. I read the complete verdict. No finding changes.
+
 Early source review is NOT CLEAN at `4d49be0b70a5193ee96c57a84f29fb9ede56b8b6`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
 
 Two HIGH findings remain. An empty listed binary disappears from presence. A constant-based custom trial passes without executing the build-root check.
