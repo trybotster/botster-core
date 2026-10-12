@@ -147,6 +147,19 @@ impl Facts {
         self.last_seq
     }
 
+    /// Moves the log near the end of its sequence numbers: a test sets the counter near its limit in the unit's own state
+    /// (steward ruling R-101, follow-up; no production hook).
+    #[cfg(test)]
+    pub(super) fn use_up_to(&mut self, seq: u64) {
+        self.last_seq = seq;
+    }
+
+    /// The largest sequence number.
+    #[cfg(test)]
+    pub(super) fn max_seq() -> u64 {
+        MAX_SEQ
+    }
+
     /// Whether a record can be made: its own sequence number, the one of its status update, and the reserve of every
     /// record that has not ended.
     pub(super) fn can_receive(&self) -> bool {

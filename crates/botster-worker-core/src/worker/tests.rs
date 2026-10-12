@@ -2613,4 +2613,5 @@ fn the_model_snapshot_is_what_a_capture_sends_now() {
     assert_eq!(pages[0].bytes.0, live);
 }
 
+mod read_facts;
 mod routes;

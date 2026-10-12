@@ -415,3 +415,90 @@ fn a_paste_blocked_at_the_payloads_end_is_refused_session_ended_with_its_pty_byt
     ));
     assert!(refused < client.frames.len() - 1);
 }
+
+/// Steward ruling R-102 item 1: a paste of several chunks is one client input, received at its commit: one `rev` step and
+/// one record, `kind: paste`, with the assembled payload, `pending`.
+#[test]
+fn a_paste_of_several_chunks_is_one_client_input_at_its_commit() {
+    use super::super::read_facts::{read_facts, records};
+    let (mut w, mut client, _) = attached(limits());
+    let parts = send(
+        &mut w,
+        &mut client,
+        &[begin(1), chunk(1, b"ab"), chunk(1, b"cd"), chunk(1, b"e")],
+    );
+    assert_eq!(received(&mut w, &parts), 0);
+    assert!(read_facts(&mut w, None).input.input_records.is_empty());
+    let commit = send(&mut w, &mut client, &[commit(1, None)]);
+    assert_eq!(received(&mut w, &commit), 1);
+    let facts = read_facts(&mut w, None);
+    let recorded = records(&facts);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, InputKind::Paste);
+    assert_eq!(recorded[0].payload, Some(HexBytes(b"abcde".to_vec())));
+    assert_eq!(recorded[0].state, InputRecordState::Pending);
+    assert_eq!(facts.input.client.rev, InputRev(1));
+}
+
+/// R-102 item 2: an aborted paste leaves no trace in the facts.
+#[test]
+fn an_aborted_paste_leaves_no_record() {
+    use super::super::read_facts::read_facts;
+    let (mut w, mut client, _) = attached(limits());
+    send(&mut w, &mut client, &[begin(1), chunk(1, b"x"), abort(1)]);
+    let facts = read_facts(&mut w, None);
+    assert!(facts.input.input_records.is_empty());
+    assert_eq!(facts.input.client.rev, InputRev(0));
+}
+
+/// R-102 follow-up (a): a `paste_commit` refused for a sequencing error is one client input: one `rev` step, one record
+/// (`kind: paste`, empty payload) and its `not_written{refused}` at once.
+#[test]
+fn a_refused_commit_is_recorded_with_an_empty_paste_and_ends_refused() {
+    use super::super::read_facts::{read_facts, records, status_updates};
+    let (mut w, mut client, _) = attached(limits());
+    let all = send(&mut w, &mut client, &[commit(4, None)]);
+    assert_eq!(received(&mut w, &all), 1);
+    let facts = read_facts(&mut w, None);
+    let recorded = records(&facts);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, InputKind::Paste);
+    assert_eq!(recorded[0].payload, Some(HexBytes(Vec::new())));
+    assert_eq!(
+        status_updates(&facts),
+        [(
+            InputRecordState::NotWritten {
+                reason: NotWrittenReason::Refused
+            },
+            Some(0)
+        )]
+    );
+}
+
+/// R-102 item 5: a `reply_terminal_query` that the worker refuses is one client input: one `rev` step, one record at
+/// receipt, and its `not_written{unsupported}` at once.
+#[test]
+fn a_refused_query_reply_is_recorded_and_ends_not_written_unsupported() {
+    use super::super::read_facts::{read_facts, records, status_updates};
+    let (mut w, mut client, _) = attached(limits());
+    let reply = ToWorker::Input(Wire::ReplyTerminalQuery {
+        op: Some(Op(2)),
+        query_id: "7".into(),
+        reply: botster_route_codec::prelude::QueryReply::Decline,
+    });
+    let all = send(&mut w, &mut client, &[reply]);
+    assert_eq!(received(&mut w, &all), 1);
+    let facts = read_facts(&mut w, None);
+    assert_eq!(records(&facts).len(), 1);
+    assert_eq!(
+        status_updates(&facts),
+        [(
+            InputRecordState::NotWritten {
+                reason: NotWrittenReason::Unsupported {
+                    what: UnsupportedWhat::Other
+                }
+            },
+            Some(0)
+        )]
+    );
+}
