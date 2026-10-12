@@ -6,23 +6,7 @@ use super::*;
 use crate::run::DeadlineKind;
 use botster_core_link::msg::RouteLive;
 
-const CLOSE_AFTER: Duration = Duration::from_secs(5);
-
-fn applied() -> AppliedRouteLimits {
-    AppliedRouteLimits {
-        max_frame_bytes: 1000,
-        max_screen_frame_bytes: 2000,
-        max_history_page_bytes: 3000,
-        max_paste_bytes: 4000,
-        max_query_bytes: 50,
-        max_query_reply_bytes: 60,
-        max_file_bytes: 7000,
-        query_deadline: Duration::from_secs(1),
-        stall_deadline: Duration::from_secs(1),
-        stall_close_after: CLOSE_AFTER,
-        route_input_queue_bytes: 4444,
-    }
-}
+const CLOSE_AFTER: Duration = ADOPTED_CLOSE_AFTER;
 
 /// The worker's record of a live route with key `key`: tagged `t<key>`, `o<key>` and `c<key>`, or with no tags.
 fn live(key: u64, tagged: bool, stalled: Option<u64>) -> RouteLive {
@@ -31,7 +15,7 @@ fn live(key: u64, tagged: bool, stalled: Option<u64>) -> RouteLive {
         route_tag: tagged.then(|| format!("t{key}")),
         owner: tagged.then(|| format!("o{key}")),
         client: ClientId(format!("c{key}")),
-        limits: applied(),
+        limits: adopted_route_limits(),
         stalled,
     }
 }

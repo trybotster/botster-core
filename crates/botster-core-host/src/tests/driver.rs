@@ -376,7 +376,12 @@ impl Rig {
 
     /// A new handle over the rows of this one (LC-12), with a higher host epoch (DP-8).
     fn reopen(&self) -> Rig {
-        let mut cfg = config(CoreLimits::default());
+        self.reopen_with(CoreLimits::default())
+    }
+
+    /// [`Rig::reopen`] with `limits`.
+    fn reopen_with(&self, limits: CoreLimits) -> Rig {
+        let mut cfg = config(limits);
         cfg.host_epoch = 8;
         let rows = self.mock.lock().unwrap().rows.clone();
         Rig::open(cfg, Box::new(Production::new()), rows)
@@ -1121,4 +1126,128 @@ fn an_end_read_with_the_retry_report_follows_running() {
         e,
         Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
     )));
+}
+
+/// The bytes of a worker of `instance` at its endpoint: its hello to a host of epoch 8, its report of a running payload
+/// with one live route, and that route's `RouteLive` (DP-8).
+fn adopted_with_a_route(instance: &InstanceId) -> Vec<u8> {
+    let hello = Hello {
+        protocol: 1,
+        instance: instance.clone(),
+        proof: token_proof(&[9u8; TOKEN_LEN], instance, 8),
+        host_epoch: 8,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    let mut out = frame(FrameType::HELLO, &payload);
+    let report = WorkerMsg::Adopted {
+        report: Box::new(AdoptReport {
+            routes: 1,
+            payload: AdoptedPayload::Running {
+                payload: botster_core_link::msg::PayloadId {
+                    pid: 900,
+                    start_time: 3,
+                },
+            },
+            features: BTreeSet::new(),
+            terminal: Some(terminal_state()),
+            formats: vec![],
+        }),
+    };
+    let live = WorkerMsg::RouteLive(Box::new(botster_core_link::msg::RouteLive {
+        key: 1,
+        route_tag: Some("t1".into()),
+        owner: Some("o1".into()),
+        client: ClientId("c1".into()),
+        limits: adopted_route_limits(),
+        stalled: None,
+    }));
+    for msg in [report, live] {
+        let mut payload = Vec::new();
+        msg.encode(&mut payload);
+        out.extend(frame(FrameType::WORKER_MSG, &payload));
+    }
+    out
+}
+
+/// 0181's ST313-R1, DP-8 phase 3, EV-6, on the production driver and scheduler: with one mandatory slot and late polls,
+/// the session ends and the worker reports the route's delivered close before the route's `RouteAdopted` posts. The
+/// caller sees `Running`, then `RouteAdopted`, then the completion of `AdoptAll`, then the end and the route's close.
+#[test]
+fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it_with_late_polls() {
+    let (first, instance) = first_handle();
+    let mut again = first.reopen_with(limits(|l| l.mandatory_events = 1));
+    again
+        .mock
+        .lock()
+        .unwrap()
+        .endpoints
+        .insert(instance.clone(), adopted_with_a_route(&instance));
+    let adopt = again.driver.begin(Op::AdoptAll).unwrap();
+    let link = LinkId(1);
+    let mut route = None;
+    for _ in 0..10 {
+        again.pump();
+        route = again.host_frames(link).iter().find_map(|(kind, payload)| {
+            match (*kind == FrameType::HOST_MSG).then(|| HostMsg::decode(payload)) {
+                Some(Ok(HostMsg::RouteId { key: 1, route })) => Some(route),
+                _ => None,
+            }
+        });
+        if route.is_some() {
+            break;
+        }
+    }
+    let route = route.expect("the host sent the route's RouteId at the state post");
+    again.worker_says(
+        link,
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    again.worker_says(
+        link,
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SessionEnded {
+                exit: Exit {
+                    code: Some(0),
+                    signal: None,
+                    cause: ExitCause::Other,
+                },
+            },
+            route_tag: Some("t1".into()),
+        },
+    );
+    // The worker's frames are read with no poll first: the slot holds `Running`.
+    again.pump();
+    again.pump();
+    let mut events = Vec::new();
+    for _ in 0..20 {
+        events.extend(again.drain_events());
+        again.pump();
+    }
+    let order: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::SessionState {
+                state: SessionState::Running,
+                ..
+            } => Some("running"),
+            Event::RouteAdopted { route: r, .. } if *r == route => Some("adopted"),
+            Event::Completed { op, .. } if *op == adopt => Some("completed"),
+            Event::SessionState {
+                state: SessionState::Exited(_),
+                ..
+            } => Some("exited"),
+            Event::RouteClosed { route: r, .. } if *r == route => Some("closed"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        order,
+        ["running", "adopted", "completed", "exited", "closed"],
+        "{events:?}"
+    );
 }

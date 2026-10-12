@@ -85,6 +85,26 @@ pub(crate) fn limits(change: impl FnOnce(&mut CoreLimits)) -> CoreLimits {
 /// The worker protocol number in the hello of the scripted worker.
 pub(crate) const HELLO_PROTOCOL: u8 = 1;
 
+/// The `stall_close_after` of [`adopted_route_limits`].
+pub(crate) const ADOPTED_CLOSE_AFTER: Duration = Duration::from_secs(5);
+
+/// The applied limits of a route that a worker reports at adoption (`RouteLive.limits`, DP-8).
+pub(crate) fn adopted_route_limits() -> AppliedRouteLimits {
+    AppliedRouteLimits {
+        max_frame_bytes: 1000,
+        max_screen_frame_bytes: 2000,
+        max_history_page_bytes: 3000,
+        max_paste_bytes: 4000,
+        max_query_bytes: 50,
+        max_query_reply_bytes: 60,
+        max_file_bytes: 7000,
+        query_deadline: Duration::from_secs(1),
+        stall_deadline: Duration::from_secs(1),
+        stall_close_after: ADOPTED_CLOSE_AFTER,
+        route_input_queue_bytes: 4444,
+    }
+}
+
 /// A scripted worker at its endpoint (DESIGN.md "Adoption (P5)" 3.1): what it answers when a host connects.
 #[derive(Debug, Clone)]
 pub(crate) struct Endpoint {
