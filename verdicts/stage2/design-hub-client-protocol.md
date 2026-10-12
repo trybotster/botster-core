@@ -258,3 +258,44 @@ Align PC and P5 on one retention rule. Preserve every pending record until its t
 VERDICT: NOT CLEAN (two new MEDIUM findings, D5 and D6; earlier findings remain closed; R-120 is applied).
 This review supplies no implementation or gate approval.
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 5: R-121 restore and retention closure
+
+Reviewed artifact SHA256: `32d39a58d0cb0a0ff19b1cc4671b1521afaece8a7ddb948a18bd83f18ea43d3f`.
+PC supplies revision 5 in msg_plugin-w_1791848776_772fa0 after the lead's hold.
+The held intermediate f8f77273 proposal receives no separate verdict.
+Scope remains section 7, its header, and the section 8 dispositions.
+Sol-B reads that delta, R-121, and P5's referenced restore table and retention rules.
+P5 artifact SHA256: `e5a5522f4101e9cc2beaf6e8bcbb6de5f6c49373697dde0bb4b7c271fae4230b`.
+
+S2-PC-D5: CLOSED for design under R-121.
+PC removes its competing restore table and cites P5's single table.
+That table distinguishes Starting from Running and Stopping.
+It distinguishes Exited with start_failure from Exited after a successful start.
+It also distinguishes failed, interrupted, previously running, and indeterminate Lost rows.
+Indeterminate records remain starting and use the same table after each Adopt(id) retry.
+P5 owns that retry policy as a later step. A pending record is not falsely marked installed or removed by retention.
+The no-row and Created cases retain R-120's rules.
+
+The restore requires the A26 pin specified by R-121. It has no interim Core v1 rule.
+R-121 also requires the next A26 candidate to record WorkerFailed when adoption loses a Starting row before the ready point is proved.
+That additional rule is necessary before Lost{WorkerGone} without start_failure can prove that the payload ran.
+The implementation must use a frozen A26 pin carrying both start_failure and that additional adoption rule.
+Candidate 3's start_failure field alone does not satisfy this dependency.
+This design CLEAN accepts the explicit R-121 dependency; it approves no missing amendment rule or earlier implementation pin.
+
+S2-PC-D6: CLOSED for design.
+PC uses only P5's retention rule: delete a terminal record after terminal_at_ms plus operation_retention_seconds.
+Released does not delete the operation record. Retention preserves every pending record.
+P5's finite max_operation_records bounds the store and gives typed busy refusal at capacity.
+PC names create_spawn, finish_spawn, and get_spawn as its only store API.
+Operation reads return busy during recovery, not a false not_found.
+
+D1 through D4 remain closed. R-119, R-120, R-121, and the lead's Q2 to Q4 dispositions remain binding.
+The live create path retains a durable operation before Create and a durable Core row before accepted.
+The operation store belongs to P5; the session registry belongs to Core.
+No reserved label or second session registry is approved.
+All six design findings are closed. Implementation and story completion still require their assigned reviews and evidence.
+
+VERDICT: CLEAN (design delta only; 0 open; the R-121 A26 dependency remains required before restore implementation).
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
