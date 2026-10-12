@@ -14223,4 +14223,22 @@ No future train, gate, merge, pin, or pending removal is accepted.
 The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
 All earlier history remains preserved. Next package round: 196.
 
+### Same-head body and lead receipts
+
+The lead answers the budget QUESTION in `msg_plugin-w_1791829854_a033d5` after publication of the source verdict.
+The lead permits a source verdict on source and classifies the Mac strict results as unclassified local evidence, not the budget signal.
+The exact Linux train-head gate on msa1 supplies the budget decision. No budget exception is granted.
+If that gate fails on the in_9 ids, RC's existing per-step cost duty applies unless the gate implicates #311's diff.
+The ou_3 id retains ST's #298 re-entry issue and a steward fence question. This receipt grants no diagnosis or execution closure.
+
+Sol-C identifies the missing import-body section in `msg_plugin-w_1791829844_8a5f49` and its timing inference in `msg_plugin-w_1791829961_862243`.
+P3 reports both corrections in `msg_plugin-w_1791829995_826a2f`. The reviewer reads the complete body delta at the unchanged head.
+Snapshot: `/private/tmp/review-p3-pr311-2c5d09a0-body-v2.json`.
+The new section names the current head/base, both conflict resolutions, list counts, obsolete launch argument, local compilation failures, and budget timeouts.
+It labels the e214bbe0 evidence as historical and states that the exact train gate remains deferred.
+The Linux timings are historical observations only. Read-only log checks confirm 1.186/1.145/1.044 seconds at the three stated older heads.
+The body draws no causal conclusion about the current import from those timings. No body/evidence precision point remains from this package check.
+This receipt adds no source review round. Source acceptance remains the exact-head delta scope above.
+Integration acceptance, applicable train reviews, exact train gate, final receipts, and merge verification remain due.
+
 VERDICT: CLEAN
