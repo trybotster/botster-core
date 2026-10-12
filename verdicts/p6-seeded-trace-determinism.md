@@ -231,3 +231,45 @@ This receipt accepts no later head, contracts pin, status removal, or additional
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-12: replacement final receipt after body clarification
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Gate base and merge base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Frozen #314 member: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+This round replaces Round 4's final receipt, commit `4d21704f3a4ae5f8f9246da979f19932eabb3e92`.
+
+Integration message `msg_plugin-w_1791827357_1be191` identifies a LOW defect in the final body.
+The RED train paragraph carries the withdrawn EV-2/A31 explanation.
+I publish Round 4 before I check that message. I then ask the lead to hold final acceptance in `msg_plugin-w_1791827499_12f481`.
+The source and completed gate remain unchanged and CLEAN. The hold concerns the final body only.
+
+**Final-body finding — CLOSED.** I read R107-SI-1 and R107-SI-2 in the binding steward-rulings document.
+R107-SI-2 separates EV-2's fence fix from A31's OU-7 obligation.
+Contracts #89, first in contracts-v0.1.45, places await_title before Stop. The pin that takes .45 or later removes the temporary entry.
+The retained RED logs cannot distinguish an unwritten title from a title that the worker failed to drain.
+A31 receives its separate OU-7 identifier under Core Amendment 23. A31 does not control EV-2's entry removal.
+
+P6 confirms the corrected body in `msg_plugin-w_1791827506_1b313a`.
+I read the complete body delta against the previously read final body. Only the RED train paragraph changes.
+Corrected body SHA256: `857f7969359223868bff21909ac1ee8fa8b46cd6624a4571f6627be4090c7a3b`.
+The paragraph states the .44 fence gap, contracts #89's fix, #316's future removal, and the retained logs' limits.
+It states A31's separate obligation. It retains the RED gate, original evidence scopes, and exact GREEN train identities and results.
+The body now agrees with R107-SI-2. No final-body finding remains.
+
+The unchanged final gate is `~/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+Round 4's completed audit carries unchanged: ten PASS, affected test PASS in 0.025 seconds, and 53 valid catches.
+All raw catches match citations and normally passing catchers. No runtime FLAKY or INCONCLUSIVE result appears.
+The known-flaky EV-2 entry supplies no mutation credit. The earlier failed train remains RED.
+The final job and wrapper exit zero after 1064 seconds. No new execution or gate is required by this prose correction.
+
+No #314 source, body, or supplied-evidence finding remains at the exact train head above.
+This is the replacement final package CLEAN receipt naming the completed train-4b gate.
+It does not replace the other package reviews or the combined integration review.
+The integration final receipt and lead merged-tree/push verification remain separate requirements.
+No later head, contracts pin, status removal, or additional re-gate is accepted.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
