@@ -426,21 +426,29 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   the driver queued on the worker's link and the link has not taken yet (`LinkState.out`). Core owns it, so a sync `cancel`
   decides from Core's own state, and Core (not the worker) posts `SessionWritable`. The link message
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
-- **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`
+- **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
+  the link's frame bound `F` (`HostEngine::link_frame_bound`: `4 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB`)
   and one control message `c` (the largest `Cancel` frame):
-  `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × 4096 + 4 × c`.
-  - 4096 (`NON_INPUT_FRAME_BYTES`) is a sizing estimate for one host message with no input payload, not a maximum: an
-    `AttachRoute` (its `file_directory`, `owner` and feature lists) or an `UpdateMetadata` (its labels) can be larger.
-    An estimate that is too small only makes a cancel `Full` earlier, and the drain still wakes the host.
-  - With the default limits, the bound is about 3.2 MiB.
+  `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
+  - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame
+    bound. It is a true upper bound, not an estimate: `encode_frame` refuses a larger payload, so no host message is
+    queued larger. Each message kind has a test (`tests/driver/control_term.rs`). The kinds whose fields `CoreLimits`
+    bounds (`Stop`, `Kill`, `Remove`, `Cancel`, `Detach`, and the forwarded ops with no input payload) are far below it at
+    their worst case under the limits.
+  - Four kinds carry strings that no `CoreLimits` value bounds, so the frame bound is the only bound for them (steward
+    ruling R-100: no new `CoreLimits` field in v1, backlog B-2): `Launch` (argv, env, cwd, notification patterns),
+    `SetNotificationPolicy` (patterns), `CaptureSnapshot` (owner) and `AttachRoute` (`file_directory`, `route_features`,
+    `terminal_formats`). Their tests show that a frame over the bound is refused.
+  - With the default limits, `F` is 65 MiB and the bound is about 18 GiB. That is a threshold only: Core allocates nothing
+    for it. So Core's own count refuses `Full` only when a link stops draining for a very long time, and in practice the
+    link edge's room (`HostEdges::link_room`) is the limit that binds.
 - **The admission limits bound the stream (R-91 Q1 (b)).** Only `cancel` refuses `Full`. Every other host-to-worker message
   keeps its own admission:
   - IN-5 bounds the input payload of a session (`input_retained_bytes`, `input_ops_per_session`);
   - AM-3 bounds the pending ops (`pending_ops`).
-  - Every other message (`Launch`, `AttachRoute`, `Detach`, `Stop`, `Kill`, `Remove`) is at most the link's frame bound,
-    and the session's flow and its routes (`routes_per_session`) bound how many there are.
-  So `out` cannot grow without a bound. With messages of the estimated size, the admitted traffic stays under
-  `bound − 4c`, and a cancel finds room unless the link stops draining.
+  - Every other message (`Launch`, `AttachRoute`, `Detach`, `Stop`, `Kill`, `Remove`) is at most the link's largest
+    frame, and the session's flow and its routes (`routes_per_session`) bound how many there are.
+  So `out` cannot grow without a bound.
 - **The room.** `room = min(bound − unsent bytes, HostEdges::link_room(link))`. The production edge sets no bound of its own
   (`usize::MAX`). The testkit's `control_queue` sets the edge's room to 0 on both tiers, at the injected edge only (BUILD.md
   testing rule 8).
@@ -448,6 +456,10 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   its sent or not-sent branch (R-91 Q2, FakeCore's order). With less room than `c`, it returns `Refused(Full)`. Nothing
   changes: the op stays cancellable, no slot is taken, and no event is posted (AM-4). The worker's handle gets a
   `refused_full` mark. The mark lives with the worker's link, so a new instance starts without it.
+- **A failed write side (R-78 item 4).** A send error clears the link's unsent bytes, and the write side takes nothing more.
+  Those dropped bytes are not a drain: the failure retires the `refused_full` mark, so no `SessionWritable` follows and the
+  room is no work. A `cancel` on a failed write side is not refused `Full`, because no room would come back to wake it; a
+  sent op completes through the link's end (IN-7).
 - **The wake.** In every pump, after the driver flushes a link, a link with room for `c` clears the mark of its session and
   posts `SessionWritable{id, instance}` (class K, keyed per instance, so it is coalesced, SV-3). The event counts against
   the pump's event bound (9B). With no budget left, it waits for the next pump, and the pump reports `more`. A link with room
@@ -457,7 +469,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   - The test sets the bound to one control message, so one unsent frame fills it. This proves Core's own count and the
     wake.
   - Other tests cover: no wake without a refusal; two refusals and one wake; the edge's room; and the production bound
-    formula.
+    formula; and a failed write side (no wake, no `more`, the read side kept; and no `Full`).
+  - `tests/driver/control_term.rs`: one test for each host message kind against the term.
 - **Prior art (BUILD.md rule 0; old Core `72b2e335`).**
   - The old daemon's `cancel` (the old daemon crate's `src/daemon.rs:1993`) returns `bool`. It has no control queue,
     no `Full` refusal and no wake.
