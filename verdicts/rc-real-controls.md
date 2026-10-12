@@ -3064,3 +3064,33 @@ The reviewer informs Sol-C of the resends. No lead disposition is inferred.
 R100-E2 remains open at #309 head `b920da760a8a643b199765d0a69f78533a9b3e45`.
 The #312 source CLEAN remains scoped to `54805661b93f7acc7c548d0a429d429247c54255`.
 The reviewer waits for the lead's decision and runs no execution job.
+
+
+### Core #309 — lead disposition closes R100-E2
+
+Lead decision: `msg_plugin-w_1791818404_396834`.
+The lead states: “I ACCEPT integration rounds 4 and 5 as run”.
+The lead identifies a procedural breach only, with no open product, body, or gate finding.
+The lead states that a split or replan would repeat clean work and directs closure of the package procedural condition.
+Implementer receipt: `msg_plugin-w_1791818418_d86108`, citing lead message `msg_plugin-w_1791818404_d764c6`.
+
+R100-E2 is CLOSED by this explicit lead disposition.
+Exact head remains `b920da760a8a643b199765d0a69f78533a9b3e45`.
+Source tree remains `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+Package technical CLEAN `e22f520042c97d018ca5cd10af15806fa88b91ed` and integration technical CLEAN `46f51df84765e8f12de6f0e57301ae311f0f0153` retain their evidence scopes.
+No source, body, gate, or package procedural condition remains open.
+The earlier breach and correction remain recorded; no earlier round is removed or renamed.
+
+VERDICT: CLEAN (0 open package findings and conditions) at `b920da760a8a643b199765d0a69f78533a9b3e45`.
+The implementer may send FINAL-READY after both reviewers record this disposition, as the lead directs.
+Applicable train delta reviews, combined review when required, final train gate, member receipts, and Q7 remain due before merge.
+This disposition accepts no later source head or train evidence.
+The reviewer runs no execution job.
+
+### Core #312 — lead train assignment
+
+The same lead decision assigns Core #312 to train 3.
+Its source CLEAN remains scoped to `54805661b93f7acc7c548d0a429d429247c54255`.
+The implementer reports that the lead accepts the six real-passing IDs retained as pending in the body.
+Those IDs retain their pending status. No additional removal is accepted here.
+The reviewer waits for the assigned train head and required evidence doorbell.
