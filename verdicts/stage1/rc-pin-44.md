@@ -140,3 +140,29 @@ The script calls quiet Cargo clean but retains neither its numeric exit nor remo
 Zero integration delta findings remain. This CLEAN accepts source only at the stated head. FINAL-READY can follow the matching delta receipts under the lead's repair order. Applicable train reviews, final composed gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 6: train 4 source delta
+
+- Train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+- Base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+- Frozen #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+- Reviewed delta: #312 with #314's seeded-trace test and #307's control-room interface and conformance changes.
+- Package verdict: `a401c753c91855cc484db771539e11b395db1ca9`, file `verdicts/rc-real-controls.md`, complete train 4 section.
+- Lead assignment: `msg_plugin-w_1791821464_0bdff1`.
+
+I read the complete same-head package section. It reports zero #312 findings. Git records the ordered merges of #314, #312, then #307. #309 and #311 are absent.
+
+Five #312 blobs equal the accepted member head: the manifest, lock, real-program probe handler, route-log test, and real-pending list. The pending list additionally imports #307's two IN-6 removals and debt comments. I checked all nine combined line-set formulas. Each matches. Core-pending contains 403 IDs, and core-real-pending contains 34. The a5_2 removal and all nine earlier #312 real-pending removals remain. Neither am_2 nor ev_9 leaves pending. #307's reviewers own its two removal proofs; the final gate must check the combined lists.
+
+I read the imported control-room interface. SimEdges and EdgeTap return zero room for the selected worker instance. Release restores room and signals the existing wake. The shared host driver computes room and posts SessionWritable. The control injects an edge condition on both tiers; it adds no production test branch or terminal model. It does not change #312's probe environment or Printed report handling.
+
+#307 removes Observation::Writable. No #312 code refers to that variant. The six-times frame bound from #309 is absent; this review accepts no future queue/frame-bound composition. The seeded-trace change affects a test only. Its determinism comparison preserves the scheduler interface used by the a5_2 transcript.
+
+The imported #310 resolver still selects the .44 lock revision. Its slow comparison with Cargo metadata remains due in the final gate. The shared CI job copy, mutation configuration, known-flaky file, and process-check allowlist equal the train base. No new exclusion appears. The earlier known-flaky retirement condition remains inapplicable because #308 is absent.
+
+The package section retains the four body closures and the earlier evidence limits. A reported strict train pass supplies no completed gate acceptance. P3 print-history serving remains separate.
+
+Zero #312 integration delta findings remain. This CLEAN accepts source only at this train head. Sol owns the combined review. Other member reviews, the final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
