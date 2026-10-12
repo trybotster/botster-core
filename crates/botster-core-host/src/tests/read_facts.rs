@@ -217,3 +217,44 @@ fn the_end_of_a_client_input_after_its_route_closed_raises_no_activity() {
     let events = w.engine.poll_events(64);
     assert!(events.is_empty(), "{events:?}");
 }
+
+/// Core EV-5, IN-10 (#320 RF-PC-3, the same key): a client input that a worker reports for a route that Core closed, or
+/// that the session never had, moves the client revision and raises no `Activity` for the retired key. Core can close a
+/// route without the worker (`DetachLocal` while the link is down), so the report can follow the close.
+#[test]
+fn a_client_input_of_a_closed_route_moves_the_revision_and_raises_no_activity() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::Detached,
+            route_tag: None,
+        },
+    );
+    w.engine.poll_events(64);
+    for (r, rev) in [(route, 7), (RouteId(99), 8)] {
+        w.worker_says(
+            "s1",
+            WorkerMsg::Observed {
+                observation: Observation::ClientInput {
+                    route: r,
+                    input_rev: InputRev(rev),
+                },
+            },
+        );
+        let events = w.engine.poll_events(64);
+        assert!(events.is_empty(), "{r:?}: {events:?}");
+        assert_eq!(
+            w.engine
+                .terminal_state(&sid("s1"))
+                .unwrap()
+                .input_rev
+                .client,
+            InputRev(rev)
+        );
+    }
+}
