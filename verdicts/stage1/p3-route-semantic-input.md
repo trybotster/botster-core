@@ -369,3 +369,69 @@ This verdict accepts no future source, gate, pin, pending removal, FINAL-READY, 
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; SLOT source delta only, train-7 acceptance remains due)
+
+## Train-7b source inspection — complete package delta remains due
+
+Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Frozen #302 member: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`.
+Lead request: `msg_plugin-w_1791836260_58aa9f`.
+Sol owns this member delta only. Sol-C owns combined review and the one final train receipt.
+The earlier complete SLOT source CLEAN at `ed10cf0d5e5c6fd965935580a7e3965b5874eb59` remains applicable.
+
+The ordered members are #316 f1ac08b9, #323 6e6ebba7, #302 953aa2ba, and #322 25fbc9ec.
+Their complete frozen heads and merge identities are recorded in this commit's p5-fifo-release.md Round 2.
+#302 merges at `abdae8913136fe68f51121d95cf40b15149ced99`.
+Its parents are `cd9af56fd6b0d238ad606aae9fec3ab9b431ebbf` and the frozen member.
+Both the preceding merge and #302 merge have tree `3a73d15508bed6bb3546a6e660157a1fb2d67e9e`.
+The insertion is empty. Its full-index diff SHA-256 is `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`.
+It adds ancestry for the frozen member and changes no tree content.
+
+Two merge-base candidates exist between the preceding train and #302:
+
+- `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`.
+
+The reviewer does not infer a unique base from the first returned value.
+All nine conformance set formulas pass against each candidate.
+Together with the other three merges, all 45 comparisons pass.
+The final pending and real-pending files equal the files before #302 enters, including comments.
+No accepted removal returns and no new identifier leaves a list through this insertion.
+
+The reviewer reads the affected final input and route code and the member-to-train route differences.
+All three worker source/test files equal the reviewed train-6 base blobs.
+input.rs also equals the frozen #302 member blob exactly.
+All twelve helper and test functions added by #302 remain exact in the final route test file.
+The later route additions are the previously reviewed resize/Latest code from #311.
+The imported report-order module registration remains present.
+The old unsupported-kind test uses file_commit in place of resize because resize is now implemented; its refusal purpose remains.
+This import introduces no additional semantic input change.
+
+Queued semantic inputs retain their wire-frame charge and active inputs retain their encoded unwritten charge.
+The key-text bound still applies before encoding and other key size work.
+Transaction-start model encoding, optional ops, NotReported omission, and Unsupported outcomes remain present.
+The stream reader and refusal reservation still bound route reads.
+The no-grace stopping path remains unchanged. R302-SI-1 and R302-SI-2 retain their closures.
+
+#316 moves the pin from `.44` to `.46`, commit `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`.
+The route-codec package is unchanged across those pins.
+Within core-contract, only RouteAdopted's tag/owner fields and their tests change.
+No semantic input, WriteInput, or refusal type used by #302 changes.
+The new A22 pending/ledger identifier belongs to #316; its pin review belongs to Sol-C and the package reviewer.
+Final counts are pending 388, real-pending 38, held four, ledger 692, minimum 69, real-only 26, real-proofs seven,
+deferred three, and withdrawn 27.
+The four accepted #302 testkit removals remain absent. dp4 remains real-pending.
+No current train execution or dp4 real-tier removal is inferred from an earlier head's evidence.
+
+The complete train diff has eight paths, 278 additions, and 39 deletions.
+Full-index SHA-256: `7ecd274c9c350c483b5010dd5ab48e2c6025d174e85a7742881b5fdbb0e23029`.
+The reviewer verifies the exact pushed train head and remote base once. The Git whitespace check passes.
+The lead's list, test compilation, and strict 281/0 pre-checks remain operator reports, not gate evidence.
+
+No #302 composition finding is identified. Earlier source and body findings retain their closures and limits.
+The complete matching package delta remains due before integration CLEAN.
+This inspection completes no CLEAN round and supplies no train final receipt.
+Combined review, completed exact-train-head gate, Sol-C's one final receipt, and merge verification remain due.
+Package source-audit notice: `msg_plugin-w_1791836532_ffd4e9`.
+The reviewer runs no execution job. Wait for the package verdict doorbell. Never poll.

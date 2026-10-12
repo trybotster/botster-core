@@ -85,3 +85,68 @@ The reviewer changes no product code and runs no build, test, gate, mutation, re
 or executable base check.
 
 VERDICT: CLEAN (0 open; source and READY evidence only)
+
+## Round 2 — train-7b source delta CLEAN
+
+Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Frozen #322 member: `25fbc9ec7bae580d28e3b29f7f43f0d6e0ff78b2`.
+Lead request: `msg_plugin-w_1791836260_58aa9f`.
+The lead assigns Sol the #322 integration delta only. Sol-C owns combined review and the one final train receipt.
+
+The reviewer reads complete matching package Round 2 at `9e1880e3c1d423ef28396ed0c836c0ce9c56db2d`.
+File: `verdicts/p5-fifo-release.md`. Receipt: `msg_plugin-w_1791836483_bc474e`.
+It is CLEAN on this exact head, base, and tree. The initial source review at `41b5329f125fe16a57b31d69abbd587ee7749620` remains applicable.
+
+The ordered merges are #316, #323, #302, and #322:
+
+| Member | Frozen head | Merge commit |
+| --- | --- | --- |
+| #316 | `f1ac08b998f15f062f123a996e2688344c33c3ba` | `e9485b94bfc2476be07cb1642ccec4a5437b9952` |
+| #323 | `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307` | `cd9af56fd6b0d238ad606aae9fec3ab9b431ebbf` |
+| #302 | `953aa2ba300df85bff1df7a8be15f5214b6ca67b` | `abdae8913136fe68f51121d95cf40b15149ced99` |
+| #322 | `25fbc9ec7bae580d28e3b29f7f43f0d6e0ff78b2` | `007efbde6a59af403d0937c38361c137a8961a48` |
+
+The reviewer reads each merge's exact parents. The final merge joins the #302 merge and frozen #322 member.
+The pushed train head and remote v1 base match the review identities.
+Complete train diff SHA-256: `7ecd274c9c350c483b5010dd5ab48e2c6025d174e85a7742881b5fdbb0e23029`.
+It has eight paths, 278 additions, and 39 deletions.
+The #322 insertion changes exactly its one session test file, with nine additions and six deletions.
+Insertion full-index SHA-256: `e042bf8fc2b199fcca7e099b960e21252d367b399b7a0afa8be7eb7f539b80a8`.
+Every added and removed line equals the accepted member patch, excluding hunk positions and object indices.
+The Git whitespace check passes.
+
+The reviewer reads the complete member-to-train shared-file difference and the final fixed test.
+The full fixed cancel test equals the accepted member test exactly.
+It retains the newline count reader, FIFO ends, Done result, done marker, byte equality, release, Kill, and Remove order.
+The marker and byte check still prove consumption before release.
+The only other shared-file change is train 6's real PTY resize test.
+That test owns separate temporary state and retains its existing bounded FIFO and session waits.
+It changes no cancel fixture, fixed test, or group cleanup.
+All member-to-train shared-file changes exactly equal the imported base's shared-file changes.
+No hidden change enters the merge.
+
+The train pins `.46` at `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1` through #316.
+The reviewer reads the complete core-contract event delta against `.44`.
+It changes only RouteAdopted tag/owner types and their tests within that package.
+The route-codec package has no change between these pins.
+No cancellation result, byte-count, input, or cleanup interface used by this test changes.
+#316's pin and exception decisions retain their assigned reviewers' scope.
+
+The reviewer independently checks all nine conformance text sets after each merge.
+#302 has two merge-base candidates; all nine formulas pass against both, for 45 comparisons in total.
+Every final set after #322 equals the preceding merge. #322 changes no identifier or status.
+Final counts are pending 388, real-pending 38, held four, ledger 692, minimum 69, real-only 26, real-proofs seven,
+deferred three, and withdrawn 27.
+The added A22 pending and ledger identifier belongs to #316. No removed identifier returns through #322.
+
+R322-F1 retains its closure. Zero #322 composition findings remain, including LOW.
+The lead reports id-set checks PASS, test-target compilation PASS, and strict conformance 281/0.
+These are operator reports. No pre-check log or completed train gate is supplied in this round.
+The original READY gate retains its original member head and pin scope.
+Combined review, completed exact-train-head gate, Sol-C's one final receipt, and merge verification remain due.
+This delta accepts no gate, future head, retry, status change, or merge.
+The reviewer changes no product code and runs no execution job.
+
+VERDICT: CLEAN (0 open; #322 train-7b source delta only)
