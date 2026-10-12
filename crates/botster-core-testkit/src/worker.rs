@@ -727,8 +727,6 @@ impl Workers {
             .is_some_and(|(cell, _)| !lock(cell).ended)
     }
 
-    /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
-    /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     /// The JSON byte size of the `input_records` list of the last `ReadFacts` answer that the worker process `identity` sent
     /// on its link (`input_records_cost`), or `None` before any.
     ///
@@ -744,6 +742,8 @@ impl Workers {
             .ok_or_else(|| format!("the process {identity:?} is not a worker of this run"))
     }
 
+    /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
+    /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
         lock(&self.run_processes)
             .get(&identity)
