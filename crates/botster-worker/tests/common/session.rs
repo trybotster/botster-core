@@ -1336,9 +1336,10 @@ fn marker_fifo(root: &Path, name: &str) -> Bounded<std::fs::File> {
 
 /// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
 ///
-/// The payload starts through the shared group guard ([`GuardedSession`]). It blocks on fixture children of
-/// `botster-test-process` ([`Blocker`]): one `cat` that waits for the count to read, and one that holds the payload until
-/// the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
+/// The payload starts through the shared group guard ([`GuardedSession`]). It reads the count to read with `head -n 1` from
+/// a FIFO ([`Blocker`]): `head` ends at the line, with no end of file. The test holds both ends of that FIFO until the
+/// next write is done, so the count waits in it even when `head` has not opened it yet. A `cat` of a second FIFO holds the
+/// payload until the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
 #[test]
 fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let root = temp_root();
@@ -1348,9 +1349,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let hold = Blocker::new(root.path(), "hold").unwrap();
     let received = root.path().join("received");
     let script = format!(
-        "stty raw -echo; /bin/echo ready > {}; count=$({}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
+        "stty raw -echo; /bin/echo ready > {}; count=$(/usr/bin/head -n 1 {}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
         quoted(&root.path().join("ready")),
-        release.shell(),
+        quoted(release.path()),
         quoted(&received),
         quoted(&root.path().join("done")),
         hold.shell(),
@@ -1388,8 +1389,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     );
     s.link.msg(&write(2, "b".into()));
     assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    // The test holds both ends of the FIFO until `head` has read the line (the write below is done), so the count waits in
+    // it even when `head` has not opened it yet. A release here could drop it: a FIFO with no open end keeps no bytes.
     release.send(format!("{}\n", count + 1).as_bytes()).unwrap();
-    release.release();
     let WorkerMsg::Done {
         req: 2,
         result: OpResult::Ok(OpOutput::Input(written)),
@@ -1407,6 +1409,7 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
+    release.release();
     // The payload still runs (the `cat` of `hold`): it ends first, so `remove` sees the complete result (LC-7).
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));
