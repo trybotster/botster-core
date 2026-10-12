@@ -95,6 +95,14 @@ The lead can send messages and read verdict files. Important messages must be se
 The #313 finding and absent-tag question are already in `verdicts/st-stall-clock.md`, commit `28bd15cf`.
 Continue assigned review work when artifacts arrive. Do not assume an answer to the absent-tag question.
 
+#313 round 2: `2b08608d27b2ac15daf7c0cc1e0283c663f5518b`. Verdict: NOT CLEAN (1 open).
+ST313-R1 is closed by the scheduler gates and the engine and production-driver proofs.
+New ST313-R2 is HIGH: the broad session gate blocks a newly requested Stop until RouteAdopted posts.
+The gate must preserve eventless stop effects under mandatory queue pressure (EV-5(c)).
+The exact-head Linux gate passed all ten steps. The local selected packages and strict conformance also pass.
+The absent-tag question remains pending. Send this receipt again after the lead restores inbox access.
+This is the second NOT CLEAN implementation round for #313. Wait for the next revised-head doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

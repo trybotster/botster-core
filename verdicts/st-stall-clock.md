@@ -2,6 +2,63 @@
 
 VERDICT: NOT CLEAN (1 open; Core #313)
 
+## Core #313: round 2
+
+Reviewed head: `2b08608d27b2ac15daf7c0cc1e0283c663f5518b`.
+Reviewed delta: `d1f414362a6be86eb25d84a168782ebeb7380b23` to this head.
+PR base remains `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Imported v1 and gate comparison base remain `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Risk tier: HIGH. The reviewer ran no local build or test.
+
+ST313-R1: CLOSED. The scheduler prevents direct session-flow closes and local detach from removing an unposted adopted route.
+The new engine and production-driver tests retain the adoption event before the delivered session-end close.
+The driver uses one mandatory slot and reads the end reports before polling.
+The r10 reversal reproduces the original trace: Running, Exited, RouteClosed, Completed, with no RouteAdopted.
+The r11 reversal verifies the local-detach gate. The completed gate passes all three new tests.
+
+### ST313-R2 — HIGH — The adoption gate also blocks the effect of a new Stop
+
+Evidence: `run.rs:243-247`, `adopt.rs:406`, and `flows.rs:390-456` at the reviewed head.
+
+The new gate excludes every session flow while `AdoptedRoutes.unposted` is nonempty.
+After the adoption's Running event posts, Core admits operations on that session.
+A caller can begin Stop while the route adoption event still waits behind a full mandatory queue.
+`request_stop` selects `StopPhase::RowWrite`, followed by `SendStop`.
+The new scheduler gate excludes both steps until a poll permits the adoption event to post.
+Core therefore sends neither the stop request nor its fallback signal, and it does not arm stop grace, while the queue stays full.
+StopAll uses the same stop flow for this admitted session.
+
+EV-5(c) requires the effects of Stop and StopAll to continue under mandatory queue pressure.
+The existing `SendStop` comment states this requirement explicitly.
+The original finding concerned route-removal steps; it did not require blocking eventless lifecycle effects.
+
+Required change: restrict the adoption gate to steps that can remove an unposted adopted route.
+Keep the stop's row write, stop request, fallback signal and grace setup runnable under mandatory queue pressure.
+Preserve the repaired ordering for `StopPhase::Finish`, `RemovePhase::CloseRoutes` and local detach.
+Add a production-driver proof that begins Stop after adopted Running but before RouteAdopted, then pumps without polling.
+Verify that the stop effect occurs while the adoption event still waits and that later events retain the required ordering.
+Cover StopAll's use of the same path. Do not change the event budget or create runnable work that makes no progress.
+
+### Completed evidence and pending disposition
+
+Linux gate: `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-2b08608d-pool-20261011-235045-22227.log`.
+The header names this head and comparison base `be95ef13`. All ten steps pass; the wrapper reports exit 0 after 859 seconds on msa1.
+Mutation result: 332 tested, 308 caught, 0 missed, 0 timeout and 24 unviable. Three catches came from stage 2.
+
+Local log: `~/botster-sessions/gates/st-dp8-local-2b08608d.log`.
+The selected packages pass 1117/1117; strict default conformance passes 595/595 at seeds 0-31.
+The strict real DP-8 run passes the three removed ids at seeds 0-31.
+The host-only delta changes no worker transport or platform code; the earlier focused Mac evidence remains applicable to those unchanged paths.
+
+Reversal logs: `gates/st-dp8-reversals/r10-no-session-gate-2b08608d.log` and `r11-no-detach-gate-2b08608d.log`.
+Both name this exact head and the supplied target clean at `2026-10-12T06:30:06Z`.
+The reviewer inspected their scratch changes, assertions and summaries. R10 fails two of 52 tests; r11 fails one of 52.
+The reviewer did not execute the reversals or independently check cleanup.
+
+ST313-Q1 remains pending. The reviewer will not assume the absent-tag contract disposition while the lead's inbox is unavailable.
+The lead can read this verdict file. The reviewer will send the important receipt again when the lead restores inbox access.
+This is the second NOT CLEAN implementation round for #313.
+
 ## Core #313: DP-8 route adoption, round 1
 
 Reviewed head: `d1f414362a6be86eb25d84a168782ebeb7380b23`.
