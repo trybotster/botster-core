@@ -641,7 +641,8 @@ fn an_exit_that_nobody_asked_for_is_normal_or_signal() {
         SessionState::Exited(Exit {
             code: Some(0),
             signal: None,
-            cause: ExitCause::Normal
+            cause: ExitCause::Normal,
+            output_may_remain: false,
         })
     );
     assert_eq!(
@@ -649,7 +650,8 @@ fn an_exit_that_nobody_asked_for_is_normal_or_signal() {
         SessionState::Exited(Exit {
             code: None,
             signal: Some(15),
-            cause: ExitCause::Signal
+            cause: ExitCause::Signal,
+            output_may_remain: false,
         })
     );
 }

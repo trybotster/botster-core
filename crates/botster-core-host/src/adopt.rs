@@ -22,6 +22,7 @@ fn never_ran(cause: ExitCause) -> Exit {
         code: None,
         signal: None,
         cause,
+        output_may_remain: false,
     }
 }
 

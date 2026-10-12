@@ -100,6 +100,7 @@ fn never_ran(cause: ExitCause) -> SessionState {
         code: None,
         signal: None,
         cause,
+        output_may_remain: false,
     })
 }
 
@@ -755,6 +756,7 @@ fn a_starting_row_whose_payload_ended_adopts_exited_and_writes_it() {
         code: Some(0),
         signal: None,
         cause: ExitCause::Normal,
+        output_may_remain: false,
     });
     assert_eq!(states_of(&events, "s"), vec![exited]);
     let row = Row::decode(&sid("s"), &again.rows[&row_key("s")]).unwrap();
@@ -786,6 +788,7 @@ fn a_stopping_row_whose_payload_ended_exits_host_stop_with_its_signal() {
             code: None,
             signal: Some(15),
             cause: ExitCause::HostStop,
+            output_may_remain: false,
         })]
     );
 }
@@ -995,6 +998,7 @@ fn a_retry_after_a_broken_link_stop_finds_the_payload_ended() {
         code: None,
         signal: Some(9),
         cause: ExitCause::Signal,
+        output_may_remain: false,
     });
     assert_eq!(record.state, exited);
     let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();

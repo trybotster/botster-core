@@ -1021,6 +1021,7 @@ fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_each_clo
             code: Some(3),
             signal: None,
             cause: ExitCause::Other,
+            output_may_remain: false,
         },
     };
     let reported: Vec<(RouteId, RouteCloseReason)> = closes(&mut w, &all)

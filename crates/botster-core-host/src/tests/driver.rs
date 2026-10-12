@@ -1053,6 +1053,7 @@ fn exited_normally() -> SessionState {
         code: Some(0),
         signal: None,
         cause: ExitCause::Normal,
+        output_may_remain: false,
     })
 }
 

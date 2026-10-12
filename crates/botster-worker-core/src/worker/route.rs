@@ -767,6 +767,7 @@ impl Worker {
                 code,
                 signal,
                 cause: ExitCause::Other,
+                output_may_remain: false,
             },
         };
         self.close_healthy(id, reason);

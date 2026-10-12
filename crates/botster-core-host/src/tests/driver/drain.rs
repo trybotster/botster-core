@@ -280,6 +280,7 @@ fn frames_after_a_chosen_end_are_read_without_an_end_of_file() {
                     code: Some(7),
                     signal: None,
                     cause: ExitCause::Normal,
+                    output_may_remain: false,
                 },
             },
             route_tag: None,

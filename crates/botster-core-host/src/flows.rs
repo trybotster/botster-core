@@ -22,6 +22,7 @@ fn failed_start_exit() -> Exit {
         code: None,
         signal: None,
         cause: ExitCause::Other,
+        output_may_remain: false,
     }
 }
 
@@ -550,6 +551,7 @@ impl HostEngine {
             code,
             signal,
             cause,
+            output_may_remain: false,
         }
     }
 

@@ -283,6 +283,7 @@ fn a_link_closing_before_the_launch_fails_the_start_at_the_deadline_and_after_it
             code: None,
             signal: None,
             cause: ExitCause::Other,
+            output_may_remain: false,
         })
     );
     assert!(
@@ -572,6 +573,7 @@ fn an_ended_sessions_route_closes_after_the_worker_delivered_it_with_the_hosts_e
                     code: None,
                     signal: None,
                     cause: ExitCause::Other,
+                    output_may_remain: false,
                 },
             },
             route_tag: None,
@@ -612,6 +614,7 @@ fn after_the_exit_each_route_closes_at_its_own_delivery() {
                 code: None,
                 signal: None,
                 cause: ExitCause::Other,
+                output_may_remain: false,
             },
         },
         route_tag: None,
@@ -733,6 +736,7 @@ fn delivered(route: RouteId) -> WorkerMsg {
                 code: None,
                 signal: None,
                 cause: ExitCause::Other,
+                output_may_remain: false,
             },
         },
         route_tag: None,
@@ -778,6 +782,7 @@ fn a_route_closed_behind_exited_closes_session_ended_when_the_worker_process_end
         code: Some(4),
         signal: None,
         cause: ExitCause::Normal,
+        output_may_remain: false,
     };
     w.feed(Input::LinkMsg {
         link,

@@ -274,6 +274,7 @@ impl HostEngine {
                             code: None,
                             signal: None,
                             cause: ExitCause::Other,
+                            output_may_remain: false,
                         }),
                     );
                 }

@@ -15,7 +15,11 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd, 23bk, 23bu and 23cm;
-# contracts-v0.1.49 = 5ce2cff (tag object 34f431b7): contracts-v0.1.48 + contracts #94 (R107-SI-1, R-113: the written-output fence
+# contracts-v0.1.50 = 9bb30d0 (tag object 98efdbd1): contracts-v0.1.49 + manifest final43 (Core A24: Exit gains
+# output_may_remain; the probe step write_forever, A24-4; ids a24_1 and a24_2), + #101 (B-5 step 2), + #102 (R-93 follow-up:
+# the route_frames_taken control, served by #319, and the am_2_one fence), + #103 (R-112 (1)-(3): the driver and the codec stop
+# copying), + rulings R-116 and R-117 as text;
+# contracts-v0.1.49 = 5ce2cff (tag object 34f431b7), not pinned: contracts-v0.1.48 + contracts #94 (R107-SI-1, R-113: the written-output fence
 # lint and its fences), #95 (backlog B-4: the probe's line reader is linear), #97 (R-114 (B): ReadScreen Completed fences before
 # oracle_resume in the st_6b ids), #98 (B-5 step 1), #100 (R-111: await_control re-checks kernel-state controls) and #99 (R-109:
 # route_reports gains progressed, served by #298; the progressed, title, derived-event and sync-read fences); manifest final42;
@@ -74,13 +78,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.50" }
 
 anyhow = "1"
 data-encoding = "2"

@@ -131,6 +131,7 @@ mod tests {
                         code: Some(3),
                         signal: None,
                         cause: ExitCause::Other,
+                        output_may_remain: false,
                     },
                 },
                 serde_json::json!({"reason": "session_ended", "exit": {"code": 3}}),

@@ -27,6 +27,12 @@ pub enum ProgramError {
         path: String,
         step: &'static str,
     },
+    /// A step whose testkit program edge is not built yet: `write_forever` (contracts-v0.1.50, Core A24-4). P6 builds the edge;
+    /// until then the ids that use it are testkit-pending.
+    NotServed {
+        path: String,
+        step: &'static str,
+    },
 }
 
 impl std::fmt::Display for ProgramError {
@@ -35,6 +41,9 @@ impl std::fmt::Display for ProgramError {
             ProgramError::Script(e) => e.fmt(f),
             ProgramError::RealOnly { path, step } => {
                 write!(f, "{path}: `{step}` needs a real process")
+            }
+            ProgramError::NotServed { path, step } => {
+                write!(f, "{path}: `{step}` has no testkit program edge yet")
             }
         }
     }
@@ -324,6 +333,12 @@ impl ScriptedProgram {
                     return Err(ProgramError::RealOnly {
                         path: format!("program[{i}]"),
                         step: "fork_child",
+                    })
+                }
+                Step::WriteForever { .. } => {
+                    return Err(ProgramError::NotServed {
+                        path: format!("program[{i}]"),
+                        step: "write_forever",
                     })
                 }
             });
@@ -755,7 +770,8 @@ mod tests {
         assert!((4..16).any(|seed| sizes(seed) != sizes(3)));
     }
 
-    /// A script that needs a real process is refused, with the step named. A bad hex value is a script error.
+    /// A script that needs a real process is refused, with the step named, and so is a step whose testkit edge is not built yet
+    /// (`write_forever`, A24-4). A bad hex value is a script error.
     #[test]
     fn a_script_that_cannot_run_in_process_is_refused() {
         let sched = SchedulerHandle::with_seed(0);
@@ -767,6 +783,22 @@ mod tests {
                 path: "program[0]".into(),
                 step: "fork_child"
             }
+        );
+        let forever: Script = serde_json::from_value(
+            json!({"program": [{"hold": {}}, {"write_forever": {"bytes_hex": "61"}}]}),
+        )
+        .unwrap();
+        let refused = ScriptedProgram::new(&forever, true, &sched).unwrap_err();
+        assert_eq!(
+            refused,
+            ProgramError::NotServed {
+                path: "program[1]".into(),
+                step: "write_forever"
+            }
+        );
+        assert_eq!(
+            refused.to_string(),
+            "program[1]: `write_forever` has no testkit program edge yet"
         );
         let bad: Script =
             serde_json::from_value(json!({"program": [{"print": {"bytes_hex": "zz"}}]})).unwrap();
