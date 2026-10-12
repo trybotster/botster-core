@@ -447,6 +447,13 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
 - **No host, no clock (R-90 Q3).** A due message that cannot be sent (no worker link) disarms both steps; the route
   closes with its session's loss. After an adoption, the new host arms from the pump that consumes the worker's new
   report, as A18 does for silence.
+- **Whose report (ID-2).** The clock takes a route report (`RouteProgress`, `RouteStalled`, `RouteResumed`) only from the
+  worker of the route's session, and only after the host consumed that route's `RouteReceived`; `RouteStalled` and
+  `RouteResumed` post their events under the same rule. A route that survived a host restart keeps its id in the worker,
+  and this host numbers its routes from 1, so before the receipt a report with the new route's id can be the old route's.
+  The worker sends `RouteReceived` before any report of the route that it binds, and the link is in order. Without this
+  rule a stale waiting report armed the new route's clock, the worker declined the due step with no newer report, and the
+  slot was never released. Test: `a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing`.
 - **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: a route that survives a host restart
   is unknown to the new host, which drops its reports (`route_progress` and the other route reports find no entry). So
   that route has no stall clock, and its stuck reader holds PTY output (OU-3d) until it closes for another reason. The DP-8
