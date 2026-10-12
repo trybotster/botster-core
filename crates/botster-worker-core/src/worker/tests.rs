@@ -818,6 +818,45 @@ fn a_resize_during_the_spawn_applies_after_the_launch() {
     assert_eq!(reports[2], applied(size));
 }
 
+/// A resize that comes while the spawn is out, when the spawn then fails, has no PTY: each queued request completes once
+/// `SessionEnded` after `LaunchFailed` (#311 F145), and no PTY resize is asked.
+#[test]
+fn a_resize_during_a_spawn_that_fails_is_session_ended_once() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let mut actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    actions.extend(w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    }));
+    assert!(actions.is_empty(), "{actions:?}");
+    let actions = w.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    assert!(resizes(&actions).is_empty(), "{actions:?}");
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(reports[0], WorkerMsg::LaunchFailed { .. }),
+        "{reports:?}"
+    );
+    let done: Vec<(u64, ErrorCode)> = reports
+        .iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Done {
+                req,
+                result: OpResult::Err(error),
+            } => Some((*req, error.code.clone())),
+            WorkerMsg::Done { .. } => panic!("{m:?}"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        done,
+        [(3, ErrorCode::SessionEnded), (4, ErrorCode::SessionEnded)]
+    );
+}
+
 /// With no PTY (no launch, or a spawn that failed) the answer is `SessionEnded`, as for a signal, and no PTY resize is
 /// asked.
 #[test]

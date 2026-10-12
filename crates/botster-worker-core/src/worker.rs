@@ -689,6 +689,10 @@ impl Worker {
                 };
                 self.failure = Some(reason);
                 self.report(&WorkerMsg::LaunchFailed { reason });
+                // A resize that came while the spawn was out has no PTY now: each one completes `SessionEnded`.
+                for (req, size) in early.resizes {
+                    self.on_resize(req, size);
+                }
                 self.try_start();
                 self.finish_remove();
                 self.finish_terminate();
