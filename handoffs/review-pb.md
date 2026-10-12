@@ -29,6 +29,11 @@ The lead requested a package delta for train 8 at `2d8e8acc52eca692a089af02b4ace
 The package source delta is CLEAN. Sol-B owns the combined review and the final train receipt.
 The train gate and the lead's merge checks remain due.
 
+#330, PB-W1, round 1 at `572924b29bf4fca3d6a8c76d45fc486c0c070b70`: NOT CLEAN, one MEDIUM finding.
+PBW1-1 requires focused Mac pool evidence under plan section 8, revision 23ai.
+The source review has no open finding. The exact-head Linux gate passes all ten steps with no missed mutants or timeouts.
+The package needs a combined-head delta with #327's testkit ExitFailure arm after the process signature change.
+
 ## Review authority
 
 - The package brief is `~/botster-sessions/shared/core-stage1/brief-part-b.md`.
