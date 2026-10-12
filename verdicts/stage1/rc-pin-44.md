@@ -47,3 +47,20 @@ The header names the reviewed head and base. All ten steps pass. Default tests r
 CLEAN requires closure of RC-PIN44-3 and the exact-head package verdict. Applicable train delta reviews, combined review, final gate, and receipts remain required. I ran no build, test, gate, or pool job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 2
+
+- Head: `54805661b93f7acc7c548d0a429d429247c54255`, unchanged.
+- Tree: `02831589acd6254eb42b6bf68b4e8a35cf10ef4f`.
+- Reviewed delta: no source change. This round checks the published package verdict and final body correction.
+- Package verdict: `779edadce8641e4cbcd8d2cb0588c06b1c0dc697`, file `verdicts/rc-real-controls.md`, section "Core #312 — contracts .44 source verdict".
+
+I read the complete published package section. It covers the same head, tree, base, tag commit, and completed gate as Round 1. It reports zero open findings.
+
+RC-PIN44-3 closes through correction receipt `msg_plugin-w_1791786972_17bb6e` and the package reviewer's complete corrected-body check. The body now identifies the inserted `program_ready` fence, the existing `await_quiet`, and the read-index shift. It corrects the commit-message claim without changing source. RC-PIN44-1 and RC-PIN44-2 remain closed.
+
+The package verdict independently confirms all nine normal real PASS records and absent .44 exceptions. Its evidence scope is explicit: strict seed setting 0–31, ordinary slow seed zero, and no separate full-seed real claim. Print-history support remains the separate P3 serving PR.
+
+Zero integration findings remain. This CLEAN accepts the exact PR head and its completed READY gate. Applicable train delta reviews, combined review, final train gate, and member receipts remain required. I ran no execution job.
+
+VERDICT: CLEAN (0 open)
