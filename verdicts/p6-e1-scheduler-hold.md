@@ -87,3 +87,74 @@ The final-slot import, applicable base review, exact-head final gate, and final 
 I changed no product code and ran no execution job. This verdict accepts no later head, pin, or status removal.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11: seeded proof added; no-flow coverage remains open
+
+Exact head: `3aeb49672f2546b23f07f1e301026c784fdf3381`.
+Source base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+Gate base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Tree: `c8186f3ae5a4063755967b8de55a3f0d9e85276f`.
+I read the complete five-file delta from Round 1 and the complete live body delta.
+The delta changes tests and corrects one documentation reference from Scheduler::defer to Scheduler::held.
+It changes no production behavior, control, pending file, exclusion, or contracts pin.
+Body SHA256: `cdb5b15d98ac930908f8c6d22d0895ee525dd3c2bc5eeece2e4e57816197caec`.
+
+E1-P2 is CLOSED. The new seeded_trace policy records each public choice point, count, and returned answer.
+It uses a seeded xorshift64* stream and implements only pick and bound. The same file compiles before E1.
+Two sessions start, run, and stop. The test compares the trace length and FNV-1a digest for seeds 0-15 with BEFORE_E1.
+
+Trace log: `~/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-1d1d7fc9-pool-20261011-200116-36766.log`.
+SHA256: `7fa466a5611a21151f847eb27e78604852435a89e5ef08074610e9b12e5a4061`.
+I read the complete retained records and decoded command.
+The command prints the trace on `1d1d7fc9499895394c9e98b9c3e209d6cabffefc` twice, then on the pre-E1 host and edges crates at the source base.
+The first two head outputs compare equal. All 16 head and base trace values match independently.
+The base/head output diff exits one because the filtered-test count differs: 295 versus 300. The trace values do not differ.
+The wrapper's exit zero alone is not proof of their equality. The recorded values establish the comparison.
+The command restores host and edges source; its final status reports no change.
+The job exits zero after 504 seconds: 490 queued and 14 running. The wrapper exits zero after 505 seconds.
+The current trace file differs from that evidence file only in the stored reference values and their documentation.
+Its policy, workload, recorder, and digest remain identical. The current gate passes the comparison test.
+This proof covers the specified two-session workload and 16 seeds. It does not claim every possible workload or seed.
+
+### E1-P1 — MEDIUM — OPEN: the no-flow proof exercises the reported-exit bypass
+
+The repaired tests remove the internal ops_of assertions and the whole Production equality assertion.
+The default-method test now compares public Session picks. Those representation concerns are resolved.
+The no-flow test holds the completed Create and Start, feeds WorkerMsg::Exited, and observes Exited through get.
+That observation is public, but it does not cover lead condition 1's no-flow scheduler step.
+WorkerMsg::Exited calls begin_end_flow. For an Idle session, that function creates Flow::Stop with end set.
+never_deferred then bypasses the hold policy for this reported exit. The test proves that separate exit rule.
+
+A no-flow session can have runnable metadata work. A successful UpdateMetadata sets metadata_pending at inbound.rs:95.
+ready() adds Work::Session for that flag before the flow_waiting check at run.rs:187.
+run_flow posts public MetadataChanged at flows.rs:96. That step can exercise the empty-operation hold query and the default draw.
+Use this public path and scheduler-call/progress observations to cover condition 1. Do not restore internal mapping assertions.
+Update the body's condition-1 claim to match the proof. Integration independently confirms this gap and reachable metadata path.
+I sent this remaining finding directly to P6 in `msg_plugin-w_1791776227_62fa30`.
+
+### Gate and public forwarding proof
+
+The intermediate gate on `0b623438445d6f7beb6621b31ba627b3f23d8a9e` misses deletion of the Work::Op arm in both stages.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-0b623438-pool-20261011-201016-93160.log`.
+SHA256: `122cbf551713bc9f53ceb0e591c67a48ce494f91f1f5af0838ddcedbc411089b`.
+I read the relevant raw miss, stage summaries, and failed exits. This gate supplies no acceptance result.
+The new forwarded-op test holds a Resize, observes no outgoing worker operation during the hold, then observes one after release.
+It preserves a public protocol assertion and catches that arm deletion in the current gate's first stage.
+
+Current log: `~/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-3aeb4967-pool-20261011-202357-89922.log`.
+SHA256: `7585100fe53d190c1666a78217245514a190ea660c3db3d02585abbc795dc709`.
+I read head/base, selected changed-test results, lists, stage/tier summaries, mutation outcome accounting, and exits.
+All ten stages pass in 553.5 seconds. Default passes 1857 tests, with 435 skipped, in 17.165 seconds.
+Slow passes 608 tests, with 2044 skipped, in 44.286 seconds.
+Stage 1 has 42 caught, 13 missed, nine unviable, and no timeout, in 145.7 seconds.
+Stage 2 tests exactly the 13 misses and catches all, in 203.8 seconds. Its unmutated baseline passes.
+All 64 original mutation identities and raw outcomes match Round 1. The changed ops_of catchers use the public forwarded-op test.
+All 55 raw catches match their named catches, and all named catchers pass normally. No FLAKY record occurs.
+The job exits zero after 565 seconds: one queued and 564 running. The wrapper exits zero after 565 seconds.
+The original focused API and 32-seed evidence retain their recorded original-head scope. Production behavior is unchanged by this repair.
+
+No additional product behavior defect is found. E1-P1 remains the only package finding.
+The final import must preserve #291's drain term at the settle site only. Final base review, gate, and body remain due.
+I changed no product code and ran no execution job. This verdict accepts no later head, pin, or status removal.
+
+VERDICT: NOT CLEAN
