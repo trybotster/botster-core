@@ -233,6 +233,13 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
 - **Adoption (R-90 Q3).** No stall deadline runs while no host is connected. At the adoption, the worker forgets what it
   reported to the old host, sends the adoption report and closes the unchecked routes first, then reports each route's
   state again, so the new host arms from the pump that consumes it.
+- **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: the new host does not know a route
+  that survived the restart and drops its reports, so the route has no stall clock. Its stuck reader holds PTY output
+  (OU-3d) until the route closes for another reason. DP-8 route adoption is ST's next PR: the per-route adoption report
+  gains the route's `state` (`Open` or `Stalled`), `waiting`, `mark`, and its applied `stall_deadline` and
+  `stall_close_after`. The new host posts `RouteAdopted` only (no `RouteStalled` for a route that was `Stalled`), and
+  arms from the pump that consumes the record: the stall step for an `Open` route that waits, the close step at the
+  stall's mark for a `Stalled` route.
 - **No feature gate.** An older worker never sends `RouteProgress`, so the host never arms a deadline for its routes and
   sends no due message; an older worker also ignores an unknown host message. The two messages need no negotiated
   feature (a deviation from the design note's feature gate).
