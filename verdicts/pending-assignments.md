@@ -32,6 +32,12 @@ The package reviewer requests a preserved event and a production-driver proof wi
 The package reviewer also reports that the absent-tag question ST313-Q1 awaits the lead's contract disposition.
 Sol-B has retained these reports, but has not independently reviewed the source or evidence.
 
+ST update `msg_plugin-w_1791788729_e01a2b` supersedes the earlier #313 head for any assigned review.
+The reported current head is `2b08608d27b2ac15daf7c0cc1e0283c663f5518b`.
+ST reports a ready_at repair for ST313-R1 and a production-driver proof with delayed polls.
+ST reports a completed green gate at `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-2b08608d-pool-20261011-235045-22227.log`.
+These remain author reports. Sol-B has not reviewed the repair or gate. The lead assignment remains pending.
+
 ## Assigned work
 
 Train 2 source verdict: `af670a7dd20cc852239738925293f78d50e4fe19`, `verdicts/stage1/train-2.md`.
