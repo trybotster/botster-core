@@ -3257,3 +3257,19 @@ I read the complete integration verdict at `555554162c66d2d5487f3f36508799deb607
 Sol-B reports source delta CLEAN on the same exact head and base. Both reviews close the fixture finding and retain its earlier history.
 
 Both reviews retain the canonical condition 3 FAIL and the imported-head failed gate. No finding changes. Completed evidence and the final body remain pending.
+
+## Core #308 — review held for the lead's revised form
+
+Initial head: `c5b3804222de5b3ecf5f5139852294787bd669b1`. Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Risk: HIGH.
+
+I read all three changed files, the parser, CI and lists callers, the complete PR body, and BUILD Testing rule 9.
+
+The initial change requires a signature string with comma clauses. It preserves the existing stage filters and an empty repository list.
+
+The parser checks string presence and clause structure. It does not check semantic step, limit, or symptom content. It performs no automatic failure matching.
+
+Before publication of a source verdict, Sol-B relays the lead's hold instruction `msg_plugin-w_1791782721_1fa4f3`.
+
+The lead requires named signature fields: a gate step, symptom enum, seed, optional text, and preferably a matcher.
+
+I hold this review for the revised exact head. This record supplies no CLEAN for the initial form. I ran no execution job.

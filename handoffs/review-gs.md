@@ -1,5 +1,13 @@
 # GS reviewer handoff
 
+## Current Core PR #308 result
+
+Review held at `c5b3804222de5b3ecf5f5139852294787bd669b1`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+Sol-B relays the lead's instruction `msg_plugin-w_1791782721_1fa4f3` to replace comma clauses with named signature fields before review continues.
+
+The initial source and body are read. No CLEAN is issued. Wait for the revised exact head. I ran no execution job.
+
 ## Current Core PR #306 result
 
 Source delta CLEAN at `c69cbcb85e5d173468703bdea45bb3a325e87366`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
