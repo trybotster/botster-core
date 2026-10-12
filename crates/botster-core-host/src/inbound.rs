@@ -293,14 +293,28 @@ impl HostEngine {
                 route,
                 reason,
                 route_tag: _,
-            } => match reason {
-                // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
-                // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
-                RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
-                _ => self.route_close(route, reason),
-            },
-            WorkerMsg::RouteStalled { route } => self.route_event(route, true),
-            WorkerMsg::RouteResumed { route } => self.route_event(route, false),
+            } => {
+                self.route_closed_report(route);
+                match reason {
+                    // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
+                    // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
+                    RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
+                    _ => self.route_close(route, reason),
+                }
+            }
+            WorkerMsg::RouteStalled { route, mark } => {
+                self.route_stalled(route, mark);
+                self.route_event(route, true);
+            }
+            WorkerMsg::RouteResumed { route, .. } => {
+                self.route_resumed(route);
+                self.route_event(route, false);
+            }
+            WorkerMsg::RouteProgress {
+                route,
+                mark,
+                waiting,
+            } => self.route_progress(route, mark, waiting),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
             // `RouteReceived` changes no state here: the driver closed the host's copy of the stream when it fed the

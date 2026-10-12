@@ -33,6 +33,16 @@ pub(crate) enum DeadlineKind {
     Adopt(SessionId),
     Silence(SessionId),
     Capture(CaptureId),
+    /// A route's stall step: its `stall_deadline` or its `stall_close_after` (R-90).
+    Route(RouteId),
+}
+
+impl DeadlineKind {
+    /// True for a step that is atomic with its mandatory or keyed event (E3-1 item 2): a `Silent`, and a route's stall
+    /// step. It needs event budget. Every other kind is an effect without an event (E3-1 item 5).
+    fn atomic(&self) -> bool {
+        matches!(self, DeadlineKind::Silence(_) | DeadlineKind::Route(_))
+    }
 }
 
 pub(crate) fn registry_failed(error: StorageError) -> CoreError {
@@ -78,6 +88,16 @@ impl HostEngine {
         }
         for (id, c) in &self.captures {
             out.push((c.expires, DeadlineKind::Capture(*id)));
+        }
+        // A route's stall step needs mandatory room for its event. Without room it is parked: it is not due, and its
+        // instant leaves `next_deadline()`; a poll that frees room makes it due again and signals the wake (E3-1 item 4,
+        // EV-5b, EV-5d, TM-6).
+        if self.has_room() {
+            for (id, entry) in &self.routes {
+                if let Some((at, _)) = entry.clock.deadline() {
+                    out.push((at, DeadlineKind::Route(*id)));
+                }
+            }
         }
         out.sort();
         out
@@ -136,12 +156,13 @@ impl HostEngine {
         let room = self.has_room();
         let mut out = Vec::new();
         // A due deadline is processed in its pump, before other work (TM-3, TM-5). An effect without an event comes first
-        // (E3-1 item 5); a due `Silent` follows as a carried step, before newer work (E3-1 item 3).
+        // (E3-1 item 5); a due atomic step (a `Silent`, a route's stall step) follows as a carried step, before newer work
+        // (E3-1 item 3).
         if self.due_deadline(false).is_some() {
             out.push(Work::Deadline);
         }
         if self.due_deadline(true).is_some() {
-            out.push(Work::Silent);
+            out.push(Work::DueStep);
         }
         // The ops of one kind for one session reach its worker in `begin` order: the writes (AM-2), and the resizes, so that
         // the last one begun is the one applied (SZ-3, OR-1). Only the first op of each kind and session that is not forwarded
@@ -218,26 +239,23 @@ impl HostEngine {
         out
     }
 
-    /// The earliest due deadline: a `Silent` when `silent`, and any other kind otherwise (E3-1).
-    fn due_deadline(&self, silent: bool) -> Option<DeadlineKind> {
-        self.due_deadlines(silent).next()
+    /// The earliest due deadline: an atomic step when `atomic`, and an effect without an event otherwise (E3-1).
+    fn due_deadline(&self, atomic: bool) -> Option<DeadlineKind> {
+        self.due_deadlines(atomic).next()
     }
 
-    /// The deadlines that are due now: the silences, or every other kind.
-    fn due_deadlines(&self, silent: bool) -> impl Iterator<Item = DeadlineKind> {
+    /// The deadlines that are due now, in due order (TM-5): the atomic steps, or the effects without an event.
+    fn due_deadlines(&self, atomic: bool) -> impl Iterator<Item = DeadlineKind> {
         let now = self.now;
         self.deadlines()
             .into_iter()
-            .filter(move |(at, kind)| {
-                now.is_some_and(|now| *at <= now)
-                    && matches!(kind, DeadlineKind::Silence(_)) == silent
-            })
+            .filter(move |(at, kind)| now.is_some_and(|now| *at <= now) && kind.atomic() == atomic)
             .map(|(_, kind)| kind)
     }
 
-    /// How many silences are due now. Each `Work::Silent` step fires one, so this is the most `Silent` steps that a pump
-    /// runs before other work (E3-1 item 3).
-    pub(crate) fn due_silences(&self) -> usize {
+    /// How many atomic steps are due now. Each `Work::DueStep` runs one, so this is the most due steps that a pump runs
+    /// before other work (E3-1 item 3).
+    pub(crate) fn due_steps(&self) -> usize {
         self.due_deadlines(true).count()
     }
 
@@ -247,13 +265,13 @@ impl HostEngine {
             Work::Op(op) => self.run_op(op),
             Work::Session(id) => self.run_flow(&id),
             Work::Deadline => self.run_deadline(false),
-            Work::Silent => self.run_deadline(true),
+            Work::DueStep => self.run_deadline(true),
             Work::Parked => self.run_parked(),
         }
     }
 
-    fn run_deadline(&mut self, silent: bool) {
-        let Some(kind) = self.due_deadline(silent) else {
+    fn run_deadline(&mut self, atomic: bool) {
+        let Some(kind) = self.due_deadline(atomic) else {
             return;
         };
         match kind {
@@ -277,6 +295,7 @@ impl HostEngine {
             DeadlineKind::RemoveGrace(id) => self.remove_grace_expired(&id),
             DeadlineKind::Startup(id) => self.startup_expired(&id),
             DeadlineKind::Adopt(id) => self.adopt_expired(&id),
+            DeadlineKind::Route(route) => self.run_route_due(route),
         }
     }
 
@@ -632,6 +651,8 @@ impl HostEngine {
     /// Closes a route: posts `RouteClosed`, retires its keyed events, and completes a `Detach` that waits for it (DP-7).
     /// Returns false when the queue has no room: the close then waits (EV-5b).
     pub(crate) fn close_route(&mut self, route: RouteId, reason: RouteCloseReason) -> bool {
+        // A due step's slot is given back first: the close posts into it (R-90).
+        self.release_route_slot(route);
         let Some(entry) = self.routes.get(&route) else {
             return true;
         };

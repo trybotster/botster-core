@@ -1,0 +1,175 @@
+//! The host's half of the route stall clock (steward ruling R-90; DESIGN.md "The route stall clock (R-90)").
+//!
+//! The host owns a route's two deadlines on the injected monotonic clock (TM-1, TM-3): the route's applied `stall_deadline`
+//! (OU-1: default `reader_progress_deadline`) and `stall_close_after`. The worker owns the route machine (OU-2) and makes
+//! every transition; the host only tells it that a deadline is due, as `stop_grace` ends in `HostMsg::Kill`.
+//!
+//! - **Arming.** The reader deadline runs from the pump that consumes the worker's `RouteProgress{waiting: true}` with a new
+//!   mark, and ends with `waiting: false`. The pump that consumes a report is never earlier than the progress, so Core
+//!   never stalls a reader early (OU-3). The close deadline runs from the pump that consumes `RouteStalled` (OU-2: no route
+//!   closes by the stall alone before `stall_close_after`).
+//! - **The due step** is one atomic step with a mandatory event (E3-1 item 2), as a due `Silent` is: it runs only in a
+//!   pump with event budget (otherwise it is carried, and `more` is true), only with mandatory room (otherwise it is parked:
+//!   it is absent from `ready()` and from `next_deadline()`, and a poll that frees room wakes the handle), and in due order
+//!   (E3-1 item 5, TM-5). It sends the due message with the mark of the host's view, and holds one mandatory slot for the
+//!   worker's answer (E3-1 item 4), so the event has room when the answer comes. No host-visible state changes before that
+//!   event posts (R-90 follow-up, condition 1).
+//! - **The answer.** `RouteStalled` or `RouteClosed` posts into the held slot. A worker that declines (its newer progress
+//!   report, or its close, is already on the link) sends nothing more: the host gives the slot back when it consumes that
+//!   newer report (condition 3).
+//! - **No link, no clock** (R-90 Q3): a report that this host did not consume arms nothing, so a worker with no host runs
+//!   no stall deadline, and a new host arms from the reports after `Adopted`.
+
+use crate::engine::HostEngine;
+use botster_core_contract::prelude::*;
+use botster_core_link::msg::HostMsg;
+use std::time::{Duration, Instant};
+
+/// A due step that the host sent, and whose answer holds a mandatory slot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Due {
+    /// `RouteStallDue` at this mark.
+    Stall(u64),
+    /// `RouteCloseDue` for the stall at this mark.
+    Close(u64),
+}
+
+/// The stall clock of one route, in the host's view.
+#[derive(Debug)]
+pub(crate) struct RouteClock {
+    stall_deadline: Duration,
+    stall_close_after: Duration,
+    /// The mark of the last `RouteProgress{waiting: true}` that the host consumed, and the pump that consumed it.
+    waiting: Option<(u64, Instant)>,
+    /// The mark of the stall, and the instant of its close (`stall_close_after` after the pump that consumed `RouteStalled`).
+    stalled: Option<(u64, Instant)>,
+    /// The due step that was sent and is not answered.
+    asked: Option<Due>,
+}
+
+impl RouteClock {
+    pub(crate) fn new(limits: &AppliedRouteLimits) -> RouteClock {
+        RouteClock {
+            stall_deadline: limits.stall_deadline,
+            stall_close_after: limits.stall_close_after,
+            waiting: None,
+            stalled: None,
+            asked: None,
+        }
+    }
+
+    /// The route's armed due step and its instant. None while a due step waits for its answer.
+    pub(crate) fn deadline(&self) -> Option<(Instant, Due)> {
+        if self.asked.is_some() {
+            return None;
+        }
+        if let Some((mark, at)) = self.stalled {
+            return Some((at, Due::Close(mark)));
+        }
+        let (mark, since) = self.waiting?;
+        Some((since.checked_add(self.stall_deadline)?, Due::Stall(mark)))
+    }
+
+    /// True while a due step of this route holds a mandatory slot for its answer.
+    pub(crate) fn holds_slot(&self) -> bool {
+        self.asked.is_some()
+    }
+}
+
+impl HostEngine {
+    /// Runs the due step of `route` (R-90): it sends the due message with the host's mark, and holds one mandatory slot for
+    /// the worker's answer. The caller runs it only with mandatory room (`deadlines` leaves a step out otherwise).
+    pub(crate) fn run_route_due(&mut self, route: RouteId) {
+        let Some(entry) = self.routes.get(&route) else {
+            return;
+        };
+        let Some((_, due)) = entry.clock.deadline() else {
+            return;
+        };
+        let session = entry.session.clone();
+        let msg = match due {
+            Due::Stall(mark) => HostMsg::RouteStallDue { route, mark },
+            Due::Close(mark) => HostMsg::RouteCloseDue { route, mark },
+        };
+        let sent = self.send_msg(&session, msg);
+        let entry = self.routes.get_mut(&route).expect("read above");
+        if sent {
+            entry.clock.asked = Some(due);
+            self.queue.reserve();
+        } else {
+            // No worker link: no stall deadline runs (R-90 Q3). The route closes with its session's loss.
+            entry.clock.waiting = None;
+            entry.clock.stalled = None;
+        }
+    }
+
+    /// Gives back the slot that a due step of `route` holds, when one does.
+    pub(crate) fn release_route_slot(&mut self, route: RouteId) {
+        if let Some(entry) = self.routes.get_mut(&route) {
+            if entry.clock.asked.take().is_some() {
+                self.queue.release();
+            }
+        }
+    }
+
+    /// `RouteProgress` (OU-3a): the reader deadline runs from this pump while the route waits, and ends when it does not.
+    /// A report that differs from the view of a due stall step means that the worker declined it: the slot is given back.
+    pub(crate) fn route_progress(&mut self, route: RouteId, mark: u64, waiting: bool) {
+        let now = self.now;
+        let Some(entry) = self.routes.get_mut(&route) else {
+            return;
+        };
+        if matches!(entry.clock.asked, Some(Due::Stall(asked)) if !waiting || asked != mark) {
+            self.release_route_slot(route);
+        }
+        let Some(entry) = self.routes.get_mut(&route) else {
+            return;
+        };
+        entry.clock.waiting = match (waiting, entry.clock.waiting, now) {
+            (false, ..) | (true, _, None) => None,
+            // The same mark that already waits keeps its start.
+            (true, Some((old, since)), _) if old == mark => Some((old, since)),
+            (true, _, Some(now)) => Some((mark, now)),
+        };
+    }
+
+    /// `RouteStalled` (OU-2): the close deadline runs from this pump, and the reader deadline ends. The event goes into the
+    /// slot that the due step held.
+    pub(crate) fn route_stalled(&mut self, route: RouteId, mark: u64) {
+        self.release_route_slot(route);
+        let now = self.now;
+        if let Some(entry) = self.routes.get_mut(&route) {
+            entry.clock.waiting = None;
+            entry.clock.stalled = now.and_then(|now| {
+                now.checked_add(entry.clock.stall_close_after)
+                    .map(|at| (mark, at))
+            });
+        }
+    }
+
+    /// `RouteResumed` (OU-2): the close deadline ends. The worker's next progress report arms the reader deadline again.
+    pub(crate) fn route_resumed(&mut self, route: RouteId) {
+        if matches!(
+            self.routes.get(&route).and_then(|e| e.clock.asked),
+            Some(Due::Close(_))
+        ) {
+            self.release_route_slot(route);
+        }
+        if let Some(entry) = self.routes.get_mut(&route) {
+            entry.clock.stalled = None;
+        }
+    }
+
+    /// `RouteClosed` of the worker: a due step's slot is given back, and the close posts into it (or the session's end
+    /// posts it later, OU-7).
+    pub(crate) fn route_closed_report(&mut self, route: RouteId) {
+        self.release_route_slot(route);
+    }
+
+    /// True when the frame of `route`'s answer has the slot that a due step held.
+    pub(crate) fn route_holds_slot(&self, route: RouteId) -> bool {
+        self.routes
+            .get(&route)
+            .is_some_and(|e| e.clock.holds_slot())
+    }
+}

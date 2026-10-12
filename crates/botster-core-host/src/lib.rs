@@ -16,6 +16,7 @@ pub mod io;
 pub mod queue;
 pub mod run;
 pub mod session;
+pub(crate) mod stall;
 
 pub use engine::{EngineConfig, HostEngine};
 pub use io::{Action, Input, LinkId, Ticket, Work};

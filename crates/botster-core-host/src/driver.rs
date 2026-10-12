@@ -816,13 +816,14 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         };
         // The one place where time enters Core (TM-1): every later input of this pump is at this time.
         self.engine.handle(now.monotonic, Input::Clock(now.unix));
-        // A due `Silent` is an older step than any input that arrives now: it runs first, with the budget it needs (E3-1 item 3).
-        // The loop runs once for each silence that is due, so this pump ends whatever a step does (9B).
-        for _ in 0..self.engine.due_silences() {
+        // A due atomic step (a `Silent`, a route's stall step) is an older step than any input that arrives now: it runs
+        // first, in due order, with the budget it needs (E3-1 items 3 and 5). The loop runs once for each step that is due,
+        // so this pump ends whatever a step does (9B).
+        for _ in 0..self.engine.due_steps() {
             if budget.exhausted() {
                 break;
             }
-            self.feed(Input::Run(Work::Silent));
+            self.feed(Input::Run(Work::DueStep));
             budget.account(&mut self.engine);
         }
         self.take_exits(&mut budget);
@@ -848,7 +849,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 .pick(ChoicePoint::ReadyWork, ready.len());
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
-            if !matches!(work, Work::Deadline | Work::Silent)
+            if !matches!(work, Work::Deadline | Work::DueStep)
                 && !self.engine.never_deferred(&work)
                 && self
                     .edges

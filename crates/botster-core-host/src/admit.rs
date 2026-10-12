@@ -891,6 +891,7 @@ impl HostEngine {
                 session: session.clone(),
                 instance,
                 route_tag,
+                clock: crate::stall::RouteClock::new(&limits),
             },
         );
         let s = self.sessions.get_mut(&session).expect("checked");
