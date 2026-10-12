@@ -429,15 +429,18 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`
   and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × 4096 + 4 × c`.
-  - 4096 is the largest host frame with no input payload (`NON_INPUT_FRAME_BYTES`: an `Op` with no payload, an
-    `AttachRoute` with a tag of `max_route_tag_bytes`, `Detach`, `Stop`, `Kill`, `Remove` or `Cancel`).
+  - 4096 (`NON_INPUT_FRAME_BYTES`) is a sizing estimate for one host message with no input payload, not a maximum: an
+    `AttachRoute` (its `file_directory`, `owner` and feature lists) or an `UpdateMetadata` (its labels) can be larger.
+    An estimate that is too small only makes a cancel `Full` earlier, and the drain still wakes the host.
   - With the default limits, the bound is about 3.2 MiB.
 - **The admission limits bound the stream (R-91 Q1 (b)).** Only `cancel` refuses `Full`. Every other host-to-worker message
   keeps its own admission:
   - IN-5 bounds the input payload of a session (`input_retained_bytes`, `input_ops_per_session`);
   - AM-3 bounds the pending ops (`pending_ops`).
-  So the admitted messages stay under `bound − 4c`, and `out` cannot grow without a bound. A cancel finds room unless the
-  link stops draining.
+  - Every other message (`Launch`, `AttachRoute`, `Detach`, `Stop`, `Kill`, `Remove`) is at most the link's frame bound,
+    and the session's flow and its routes (`routes_per_session`) bound how many there are.
+  So `out` cannot grow without a bound. With messages of the estimated size, the admitted traffic stays under
+  `bound − 4c`, and a cancel finds room unless the link stops draining.
 - **The room.** `room = min(bound − unsent bytes, HostEdges::link_room(link))`. The production edge sets no bound of its own
   (`usize::MAX`). The testkit's `control_queue` sets the edge's room to 0 on both tiers, at the injected edge only (BUILD.md
   testing rule 8).
