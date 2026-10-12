@@ -200,8 +200,8 @@ mod slow_tests {
         });
     }
 
-    /// Pumps and polls until Core completes the capture `op`, and returns its id from the public `Completed`.
-    fn completed_capture(core: &mut dyn CoreApi, op: OpId) -> CaptureId {
+    /// Pumps and polls until Core completes `op`, and returns the result of its public `Completed`.
+    fn completed(core: &mut dyn CoreApi, op: OpId) -> OpResult {
         let deadline = botster_test_process::Deadline::cleanup();
         let wake = core.wake_handle();
         loop {
@@ -210,19 +210,38 @@ mod slow_tests {
                 unix: 1_000_000,
             });
             for event in core.poll_events(usize::MAX) {
-                if let Event::Completed {
-                    op: id,
-                    result: OpResult::Ok(OpOutput::Capture(done)),
-                } = event
-                {
+                if let Event::Completed { op: id, result } = event {
                     if id == op {
-                        return done.capture;
+                        return result;
                     }
                 }
             }
-            assert!(!deadline.expired(), "Core never completed the capture");
-            // timer: deadline — the cleanup bound ends a capture that never completes
+            assert!(!deadline.expired(), "Core never completed the op");
+            // timer: deadline — the cleanup bound ends an op that never completes
             wake.wait(deadline.remaining());
+        }
+    }
+
+    /// Pumps and polls until Core completes the capture `op`, and returns its id.
+    fn completed_capture(core: &mut dyn CoreApi, op: OpId) -> CaptureId {
+        match completed(core, op) {
+            OpResult::Ok(OpOutput::Capture(done)) => done.capture,
+            other => panic!("CaptureSnapshot: {other:?}"),
+        }
+    }
+
+    /// A `ReadScreen` of `session`, to its `Completed`. Core completes it after it applied every earlier output of the
+    /// session, so it fences an `Observation::Output` that is still in flight after a title (real-tier audit rows 10-11).
+    fn screen_read(core: &mut dyn CoreApi, session: &str) {
+        let read = core
+            .begin(Op::ReadScreen {
+                session: sid(session),
+                history: false,
+            })
+            .unwrap();
+        match completed(core, read) {
+            OpResult::Ok(OpOutput::Screen(_)) => {}
+            other => panic!("ReadScreen of {session}: {other:?}"),
         }
     }
 
@@ -260,9 +279,10 @@ mod slow_tests {
             )
         };
         // The output of s2 goes between the outputs of s1: the history of s1 has only its own outputs, and its cut counts
-        // the outputs of every session. The first output after the capture is s1's: it takes the capture's own mark.
+        // the outputs of every session. The first output after the capture is s1's: it takes the capture's own mark. The
+        // title is the last bytes of the noise, so `titled` proves the whole output (real-tier audit row 10).
         let noise = |h: &mut RealCoreHarness, core: &mut dyn CoreApi, title: &str| {
-            let bytes = format!("\x1b]2;{title}\x07\x1b[1;31mother\x1b7");
+            let bytes = format!("\x1b[1;31mother\x1b7\x1b]2;{title}\x07");
             assert_eq!(output(h, "s2", bytes.as_bytes()), Ok(Value::Null));
             titled(core, "s2", title);
         };
@@ -279,6 +299,10 @@ mod slow_tests {
         assert_eq!(output(&mut harness, "s1", AFTER), Ok(Value::Null));
         titled(core.as_mut(), "s1", "r62-st6b-dec-2");
         noise(&mut harness, core.as_mut(), "s2-2");
+        // An `Observation::Output` can still be in flight after a title. A `ReadScreen` of each session fences it before the
+        // oracle reads the outputs (real-tier audit row 11).
+        screen_read(core.as_mut(), "s2");
+        screen_read(core.as_mut(), "s1");
 
         let resume = |h: &mut RealCoreHarness, session: &str, capture: CaptureId| {
             h.control(

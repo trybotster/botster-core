@@ -11,7 +11,7 @@ use botster_core_edges::edges::ProcessIdentity;
 use botster_core_edges::RouteTransport;
 use botster_core_host::session::Row;
 use botster_hub_conformance::route::RouteRead;
-use botster_route_codec::prelude::{HexBytes, RouteEndReason};
+use botster_route_codec::prelude::RouteEndReason;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
@@ -78,10 +78,9 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
 /// one segment serves them exactly.
 pub(crate) const UNATTRIBUTED_OP: &str = "testkit:unattributed";
 
-/// The answer of `pty_input` on a route, on both tiers: the log, and one segment that holds it, with [`UNATTRIBUTED_OP`].
-/// An empty log has no segment.
-pub(crate) fn route_pty_log(input: Vec<u8>) -> Value {
-    let hex = HexBytes(input).to_hex();
+/// The answer of `pty_input` on a route, on both tiers: the log (`hex`, lowercase hex), and one segment that holds it, with
+/// [`UNATTRIBUTED_OP`]. An empty log has no segment.
+pub(crate) fn route_pty_log(hex: String) -> Value {
     let segments: Vec<Value> = if hex.is_empty() {
         vec![]
     } else {
@@ -211,7 +210,7 @@ impl TestkitRoute {
     fn pty_input(&self) -> Result<Value, String> {
         let worker = self.session_worker("pty_input")?;
         let (program, _) = self.workers.program_edge(worker)?;
-        Ok(route_pty_log(program.input_log()))
+        Ok(route_pty_log(program.input_hex()))
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
