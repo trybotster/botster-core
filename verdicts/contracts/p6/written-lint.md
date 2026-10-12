@@ -24,3 +24,21 @@ Three limits of the rule that the corpus does not reach today. Each one lets a c
 3. `ends` counts a program exit only when a `WriteInput` triggers it. A program exit that a route's input triggers is not counted.
 
 No finding. CLEAN on `9dbb526c4dc536e62b45cd8a72739a9d94054215`.
+
+016c's round 1 (REJECT on `9dbb526c`): four MEDIUM package findings (F1 a `pty_output_written` count below the total; F2 a forbidden event or a stale title counted as a fence; F3 a route read of another session, and `await_title` after the end not counted as a check; F4 a scripted exit that route input triggers not counted). My three notes are in F2-F4.
+
+## Delta round: CLEAN on 635c014acd96e5119c2129ebf15cac888eba6398
+
+- **The delta.** One commit, `635c014a`, on `9dbb526c`. It changes only `fence_lint/written.rs`. No transcript, list file or wiring changes. The rule logic is 016c's scope. My integration checks:
+  - a fence is now a `pty_output_written` wait with a literal count (it covers the outputs whose running total is at most that count), or a required title observation of a title that the covered output itself sets. A `Bell` or other event no longer fences;
+  - a check now includes `await_title` on S, and a route read counts only for the route's own session;
+  - an end now includes route input (`route_send`, `route_send_raw`, `route_send_wire`, `route_flood`) to a session whose program can exit.
+- **The corpus.** The gate's corpus test passes with no new exception line (0.952 s). The corpus fences that I listed in round 1 still hold under the stricter rule: `ev_2_retired` s57 `{bytes: 16}` and `ev_5_released` s62 `{bytes: 25}` equal their running totals, and the `await_title` fences of `e3_1` and `ev_2` wait for a title that the last output sets. The A23 transcript (on main since final42) has `{bytes: 14}`, equal to its total. Its readiness title comes from a `print`, and its `pty_output` sets another title. This head does not contain main `3acaf781`, so the gate on the steward's base merge is the gate that lints the A23 transcript with this rule.
+- **The reversal with the unfenced transcripts** (`…-p6-written-lint-reversal-635c014a-20261012-112331.log`, HEAD `635c014a`): exactly `ev_2` s67, `ev_2_retired` s55 and `ev_5_released` s60, then a restore.
+- **Per-check reversals** (`…-check-reversals-635c014a-20261012-112404.log`, HEAD `635c014a`): 16 stubs. Each one turns at least one `written` self-test red, and the 5 stubs of the fence and title paths also turn the corpus test red. The only other failures are the two `unheld` wall-clock tests on the Mac.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 197 s on msa1, base main `3acaf781`: `~/botster-sessions/gates/botster-contracts-p6-written-lint-635c014a-pool-20261012-113007-64586.log`.
+- **Main** is now `7ed9df37`. The steward makes the base merge, with its own gate and my Q7 receipt.
+
+Note for 016c (package scope, not a finding): the running total is kept per session name for the whole transcript. The probe's count starts again at 0 in a new probe process (after `Restart`, or after a `Create` that reuses a removed name). There the lint covers fewer outputs than the probe proves. That can give a false finding, and it cannot hide a case. No corpus transcript has a `pty_output_written` wait after such a restart.
+
+No finding. CLEAN on `635c014acd96e5119c2129ebf15cac888eba6398`.
