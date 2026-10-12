@@ -4,6 +4,13 @@ Package P3 (session worker, PTY and terminal) of Stage 1. Plan pin `c43693ff` (a
 note covers milestone M1 (plan 6.2): the hello, the payload launch after the durable identity, and the exit with code and signal.
 It is stacked on P1's head `2016886` (the control-link messages of `botster-core-link`).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/read-reply-order.md`](design/read-reply-order.md): A read's reply follows the observations of the output
+  before it (R-114).
+
 ## Shape
 
 - `Worker` (`src/worker.rs`) is a sans-IO machine (plan 2.1): `handle(now, Input)`, `poll_action()`, `next_deadline()`. It reads
@@ -30,6 +37,13 @@ It is stacked on P1's head `2016886` (the control-link messages of `botster-core
 
 The payload's exit is `Exited{code}` or `Exited{signal}` (EV-4), sent after one drain of the PTY that follows the exit, so the
 output written before the exit is read first (the final model holds it, ST-5).
+
+The drain (`Drain`, both drivers; A31, R-108) repeats a counted part and then a flushing read, and it ends only when a read
+finds nothing or the output ends (`EIO` or EOF). It has no byte bound: a count is only the size of the next reads (OU-7
+"lossless"; R-12). **Known contract gap (R-108 (3), Core Amendment 24):** a process that holds the PTY and keeps writing
+after the payload's exit (one that left the group after `Stop`'s kill, or a group member after the leader's own exit) keeps
+the drain going, and with it `Exited` and a `Stop`'s completion. Until Amendment 24 states when that tail ends, the drain
+does not stop it early, and no transcript asserts this case.
 
 ## Choices where the contract is silent (each is reviewable)
 
@@ -290,6 +304,13 @@ The resync sequence (at `Stalled → Open`, OU-9):
   `fail_handoff` (fail_next_handoff), `client_close` (close), `input_blocked` (the admission point is full). New:
   `route_stream_holders`, `alloc_window`/`alloc_peak`, `hold_handoff`/`release_handoff`, `route_stream_written`,
   `oracle_screen`, `oracle_screen_payload`, and a route-transport term in `edges_quiet`.
+- `route_frames_taken` (Core AM-2; steward ruling R-93 Q1): the client's complete frames whose last byte the worker read
+  from the stream. The client counts its own frame boundaries (`FrameEnds`, the 4-byte length prefixes). The testkit reads
+  the taken bytes at the in-memory stream (`EndControl::taken`). The real tier subtracts the worker end's unread bytes from
+  the bytes that the client's stream accepted, by a read-only kernel query (`real/rqueue.rs`: `unix_diag` on Linux,
+  `netstat` on macOS). A failed query is a harness error. The fence holds only under the premise of R-93 (a): no
+  `route_gate` or `route_accept` limit in force on the route from its first frame to the fence, and `route_queue_bytes` at
+  the Core default. A reviewer checks the premise (checklist item 6, R-115); no lint checks it.
 
 ### Real-only (not in the P4a testkit PRs)
 

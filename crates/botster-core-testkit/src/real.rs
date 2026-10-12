@@ -127,6 +127,7 @@ use std::time::Duration;
 
 mod route;
 mod row_file;
+mod rqueue;
 mod snapshot;
 
 /// The binary that a wrapper execs.

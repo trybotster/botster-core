@@ -76,6 +76,9 @@ struct ProcessCell {
     /// The worker's end of its control link breaks at the next turn of the worker (`break_control`): the host reads the end of
     /// the link, the worker takes `LinkClosed`, and the process keeps running.
     break_link: bool,
+    /// The payload's exit watch fails with this errno at the worker's next turn (`fail_exit_watch`, steward ruling R-106):
+    /// the edge gives `ExitWatchFailed`, and never the payload's exit.
+    fail_exit_watch: Option<i32>,
     /// The worker's end of its control link, for reading what it holds for the host (`edges_quiet`). It outlives the end.
     link: Option<EndControl>,
     /// The worker's payload runs: true from its spawn until its sim process ends (its exit is queued for the worker), its
@@ -634,6 +637,40 @@ impl Workers {
         Ok(())
     }
 
+    /// The exit watch of the payload of the worker process `identity` fails with `errno` (R-106). As `break_link`, it is an
+    /// edge event: the worker's edges deliver it at the worker's next turn, and the host that holds its control link now is
+    /// woken. No conformance control names it: the real tier cannot make a `waitid` fail, so only testkit tests use it.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or its payload does not run.
+    #[cfg(test)]
+    pub(crate) fn fail_exit_watch(
+        &self,
+        identity: ProcessIdentity,
+        errno: i32,
+    ) -> Result<(), String> {
+        let (cell, _) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        {
+            let mut cell = lock(&cell);
+            if cell.ended {
+                return Err(format!("the worker process {identity:?} has ended"));
+            }
+            if !cell.payload_alive {
+                return Err(format!(
+                    "the payload of the worker process {identity:?} does not run"
+                ));
+            }
+            cell.fail_exit_watch = Some(errno);
+        }
+        if let Some(wake) = control_wake(&cell) {
+            wake.signal();
+        }
+        Ok(())
+    }
+
     /// `lose_worker`: the process edge ends the worker process `identity`, as a kill from outside Core does (Core AD-2, IN-7).
     /// Its exit goes to the host that spawned it, and its link, its endpoint and its payload end with it
     /// (`WorkerEdges::ended`). The host that spawned it and the host that holds its control link are woken (TM-6).
@@ -933,6 +970,7 @@ impl Spawner for WorkerSpawner {
             payload: None,
             spawned: None,
             exit: None,
+            watch_failed: false,
             drain: None,
             pty_write: None,
             pty_resized: None,
@@ -1077,6 +1115,8 @@ enum Ready {
     PtyRead,
     PtyDrained,
     Exited,
+    /// `fail_exit_watch`: the payload's exit watch failed.
+    ExitWatchFailed,
     /// A `RouteWrite` waits, and the route's stream would take bytes now.
     RouteWrite(RouteId),
     /// The route's stream takes bytes again after a write that it did not take.
@@ -1134,6 +1174,8 @@ struct WorkerEdges {
     spawned: Option<Result<PayloadId, SpawnFailure>>,
     /// The exit of the payload that the program edge reported and the worker has not taken yet.
     exit: Option<ExitStatus>,
+    /// The exit watch failed (`fail_exit_watch`): as the real watch, it reports nothing more, so no exit follows.
+    watch_failed: bool,
     /// The drain that a `DrainPty` asked for (`Drain`); `None` when no drain is asked.
     drain: Option<Drain>,
     /// The bytes of a `PtyWrite` that the program has not been offered yet.
@@ -1228,7 +1270,7 @@ impl WorkerEdges {
         let Some(program) = self.payload.as_mut() else {
             return;
         };
-        if self.exit.is_none() {
+        if self.exit.is_none() && !self.watch_failed {
             self.exit = program.poll_exit();
             if self.exit.is_some() {
                 lock(&self.cell).payload_alive = false;
@@ -1374,6 +1416,8 @@ impl Binding<SharedWorker> for WorkerEdges {
             }
             if self.exit.is_some() {
                 self.ready.push(Ready::Exited);
+            } else if !self.watch_failed && lock(&self.cell).fail_exit_watch.is_some() {
+                self.ready.push(Ready::ExitWatchFailed);
             }
         }
         for (id, route) in &mut self.routes {
@@ -1521,6 +1565,14 @@ impl Binding<SharedWorker> for WorkerEdges {
                 Input::PtyDrained
             }
             Ready::Exited => Input::PayloadExited(self.exit.take().expect("counted as ready")),
+            Ready::ExitWatchFailed => {
+                self.watch_failed = true;
+                let errno = lock(&self.cell)
+                    .fail_exit_watch
+                    .take()
+                    .expect("counted as ready");
+                Input::ExitWatchFailed { errno }
+            }
             Ready::RouteWrite(id) => {
                 let route = self.routes.get_mut(&id).expect("counted as ready");
                 let bytes = route.write.take().expect("counted as ready");
@@ -1644,6 +1696,12 @@ impl Binding<SharedWorker> for WorkerEdges {
             }
             Action::Exit => {
                 lock(&self.processes).end(self.id);
+                self.ended(true);
+            }
+            // As the real driver's failed run: exit status 1 (`ExitCode::FAILURE`), and the end drops the payload, as the real
+            // payload's drop kills its group and reaps it.
+            Action::ExitFailure { .. } => {
+                lock(&self.processes).end(self.id, ExitStatus::Code(1));
                 self.ended(true);
             }
             Action::CandidateClose(id) => {

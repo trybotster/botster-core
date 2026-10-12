@@ -77,6 +77,8 @@ pub fn step_names() -> impl Iterator<Item = &'static str> {
 const HARNESSES: &[(&str, &str)] = &[
     ("botster-core-link", "link_decoder"),
     ("botster-core-link", "msg_decoder"),
+    ("botster-core-testkit", "frame_ends_decoder"),
+    ("botster-core-testkit", "sock_diag_decoder"),
     ("botster-guardian-core", "guardian_command_decoder"),
     ("botster-guardian-core", "guardian_log_decoder"),
 ];
@@ -268,40 +270,60 @@ fn slow_job(root: &Path) -> Result<()> {
     // check (#220 R1-1).
     let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
     real_report_ran(success, &report)?;
-    // Each `budget` held id at every CI seed, one trial a seed: the strict run of the lists step runs it at the first seed
-    // only (lead, 2026-10-11).
+    // Each `budget` held id at every CI seed, one trial a seed, each within the default tier's limit: the strict run of the
+    // lists step runs it at the first seed only (lead, 2026-10-11). A `budget` id out of core-pending.txt counts by this
+    // run (plan 23cn), so any failed or over-budget trial fails this step.
     let held = pending::parse_held(&std::fs::read_to_string(
         root.join("conformance/core-held.txt"),
     )?)
     .map_err(|e| anyhow!("conformance/core-held.txt: {e}"))?;
-    let budget = pending::budget(&held).count();
-    let seeds = test_budget::ci_seed_count().context("the CI seed set is a range")?;
-    let (success, report) = test_budget::held_full(root, test_budget::SLOW_DEADLINE)?;
-    held_full_ran(success, &report, budget, seeds)
+    let budget: Vec<String> = pending::budget(&held).map(|h| h.id.clone()).collect();
+    let seeds = test_budget::ci_seeds().context("the CI seed set is a range")?;
+    let (success, times) = test_budget::held_full(root, test_budget::SLOW_DEADLINE)?;
+    held_full_proved(success, &times, &budget, &seeds)
 }
 
-/// The verdict on the held-full run: the binary succeeded (each `budget` held id passed at each seed; a failed trial names
-/// its seed), and its report line shows every `budget` id of `core-held.txt` (`budget`) at every seed of the CI set
-/// (`seeds`). A harness that ignores the variable gives no line; a selection gives fewer ids or seeds.
-fn held_full_ran(success: bool, report: &str, budget: usize, seeds: usize) -> Result<()> {
+/// The nextest binary id of the testkit conformance suite, which runs the held-full run.
+const HELD_FULL_BINARY: &str = "botster-core::conformance";
+
+/// The verdict on the held-full run (plan 23cn): nextest succeeded, and its JUnit `times` have a trial
+/// (`pending::held_full_trial`) of every `budget` id at every CI seed, each within the default tier's per-test limit. A
+/// missing trial is a narrowed run (a harness that ignored the variable, or a selection); a trial over the limit fails the
+/// proof, so the gate fails and the id does not count. Each problem names the trial.
+fn held_full_proved(
+    success: bool,
+    times: &BTreeMap<String, f64>,
+    budget: &[String],
+    seeds: &[u64],
+) -> Result<()> {
+    let limit = test_budget::TEST_LIMIT_SECS;
+    let mut problems = Vec::new();
+    for id in budget {
+        for seed in seeds {
+            let trial = format!("{id}@seed_{seed}");
+            match times.get(&format!(
+                "{HELD_FULL_BINARY} {}",
+                pending::held_full_trial(id, *seed)
+            )) {
+                None => problems.push(format!("{trial} did not run")),
+                Some(&secs) if secs > limit => problems.push(format!(
+                    "{trial} took {secs:.3} s (limit {limit} s): the held-full proof fails (plan 23cn)"
+                )),
+                Some(_) => {}
+            }
+        }
+    }
     if !success {
-        bail!("the held-full run failed: a `budget` held id failed at a seed (its trial names the seed)");
+        problems.push("a held-full trial failed (nextest names it, with its seed)".to_string());
     }
-    let line = report
-        .lines()
-        .find_map(|l| l.strip_prefix("conformance held-full: ran "))
-        .context("the held-full run gave no `conformance held-full:` report")?;
-    let numbers: Vec<usize> = line
-        .split(|c: char| !c.is_ascii_digit())
-        .filter(|w| !w.is_empty())
-        .map(|w| w.parse().expect("digits"))
-        .collect();
-    let [ran, at] = numbers[..] else {
-        bail!("the held-full report line is not `ran B budget ids at S seeds, one trial a seed`: {line}");
-    };
-    if (ran, at) != (budget, seeds) {
-        bail!("the held-full run ran {ran} budget ids at {at} seeds; core-held.txt has {budget} and the CI set {seeds} seeds");
+    if !problems.is_empty() {
+        bail!("the held-full run: {}", problems.join("; "));
     }
+    println!(
+        "held-full: {} budget ids at {} seeds, every trial passed within {limit} s",
+        budget.len(),
+        seeds.len()
+    );
     Ok(())
 }
 
@@ -1533,39 +1555,77 @@ mod tests {
         assert!(real_report_ran(true, no_count_line).is_err());
     }
 
-    /// The held-full run passes only with a success and a report line of every `budget` id at every CI seed.
+    /// The held-full run passes only with a success and a trial of every `budget` id at every CI seed, each within the
+    /// default tier's 2 s limit (plan 23cn).
     #[test]
-    fn the_held_full_run_passes_only_with_every_budget_id_at_every_seed() {
-        let report = "x\nconformance held-full: ran 2 budget ids at 32 seeds, one trial a seed\n";
-        assert!(held_full_ran(true, report, 2, 32).is_ok());
-        let failed = held_full_ran(false, report, 2, 32).unwrap_err().to_string();
-        assert!(failed.contains("failed at a seed"), "{failed}");
-        let none = held_full_ran(true, "conformance strict: ran 3 of 3 pending ids", 2, 32)
+    fn the_held_full_run_passes_only_with_every_trial_within_the_limit() {
+        let ids = ["conf::a".to_string(), "conf::b".to_string()];
+        let seeds = [0, 1];
+        let times = |secs: f64| -> BTreeMap<String, f64> {
+            ids.iter()
+                .flat_map(|id| seeds.iter().map(move |s| (id, s)))
+                .map(|(id, s)| {
+                    (
+                        format!("{HELD_FULL_BINARY} {}", pending::held_full_trial(id, *s)),
+                        secs,
+                    )
+                })
+                .collect()
+        };
+        assert!(held_full_proved(true, &times(1.9), &ids, &seeds).is_ok());
+        assert!(held_full_proved(true, &times(2.0), &ids, &seeds).is_ok());
+        let failed = held_full_proved(false, &times(1.0), &ids, &seeds)
             .unwrap_err()
             .to_string();
-        assert!(
-            none.contains("no `conformance held-full:` report"),
-            "{none}"
+        assert!(failed.contains("a held-full trial failed"), "{failed}");
+        // A trial of another binary, or a missing seed, is no trial of this run.
+        let mut other = times(1.0);
+        let moved = other
+            .remove("botster-core::conformance [pending: held-full] conf::b@seed_1")
+            .unwrap();
+        other.insert(
+            "botster-core::slow_conformance [pending: held-full] conf::b@seed_1".into(),
+            moved,
         );
-        for (budget, seeds) in [(1, 32), (3, 32), (2, 1), (2, 33)] {
-            let narrowed = held_full_ran(true, report, budget, seeds)
-                .unwrap_err()
-                .to_string();
-            assert!(
-                narrowed.contains(&format!(
-                    "ran 2 budget ids at 32 seeds; core-held.txt has {budget} and the CI set {seeds} seeds"
-                )),
-                "{narrowed}"
-            );
-        }
-        let malformed = "conformance held-full: ran 2 budget ids\n";
-        assert!(held_full_ran(true, malformed, 2, 32)
+        let missing = held_full_proved(true, &other, &ids, &seeds)
             .unwrap_err()
-            .to_string()
-            .contains("is not `ran B budget ids at S seeds"));
-        // No budget id: the run passes with an empty line of trials.
-        let empty = "conformance held-full: ran 0 budget ids at 32 seeds, one trial a seed\n";
-        assert!(held_full_ran(true, empty, 0, 32).is_ok());
+            .to_string();
+        assert_eq!(missing, "the held-full run: conf::b@seed_1 did not run");
+        // A test named like the trial but without its kind is not the trial.
+        let mut bare = times(1.0);
+        let moved = bare
+            .remove("botster-core::conformance [pending: held-full] conf::a@seed_0")
+            .unwrap();
+        bare.insert("botster-core::conformance conf::a@seed_0".into(), moved);
+        assert!(held_full_proved(true, &bare, &ids, &seeds).is_err());
+        // No budget id: nothing to prove.
+        assert!(held_full_proved(true, &BTreeMap::new(), &[], &seeds).is_ok());
+    }
+
+    /// Red on revert (plan 23cn, condition 3): one trial at 2.01 s fails the held-full proof and names the trial.
+    #[test]
+    fn a_held_full_trial_at_2_01_s_fails_the_proof() {
+        let ids = ["conf::a".to_string()];
+        let mut times: BTreeMap<String, f64> = (0..32)
+            .map(|s| {
+                (
+                    format!("{HELD_FULL_BINARY} [pending: held-full] conf::a@seed_{s}"),
+                    1.0,
+                )
+            })
+            .collect();
+        times.insert(
+            format!("{HELD_FULL_BINARY} [pending: held-full] conf::a@seed_7"),
+            2.01,
+        );
+        let seeds: Vec<u64> = (0..32).collect();
+        let error = held_full_proved(true, &times, &ids, &seeds)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "the held-full run: conf::a@seed_7 took 2.010 s (limit 2 s): the held-full proof fails (plan 23cn)"
+        );
     }
 
     #[test]
