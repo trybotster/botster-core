@@ -3303,6 +3303,7 @@ mod slow_tests {
             binary: guarded.0.clone(),
             test: guarded.1.clone(),
             diagnosis: "d".into(),
+            signature: "s, t".into(),
             owner: "o".into(),
             removed_by: "#1".into(),
         };
