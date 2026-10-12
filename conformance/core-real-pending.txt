@@ -149,3 +149,8 @@ conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_kitty_modifier_keys_need_flag_8
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
+
+# a route key's frame waits behind an unheld host write (P3 PR A, route key/mouse/focus): the real tier is INCONCLUSIVE at seed 0
+# step 20 (step_timeout, the host write's Completed). The window has open fence exceptions (R-56 step 24, R-57 step 9, R-60
+# step 12), and its 2-byte host write under pty_blocked is not held (R-74). A contracts fence, owner P3 with PC's R-74 sweep.
+conf::dp_4_worker_encodes_route_frames_with_write_time_modes

@@ -208,7 +208,6 @@ conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 # DP-6 resize (PR B): the s16 route resize is refused (input_refused unsupported "input"), so s23 fails on both tiers.
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
-conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
 conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
