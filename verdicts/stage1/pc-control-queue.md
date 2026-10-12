@@ -593,3 +593,18 @@ Correction messages: `msg_plugin-w_1791820664_7e6c55` and `msg_plugin-w_17918206
 R307-SI-4 remains LOW open until that final body correction is read.
 The lead disposition is now known. The corrected body and complete formal package delta verdict remain pending.
 No new source finding or execution job is introduced by this inspection.
+
+### Final body correction — R307-SI-4 closed
+
+Owner receipt: `msg_plugin-w_1791820675_1e0ee5`.
+I verify unchanged GitHub head `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54` and base `080987829a2e2245a7ea97606020400392c974d6`.
+I read the complete final body delta. It changes only the stale fix-order and known-list references.
+Raw JSON SHA256: `5e71faebcb5c443a2e24f6612bae4fd2100e44afad8cdbf06864cf8f58f06067`.
+Body text SHA256: `05305586c1683a2d42fbdaa1988e3eee625e7e9310bbeea1128d39f60f412587`.
+The body now names #312 before #307 in train 4 and states that this head's known-flaky file is empty.
+It identifies #308's entry as a proposal outside the tested head.
+The corrected count, tier labels, RED-gate identity, and explicit no-re-gate ruling remain intact.
+R307-SI-4 closes. No source or body finding remains in inspection.
+The complete formal package delta verdict remains pending.
+The current RED gate and canonical FAIL retain their meanings. No final train evidence is accepted by this inspection.
+I ran no execution job.
