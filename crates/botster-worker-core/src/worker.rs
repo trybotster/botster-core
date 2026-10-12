@@ -180,9 +180,11 @@ pub enum Action {
     LinkClose,
     /// Start the payload on a new PTY as the leader of its own session and process group. The answer is [`Input::Spawned`].
     SpawnPayload(PayloadSpec),
-    /// Read the output that the PTY holds now, then give [`Input::PtyDrained`]: the output that the payload wrote before
-    /// its exit is read before the exit is reported (EV-4, ST-5: the final model holds it). The drain is bounded by what the
-    /// PTY held when it was asked, so output that a remaining process of the group writes later cannot hold the exit back.
+    /// Read the PTY's output as [`crate::Drain`] decides, then give [`Input::PtyDrained`]: the output that the payload
+    /// wrote before its exit is read before the exit is reported (EV-4, ST-5: the final model holds it). The drain repeats
+    /// a counted part and then a flushing read, and it ends only at a read that finds nothing or at the end of the output
+    /// (`EIO` or EOF; R-108 (1), (2)). It has no byte bound, so a process that holds the PTY and keeps writing holds the
+    /// exit back (R-108 (3)): the gap of Core Amendment 24, recorded in DESIGN.md.
     DrainPty,
     /// Write these bytes to the payload's PTY, and answer with [`Input::PtyWritten`]. One write is out at a time (AM-2).
     PtyWrite(Vec<u8>),
