@@ -258,4 +258,3 @@ Align PC and P5 on one retention rule. Preserve every pending record until its t
 VERDICT: NOT CLEAN (two new MEDIUM findings, D5 and D6; earlier findings remain closed; R-120 is applied).
 This review supplies no implementation or gate approval.
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
-
