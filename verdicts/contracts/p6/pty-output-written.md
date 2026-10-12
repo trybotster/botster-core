@@ -35,3 +35,17 @@ The PR's parent is main `fe209c6563fa8943065ef1aaa3e09a7e3154a201`. Checked agai
 - **Core.** The real tier does not forward an unknown probe control (`real/program.rs`), and the testkit tier needs the "total at once" form. So `ev_2_retired` and `ev_5_released` need P6's Core testkit PR before Core takes a pin with this patch (plan 23am: the control PRs merge before the pin PR).
 
 No open finding. CLEAN on `8b035f245976a493b771fb9d878d777afdb469c8`.
+
+016c's round 1 (REJECT on `8b035f24`): one MEDIUM, package scope. The slow test polled `written()` in a loop, against BUILD.md Testing rule 5. I do not re-review it. The steward approved the separate lint PR on main `f1ccacfd` ("R107-SI-1 sweep/lint split"), so my first open item is closed.
+
+## Delta round: CLEAN on 9ab1ad6572bc6037d87fd25c7c27ed928aaec62b
+
+- **`0c52ae32`** (016c's finding) changes only `crates/botster-conformance-probe/tests/slow.rs`. The program is now `print_after_input "m" -> "Z"`. After every `Output` is acknowledged, the test writes "m", reads all N bytes and then "Z", and reads `written()` once. "Z" goes through the same writer queue behind every `Output` chunk, so the one read sees the total. No transcript, no list file and no lint changes.
+- **`9ab1ad65`**, the merge of main `f1ccacfd2794775176009c9dddbff67f43858840` (Q7):
+  - the tree `81ad415372fbadbd9b8caed2cffc1767bfa2f96e` equals `git merge-tree --write-tree 0c52ae32 f1ccacfd`;
+  - `git patch-id --stable` of #91's own diff is `698ca723…` against both its parent `fe209c65` and main `f1ccacfd`;
+  - main's move since `fe209c65` changes only `docs/steward-rulings.md`, the A23 c1/c2, A24 c1 and A25 c1 amendment files and `verdicts/amendments.md`. None is a path of #91. No side changes a list file after the parent, and the merge leaves `core-fence-exceptions.txt` the same as at `0c52ae32`. So the id set is #91's set: the two revoked lines out, nothing added.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 182 s on msa1, base main `f1ccacfd`; mutants 6 tested, 6 caught; the slow test 0.381 s: `~/botster-sessions/gates/botster-contracts-p6-pty-output-written-9ab1ad65-pool-20261012-103604-92101.log`.
+- **Main after the gate.** Main is now `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`. `git diff f1ccacfd 7e97064c` adds `amendments/core-contract-v1.17-amendment-24-candidate2.md` and changes `verdicts/amendments.md`. That is not rulings-only, so main cannot fast-forward to `9ab1ad65`. The steward decides the merge. If the head that main becomes is a new merge, I check its delta per Q7.
+
+Every finding is closed. CLEAN on `9ab1ad6572bc6037d87fd25c7c27ed928aaec62b`.
