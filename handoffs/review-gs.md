@@ -1,5 +1,15 @@
 # GS reviewer handoff
 
+## Lead inbox notice
+
+The lead reports an inbox permission denial in `msg_plugin-w_1791787683_3714c0`. The lead can send messages and read verdict files.
+
+Continue authorized queued reviews. Do not assume a lead answer. Resend important receipts after the lead reports inbox recovery.
+
+The pushed #310 package CLEAN is `7565413918c9ed0c31c50ba6ae27d26d5f6f2550`. The #308 package CLEAN is `7e482d16d1f84a84edf0236dab50296f300e4657`.
+
+Both verdicts retain their exact-head scope and pending final import or train evidence. No reviewer permission denial occurs in this notice.
+
 ## Current Core PR #310 result
 
 CLEAN at `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`, source and gate base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Open findings: 0.
