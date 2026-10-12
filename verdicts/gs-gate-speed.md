@@ -2536,3 +2536,104 @@ Sol publishes delta CLEAN in `e72d7d01dc22a5eac71d57ea2e3f63c53fa32028`, at `ver
 I read the complete round and verified publication. Both source delta reviews have zero findings on the same exact head and base.
 
 The final gate, final body, and final evidence acceptance remain pending. This receipt accepts no completed result from a running gate.
+
+### Core PR #293: round 2 repairs and imported base
+
+- Round 2 head: `d4758482eb0aaabe6a6053573e797d81343cddfb`.
+- Imported base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+- VERDICT: NOT CLEAN (1 HIGH open).
+
+GS-B13-R1-1 HIGH is closed. The lead approved a build directory for each canonical worktree root.
+
+`candidate_build_dir` hashes that root into a directory under `candidate-build`. Worker and anchor commands explicitly build there and copy from there.
+
+The candidate record now follows all binary replacements. The prebuild command performs no automatic clean and no longer trusts an absent record as artifact provenance.
+
+I read the complete bootstrap evidence command and its results. A first builds the worker without prebuild. B then runs prebuild with the shared target.
+
+At the old head, B writes its root record but copies a worker containing A's path and no B path. This reproduces the reported gap.
+
+At the repaired head, the log names a worker compilation in B. The copied binary contains B's path and no A path.
+
+Evidence: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-58544635-pool-20261011-163216-95056.log`.
+
+The later import and repair preserve this candidate-build code. Candidate validation still refuses another root or a missing record.
+
+The two Mac evidence jobs use slot-2 and its own target directory. The second prebuild succeeds with the same root record.
+
+Mac logs: `...-2c0488b8-pool-20261011-162513-28603.log` and `...-58544635-pool-20261011-164100-59441.log`, in `~/botster-sessions/gates/`.
+
+The shared disk rule now counts each local candidate-build directory against the 8 GiB bound. These records satisfy the lead's stated conditions.
+
+GS-B13-R1-3 LOW is closed. The new evidence counts every compilation line by worktree path. It lists all nine linked workspace package names.
+
+A compiles nine packages. B on A's target compiles zero and incorrectly passes at old v1. B's own target compiles nine and fails the newly active case.
+
+The repaired conformance binary refuses the reused build with exit 101. The body replaces the earlier incomplete count and retains its limitation.
+
+GS-B13-R1-2 HIGH remains open at d4758482. The test index now correctly checks registration and both default tiers.
+
+However, `root_test_calls` visits every syntax path. A reference to `built_in::assert_built_here` satisfies it without executing the function.
+
+An uncalled nested function also satisfies it. Sol-B independently records these cases in `7277bb6eff032a1a2a7e486f52fb8ee834ebc3bf`.
+
+I read the complete integration round. Its closures and remaining HIGH finding agree with this package review.
+
+I read the complete canonical merge check. It fails conditions (2) and (3) on the testkit manifest and library root. Conditions (1) and (4) pass.
+
+Check: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-96c58d88-base-merge-check.log`.
+
+I verified the merge parents and every imported non-own blob. Each equals the imported base. Every own patch matches after removing index and hunk-location metadata.
+
+The base's rustix `net` feature and `stream_holders` module remain. The PR's dependency, re-export, constant, and root test remain on separate lines.
+
+The later d4758482 commit removes an unused slow-feature decision. The coverage rule still requires the default tier on Linux and macOS.
+
+That commit also excludes five whole-body replacements of `build_worker`. The expression covers only that I/O shell. Its worker-presence and candidate-directory decisions retain tests.
+
+The bootstrap job exercises the worker build and copy path. The new exclusion follows the existing anchor-build exclusion and supplies no exemption for its pure decisions.
+
+The failed 96c58d88 gate retains seven misses: two unused slow-feature mutants and five worker-shell replacements. It also retains two stage-2 FLAKY outcomes.
+
+The source repair removes the unused decision and adds the bounded shell exemption. It does not convert those failed records to catches.
+
+The d4758482 gate passes all ten steps in 507.7 seconds. Default: 1835 passed. Slow: 597 passed. Mutation result: 61 mutants, 58 caught, three unviable.
+
+The job exits zero after 516 seconds; the wrapper exits zero after 518 seconds. No remaining mutant requires stage 2.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-d4758482-pool-20261011-175859-18261.log`.
+
+Its comparison base is `f7eeced64e652700f2f78fc063e4896832134233`. The imported base remains `3aacc58d086e55a6b186165ccf9001e2618e2869`. This gate proves no later import.
+
+### Core PR #293: one-statement repair delta
+
+- Head: `836e879c40be7b0ac97b1bc8a2f4883eaffbd3ea`.
+- Base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+- VERDICT: NOT CLEAN (1 HIGH open: GS-B13-R1-2).
+
+I read the complete one-file delta and verified the live head and base. The repair rejects unused references, nested functions, closures, early returns, conditional blocks, and methods.
+
+The supported form is now one statement containing a call expression. However, the matcher ignores the call expression's attributes.
+
+This registered test passes the source check but executes no build-root check:
+
+```rust
+#[cfg(test)]
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    #[cfg(any())]
+    botster_test_process::built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
+}
+```
+
+The test index selects the function in both default tiers. The parsed body contains one call with the expected path.
+
+Rust removes that call because `cfg(any())` is false. The test then succeeds without checking its build root.
+
+Required change: reject attributes on the supported call statement, or verify that those attributes preserve execution in both required tiers.
+
+Reject unsupported forms. Add a negative fixture for the conditional call above. Preserve the current direct calls without attributes.
+
+Sol-B independently reports the same attribute gap. The gate on this head is running. I read no running output and accept no completed result.
+
+The candidate and evidence findings remain closed. The coverage finding remains HIGH. I ran no gate, build, test, base-check script, or executable probe.

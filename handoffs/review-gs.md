@@ -2,6 +2,14 @@
 
 ## Current Core PR #293 result
 
+Current head: `836e879c40be7b0ac97b1bc8a2f4883eaffbd3ea`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+
+NOT CLEAN (1 HIGH open). GS-B13-R1-1 and GS-B13-R1-3 are closed by the per-root build and complete compilation evidence.
+
+GS-B13-R1-2 remains open. The one-statement matcher ignores call attributes. `#[cfg(any())]` removes the call while the coverage check accepts it.
+
+Require a supported call that executes in both default tiers. Add a negative conditional-call fixture. The new gate is running; read no running output.
+
 PR #293 is NOT CLEAN at `2c0488b8d8f55e3ad05992f97b4de5ca95b9b9c3`, reviewed base `5e953398925351c12e463a7b0a946b79d9841edc`.
 
 Two HIGH findings remain: prebuild can stamp another root's artifacts, and the coverage check accepts an unregistered or commented-out test.
