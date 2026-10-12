@@ -14597,3 +14597,105 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 201.
 
 VERDICT: CLEAN
+
+
+## Round 201 — #318 v1 import and WorkerClock adaptation, 2026-10-12
+
+Exact head: `acd6ced03f7306cbf250f25d668b239ef7d70b33`.
+Tree: `3564fc0fceb0af604e73c041ced018236f8f7902`.
+Imported source and gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Previous CLEAN head: `c707c4d6b89f3e96d8884713c818151a10ad6e58`, original source base `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Previous package CLEAN: Round 198, `2e8363da579f90b059fcf03c15a43b0a1b0262e2`.
+Previous integration CLEAN: Round 3, `adda76b49f727bb88db1e59949968586b57e1edb`.
+Delta request: `msg_plugin-w_1791837252_391368`. Tier: HIGH, unchanged under BUILD.md rules 3 and 5.
+Scope: the v1 import, the semantic adaptation, member interfaces, complete body, and supplied exact-head evidence.
+This is a post-CLEAN import delta. The earlier round-limit SETTLE decision and its completed F154-only review remain preserved.
+The reviewer does not restart the earlier disputed rounds or accept any new A24 implementation.
+
+### Import and retained member change
+
+Merge `22493716793572d712080eb991d253fb22b47894` has parents c707c4d6 and 3e655eff.
+Its tree is `06853fb13a58a66e1fc4db2b2bd1d5a10d7968a8`.
+The final commit changes only the test's Workers::new call: four added lines replace one line.
+The common base of the previous member and imported v1 is exactly 838e4bb0.
+
+The reviewer compares the accepted 838e4bb0 -> c707c4d6 member diff with 3e655eff -> acd6ced0.
+All eight own paths retain identical added/deleted lines, except the explicit WorkerClock adaptation.
+Six own paths overlap imported v1 changes, so the disjoint Q7 carry rule does not apply.
+Two own blobs remain byte-identical: worker-core drain.rs and the real driver_edges.rs test helper.
+The imported final member diff has 620 additions and 141 deletions in eight files.
+Imported source outside the member retains the base's earlier review scope; this verdict does not independently re-review all 102 imported paths.
+
+The reviewer reads the complete adapted title-before-Exited test and the relevant worker/host clock paths.
+WorkerClock::manual(start).0 supplies the new constructor argument. Its retained closure owns the clock cell after the returned handle is dropped.
+The test pumps Core at start, starts Stop, then pumps at start + stop_grace.
+Core's stop-grace deadline sends Kill. R-97 gives the worker no payload grace timer.
+The test's fixed worker clock therefore does not prevent the host kill or the resulting payload-exit input.
+The workers continue to run ready inputs on each host pump. The test invokes no deadline-wake wait that needs to advance the manual clock.
+The test retains all 32 seeds and its TitleChanged-before-Exited and Stop-ends-Killed assertions.
+The existing adapted constructor at core/tests.rs:460 uses the same manual-clock form.
+
+The drain interfaces still agree across worker-core, real driver, and testkit edge.
+DrainPty supplies Drain::asked; reads use Drain::want and after_read; completion supplies PtyDrained once.
+The real driver retains its route read budget, flushing recount, quiet read, EOF/EIO, and count-error behavior.
+The imported PTY resize answer does not change drain progression or completion.
+The shared session helper imports the accepted SZ-1 test. It changes no #318 tail or holder test body.
+F150 through F154 retain their source closures, including actual event waits and the local PTY-event assertion.
+The earlier BUILD.md rule-5 and process-group cleanup reviews remain applicable to these retained tests.
+No new real-process fixture, sleep, polling interval, timer, or product hook appears in this adaptation.
+
+### F157 — LOW — Import list scope was misstated; CLOSED
+
+The original import paragraph said that the merge had no list changes.
+Its first-parent diff actually imports v1's core-pending and core-real-pending changes.
+The reviewer sends F157 directly to P3 and Sol-C. P3 corrects the body at the unchanged head.
+Closure receipt: `msg_plugin-w_1791837377_93da90`.
+The complete corrected body explicitly separates imported v1 list changes from #318's own list-free diff against 3e655eff.
+Verified body SHA256: `c2a721310b4b92d683fbeeeb305fc95d7b49f14d0c4253e196594779de7db3a3`.
+All ten conformance blobs equal imported v1 exactly. No own list, pending removal, proof, minimum, or status change appears.
+Counts remain pending 387, real-pending 38, held four, real proofs seven, ledger 691, and minimum 69.
+The final source inherits contracts .44. This verdict grants no future pin or real-pending removal.
+
+### Supplied exact-head evidence
+
+Local record: `shared/core-stage1/evidence/p3-a31/local-check-acd6ced0.log`.
+SHA256: `72db1bff350bcd4f410035782bf2fa82fb2a1435f12748ea3e99db0d91a7ec09`.
+The header names this exact head. The log records target removal and a clean-completion message at 2026-10-12T20:15:27Z.
+The producer records no numeric cargo-clean exit code. No independent target-writer history is inferred.
+Format, actual CI taint, the named xtask checks, lists, clippy, and prebuild-worker report exit zero.
+Default: 1116 passed/zero skipped/5.864 seconds. Worker slow: 148 passed/zero skipped/13.033 seconds.
+Strict seeds 0-31: 581 passed/111 skipped/26.653 seconds. Those commands report exit zero.
+The adapted title test and the mirrored real tail/holder tests have PASS records.
+These remain local records. Mac timing is not the gate signal. No local rerun or additional execution is requested.
+
+Gate: `gates/botster-core-stage1-p3-a31-drain-acd6ced0-pool-20261012-132317-50401.log`.
+SHA256: `fbe1d79466d22b97ae660cb14529092a7aed629694fac82037105c47ccc7bfe4`.
+Headers name this exact head and imported base. All ten steps PASS on msa1.
+Default: 2081 passed/411 skipped/13.548 seconds. Slow: 682 passed/2079 skipped/44.334 seconds.
+The adapted title test, deterministic driver tail test, and both binaries' tail/holder tests pass normally.
+Stage 1: 25 mutants, 16 caught/five missed/four unviable/zero timeout, 24.1 seconds.
+The stage-2 baseline passes 692 tests in 46.822 seconds; its full baseline step takes 73.0 seconds.
+Stage 2 catches all five stage-1 misses in 255.1 seconds.
+Read-only parsing matches all 21 unique raw catches to their citations. Every catcher has a normal PASS before mutation.
+The four unviable identities retain the unsupported Drain Default and three non-exhaustive match-arm reasons.
+Final: 21 caught/four unviable/zero missed or timeout. No FLAKY, TIMEOUT, or SKIPPED token appears.
+The mutation stages omit the imported known-flaky ev_2 test with its owner/signature and separate #316 fix scope.
+That omission supplies no ev_2 fix or pin acceptance in #318.
+Fuzz selects no changed decoder harness. Total steps: 590.0 seconds.
+Job and wrapper exit zero after 617 seconds, with zero seconds queued and 617 running.
+Historical red, flaky, measurement, and reversal records retain their original heads and limits in the complete body.
+The new gate does not relabel those records or diagnose the separate Mac IN-6 failure.
+
+### Verdict and limits
+
+#318's import and semantic adaptation are CLEAN at this exact head. F157 is CLOSED; no package finding remains on #318.
+The earlier source closures and this supplied exact-head gate support the package verdict.
+Sol-C's same-head integration delta remains due before final readiness. Its earlier c707c4d6 verdict does not cover this import automatically.
+Any later train composition retains the applicable member/combined delta and exact-head gate requirements.
+Equal-tree/push merge verification remains due. This verdict accepts no future head or merge.
+The separate Mac IN-6 classification, F28/F33/F39, F61/F62, and the later A24 work remain separate. #163 stays open.
+#328 awaits its pushed corrected head, exact-head gate, and READY. Its F156 comment finding remains separate.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 202.
+
+VERDICT: CLEAN
