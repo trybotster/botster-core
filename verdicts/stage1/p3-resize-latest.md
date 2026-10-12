@@ -91,4 +91,6 @@ Owner receipt `msg_plugin-w_1791789432_bb0b8b` reports repair head `6ed3cd7b0fd8
 
 Package receipt `msg_plugin-w_1791789648_b74233` reports two remaining points at that unreviewed repair head. F148 HIGH remains open for an ignored rollback error: a later cached-old Resize can claim no-op Applied while the PTY differs. New package F149 MEDIUM concerns a queued Policy marker that moves after a later host resize on ordinary input without a new size report or policy-size change. The package reviewer requires failed-rollback and delayed-acknowledgment ordering proofs. These are package reports, not a new integration round or an accepted source result. I did not inspect the reported implementation. The Round 3 verdict below retains its reviewed-head scope.
 
+Package Round 191 is published at `3bf24cb6134c7234633e4e367bfa5691e17bd6f2`, file `verdicts/p3-worker.md`, on reported head `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f`. I read its published disposition and evidence scope. It closes F145/F146/F147 for package scope through the current-head source and gate. It retains F148 HIGH and F149 MEDIUM, including partial-read reordering. This receipt does not constitute my source or gate review of that head. It does not authorize integration round four.
+
 VERDICT: NOT CLEAN (4 open)
