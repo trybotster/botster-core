@@ -102,3 +102,7 @@ Parents `f0e356ff` and main `939e1acd`. The tree `947c7831935e3567fa05812682f527
 - The pushed PR head is `8adbe937`. The Q7 delta review of its merge has no finding (above).
 - Every finding is closed: F1 (in the steward's silence form), F2, F3 part 1 (part 2 withdrawn per E3-1), 016c's stale-title MEDIUM and its sentinel-position MEDIUM (R-80 condition 3).
 - Merge-order notes for the next mergers: #73 changes `fence_lint.rs` and `core-fence-exceptions.txt`, so #73's merge after this one gets a Q7 delta review. #73's a5_2 debt lines (steps 22, 27, 94, 113) and a5_1 step 44 line refer to the old step numbers and the old fences, so #73 must reconcile them with this PR.
+
+### After the merge: a miss of mine, found by #73's lint (P3, 69301401)
+
+a5_2 has two client sends on `r12a` (s74, s75). The s79 fence `route_reports {s12, $r12a} {activity_before_close: true}` is sticky after the first send, so it proves only s74's `Activity`. s75's report can still post after the s80 `drain`, so s83's `pump {events_posted: 0}` can race. I did not check the send count against the fence. #73 keeps s83 as a `debt:` line for P6 ("s75's send needs its own fence, or a ruling that s74's Activity covers it"). The id is core-pending, so no run is affected now. I told the steward.

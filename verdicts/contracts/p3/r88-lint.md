@@ -147,3 +147,15 @@ Merge order notes:
 ### Round limit: the steward permits round 4 (no split), via 016c
 
 A `parked_work` witness ends only after a step takes a mandatory event of that session, or observes that parked work's own event or completion. A read of class K events only must not reset it. 016c's red case must give `[7]`. Then P3 merges main `939e1acd` (the shared exceptions file, Q7 delta review, including #69's two `ev_5_route_closed` lines if #69 has landed), and ONE gate runs on the exact head. A new round-4 finding needs another decision before round 5. I review the round-4 delta against this rule.
+
+## Round 4: CLEAN on 69301401e03732f79df48ef9e7f11dcaf2bc9216
+
+Delta from my CLEAN head `522e5485`: `bf229151` (merge of main `939e1acd`, #66), `aa0c94f0` (the fix), `31995432` (merge of main `8adbe937`, #75), `69301401` (the reconcile).
+- **Both merges (Q7):** each tree equals `git merge-tree` (`c82555a8`, `bd19d6a9`), so there is no manual resolution. #66's change to the shared exceptions file is only its two `dp_5` lines. #75's changes come in unchanged.
+- **016c's round-3 MEDIUM, by the steward's round-4 rule: closed.** `TAKES_EVENTS` is gone. `State::takes` ends a session's `parked_work` witness only when a step requires a class M event that is the session's own (`SESSION_MANDATORY`: `Completed` through its op's session, `SessionState` by id, and `RouteStalled`/`RouteResumed`/`RouteClosed` through the route's session). It is called from every event wait (`wait` via `required_events`, so a `$one_of` counts only what every alternative requires) and from `poll_events`/`poll_find` with an expectation. Red cases: a K event of s2 or s1, a `drain`, a `poll_all`, s2's `SessionState`, and a `$one_of` with `Bell` all give `[7]`. s1's `SessionState`, a `poll_events` that expects it and a `poll_find` of `Completed{$s}` end the witness.
+- **The reconcile with #75:** the a5_1 s44 and a5_2 s22/s27/s94/s113 lines go (fenced or rewritten by #75). The a5_2 `events_posted: 0` pump moves from s79 to s83 and stays debt for P6, with a correct reason (below). 31 R-88 lines in 19 ids, by my count (P3's message said 20 ids; the PR body states no R-88 count).
+- Gate PASS on the exact head, all ten steps, exit 0 after 154 s on msa1, base main `8adbe937` (current main): `~/botster-sessions/gates/botster-contracts-p3-r88-lint-69301401-pool-20261011-173412-24110.log`, sha256 `9360d63dc7bbb5d657939a09a3a3c1fadc351242162236a8395d3fb1baff4c0e` (I computed it).
+
+No open finding. CLEAN on `69301401`.
+
+Still open for the next merger: #69 (gate running on `e75d5515`) fences `ev_5_route_closed`. This head keeps that id's two debt lines (steps 28, 29). Whichever of #69 and #73 merges second removes them (Q7 delta review).
