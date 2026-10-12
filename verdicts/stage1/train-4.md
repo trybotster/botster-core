@@ -120,3 +120,64 @@ I ran no build, test, gate, mutation, reversal, measurement, or executable base 
 Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; combined source on exact train 4 head, final train evidence pending)
+
+## Completed RED gate and requested EV-2 member-path check
+
+Lead request: `msg_plugin-w_1791822648_5bb135`.
+The head, base, and tree remain the exact Round 1 identities.
+The request asks whether a member changes this id's real-tier control, title, queue, or pump path.
+It permits no reviewer execution job.
+
+Retained gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4-03709a0c-pool-20261012-092150-15636.log`.
+SHA256: `3329b853b483eeb3f0f1a1bcd96180b53ce43b3daf2b0ee17c4bbf69c1a75fd8`.
+I read the header, EV-2 failure, test summaries, CI summary, and final exits.
+Seven CI steps pass. Slow fails; mutants and fuzz do not run. CI total is 334.3 seconds.
+Default has 1957 passes, 427 skipped, and 10.648 seconds.
+Slow has 632 passes, one failure, 2058 skipped, and 46.732 seconds.
+The failed trial is conf::ev_2_mandatory_and_keyed_never_dropped, seed 0, step 71, step_timeout.
+Nextest reports 10.124 seconds for that trial; its inner test reports 10.08 seconds.
+Jobq exits 1 after 418 seconds: queue 2, run 416. The wrapper exits 1 after 419 seconds.
+The train gate is RED. It supplies no final mutation or fuzz acceptance.
+
+I read the complete EV-2 transcript at .44 and compare it with .43. Its bytes are unchanged.
+Transcript SHA256: `c400c353ed1fca21090c8a3f1c5b782c4088cc3bcb8f3cd43147e2439352a43a`.
+The program only holds. The transcript makes no cancel request and uses no control_queue control.
+Step 67 sends the TB title. Step 68 awaits quiet. Step 69 reads oracle_state and binds its title.
+Step 70 begins Stop. Step 71 collects EventsLost, the bound TitleChanged, Exited, and Completed.
+The .44 exception file retains the step-67 no-await_title exception under R-57.
+The tested train's known-flaky file has no entries. This check changes no exception or list.
+
+#314 changes a host unit test only. It changes no real-tier executable source for this id.
+#307 adds control_room to the host pump, but waits_for_room returns false until a cancel refuses Full.
+This transcript cannot set that mark. The added call returns before an edge-room read or budget accounting.
+The real control registration does not invoke control_queue here. Its new edge state remains empty.
+The accepted title observation and event-queue paths remain unchanged; queue.rs and flow.rs have identical base and train blobs.
+The oracle.rs and real/oracle.rs blobs also remain identical.
+
+#312 changes the active probe implementation through its contracts-v0.1.44 pin.
+I read the complete .43-to-.44 probe control.rs and main.rs diff.
+Before .44, an Output request directly sends bytes to the writer channel, then sends Ack on the socket.
+At .44, the same request calls Wire::output, locks WireState, calls Order::output, and applies Queue then Ack effects.
+PRINTS_ENV is disabled and this program has no print step. Thus awaiting stays None and Output is not deferred for Recorded.
+That preserves the apparent queue-then-ack semantics, but it does not bypass the new Wire path or lock.
+Core's write_output and acknowledged output-history update remain unchanged.
+The new Printed adapter arm is inactive here. The quiet and oracle reads remain unchanged.
+
+Requested path-check result: MEMBER-CAUSE #312 — the .44 pin changes the active pty_output producer through Wire::output.
+This result identifies a changed candidate path under the lead's requested check. It does not diagnose the timeout's runtime cause.
+I cannot issue NO-MEMBER-CAUSE as an unchanged-path certificate for this train.
+The earlier source CLEAN remains valid: this inspection identifies no demonstrated product defect.
+
+I read the retained P6 B1 comparison around its EV-2 failure.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-p6-b1-evidence-2ea24902-pool-20261011-223903-57841.log`.
+SHA256: `cfb090b714b408bf37ee98570e35d200c21b8e9b4022c22aa69ba0421cee5922`.
+It contains the same id at seed 25, step 71, step_timeout in its kept comparison, followed by a PASS on the other side.
+Its head is `2ea249028b61c8d2cf194b7139271dd5457d7caa`, six commits after `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+None of the three frozen train members is an ancestor of that head.
+This proves an earlier retained failure report exists. It does not prove that the changed .44 producer is unrelated to the current failure.
+
+The lead must resolve this changed-path condition before using this check as retry authority.
+No retry, new gate, known-flaky entry, matcher change, or final acceptance is authorized by this record.
+Final evidence receipts and Q7 remain due. I ran no execution job.
+
+VERDICT: BLOCKED (requested NO-MEMBER-CAUSE certificate; active #312 producer path changed; exact train gate remains RED)
