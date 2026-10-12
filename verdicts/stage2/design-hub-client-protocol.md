@@ -152,3 +152,41 @@ Define the shutdown or connection-loss disposition while Create is pending throu
 
 VERDICT: NOT CLEAN (S2-PC-D2 remains MEDIUM; new S2-PC-D4 is HIGH; D1 and D3 are closed; Q1 is ruled).
 This is a design review only. Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 3
+
+Reviewed artifact SHA256: `1ca0ec477cfd8117f8d37c8b64ab6b6649ea97d684f6b576cd77880885819a6e`.
+PC supplies this exact revision in msg_plugin-w_1791848281_bb59be.
+It supersedes the initially announced revision 3 hash e0c48088, which this receipt does not approve.
+Sol-B reads the complete updated note and P5's updated bridge and waiter sections.
+
+S2-PC-D2: CLOSED for design.
+Before submission, io reserves the maximum encoded close length across all four possible response forms, including the four-byte prefix.
+The forms include route_token_invalid, route_token_used, the largest busy retry value, and hub_shutdown with lock_released false.
+The contract encodings determine the size. The planned assertion checks every form against that reservation.
+The same reservation covers an owner refusal and an immediate bridge refusal.
+P5's Rejected returns the untouched request and move-only ReplyTo, including the reserved reply slot.
+The design preserves token state when submission fails and checks the connect deadline when the owner processes the request.
+
+S2-PC-D4: CLOSED for design.
+The owner retains the create request until successful Completed{Create}, after the durable row write.
+Only then does the Hub answer accepted and begin the chained Start.
+A failed Create gets the mapped error, including uncertain effect when applicable, and no Start.
+The design explicitly distinguishes Core admission in memory from its later durable write.
+It no longer relies on AD-7 to protect an answer sent before that write.
+
+P5's current daemon design section 4 explicitly includes Waiter::Chain(Next) for the chained Start after successful Create.
+P5 artifact SHA256: `f5df08968c7157a824957704214ae271a9234758cab84174f50e4aac8365f48b`.
+That waiter has no client reply slot. Its outcome reaches clients through session state, and shutdown drops it without an answer.
+P5's existing client waiter and shutdown rules cover the pending Create reply.
+PC's note still requests P5's confirmation; the corresponding design mechanism is present in P5's shared artifact.
+The implementers must keep both mechanisms consistent before code review.
+
+D1 and D3 remain closed. R-119 and the lead's Q2 to Q4 dispositions remain applied.
+The reviewed design preserves uid authentication, exact-length first-frame reads, one token consume, and Core stream ownership.
+It retains failed-end reporting and route-table reconstruction before ready.
+No design finding remains open. The code review must check these rules in the implementation and supplied evidence.
+
+VERDICT: CLEAN (design only; 0 open).
+This receipt approves no bootstrap, daemon, client implementation, execution evidence, or completed story.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
