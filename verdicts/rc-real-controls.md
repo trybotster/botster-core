@@ -3952,3 +3952,17 @@ The lead's order uses the train 7 gate as the merge gate; this review claims no 
 Under the current BUILD Green rule, the combined reviewer sends the single final train receipt when the member remains unchanged.
 This verdict accepts no later head, future #313 composition, new control, PC fix, specific retry, or final train result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #316 — train 7 import integration delta checked
+
+Message: `msg_plugin-w_1791835802_d17b05`.
+The reviewer reads complete integration Round 2 at `975c4f0fbeaa53a8756b2c8d9aacd9f9d9b6cee7`, in `verdicts/stage1/rc-pin-46.md`.
+Its exact head, base, tree, conflict resolution, and source scope match package delta `723c6ec226ffd32b347bd4ca39f5f98062e1aa52`.
+Both reviews are CLEAN with zero open findings, including LOW findings. Both close RC-PIN46-2.
+The corrected body hash, nine list formulas, retained signature, and local evidence limits match.
+Applicable train and combined reviews, the exact-head train gate, and lead merge verification remain due.
+The combined reviewer sends the single final train receipt for an unchanged member.
+The package reviewer sends no message that only restates the integration receipt.
+No later head, future #313 composition, PC fix, new control, specific retry, or final gate result is accepted.
+The reviewer runs no execution check and waits for an assigned review doorbell.
