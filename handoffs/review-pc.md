@@ -2132,3 +2132,16 @@ R-93 condition (b) requires Err for this invalid reply. PC must check the negati
 Formal #319 Round 1 now has two open findings: CQ-RFT-1 and CQ-RFT-2. No new review round starts on the same head.
 The unpublished correction remains unreviewed. Sol's complete independent integration review remains due.
 No reviewer reproduction or other execution job runs. Wait for the completed corrected-head READY doorbell. Never poll.
+
+Publication: #307 merge closure is pushed at 08c17fe6caf73db7a265bbf50943206a71879e6e.
+Publication: #319 Round 1 with two open findings is pushed at 1428339dae1b7b7998bd61585b2cfaf0556a9d39.
+PC and Sol received the complete updated verdict. The lead received only CLEAN #307 merge closure.
+The worktree is clean. Wait for the completed #319 correction receipt. Never poll.
+
+Sol receipt msg_plugin-w_1791828711_014353 supplies complete #319 integration Round 1 at a03e76a98afd1e049f3be9706b85a65cba6b19a7.
+The reviewer reads the complete verdict and verifies that the remote integration branch publishes this exact commit.
+It matches package 1428339dae1b7b7998bd61585b2cfaf0556a9d39 on head ab9b2236, source base 08098782, and tree d926f7ae.
+Both reviews have the same two MEDIUM findings open. The integration review adds no further finding.
+Both retain the initial gate's empty fuzz selection and the earlier local, platform, and scratch-contracts limits.
+PC's unpublished correction stays unreviewed. Completed corrected-head READY and both delta reviews remain due.
+No reviewer execution job runs. Wait for the correction doorbell. Never poll.

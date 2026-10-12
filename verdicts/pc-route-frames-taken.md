@@ -71,7 +71,8 @@ Split prefixes, incomplete bodies, and an empty body have explicit tests.
 The tapped attach path reads the worker socket identity before Core takes the endpoint.
 The route retains its client endpoint and caches that endpoint's socket identity.
 The Linux query requests the worker inode's peer and receive queue, then checks the peer against the client inode.
-It takes one nonblocking reply. Call, parse, missing-socket, and peer failures return errors.
+It takes one nonblocking reply. Call, missing-socket, and peer failures return errors.
+The invalid errno path remains CQ-RFT-2.
 The macOS query uses absolute `/usr/sbin/netstat`, `LC_ALL=C`, and the existing cleanup deadline.
 Its parser requires the named header columns and exactly one worker-address/client-connection row.
 Tool failure, timeout, invalid output, no row, and duplicate rows return harness errors.
@@ -150,3 +151,14 @@ Any changed head needs its delta review and required evidence.
 The current-base final slot, base check, final gate, final receipts, and lead Q7 remain due after both CLEANs.
 No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
 Wait for the doorbell. Never poll.
+
+### Matching complete integration verdict
+
+Sol receipt `msg_plugin-w_1791828711_014353` supplies commit `a03e76a98afd1e049f3be9706b85a65cba6b19a7`.
+The reviewer reads its complete Round 1 in `verdicts/stage1/pc-route-frames-taken.md`.
+The remote integration branch publishes that exact commit.
+The verdict matches package `1428339dae1b7b7998bd61585b2cfaf0556a9d39` on head `ab9b2236`, source base `08098782`, and tree `d926f7ae`.
+Both complete reviews have CQ-RFT-1 and CQ-RFT-2 / R319-SI-1 open, each MEDIUM.
+Both preserve the initial gate, empty fuzz selection, and earlier evidence scopes.
+No additional integration finding occurs. No correction is accepted before its completed READY and delta reviews.
+Wait for the correction doorbell. Never poll. No reviewer execution job runs.
