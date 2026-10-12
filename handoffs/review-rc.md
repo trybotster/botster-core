@@ -3217,3 +3217,21 @@ The published source head remains unchanged. Prior art, evidence, dependency cou
 A matching integration verdict, any required train and combined reviews, final gate receipts, and equal-tree merge verification remain due.
 This CLEAN accepts no later head, #313/#308 composition, future control, PC driver fix, or final train result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #316 — matching integration source receipt
+
+Integration message: `msg_plugin-w_1791832474_49fe5a`.
+Integration receipt: `adda76b49f727bb88db1e59949968586b57e1edb`, Round 1 in `verdicts/stage1/rc-pin-46.md`.
+The reviewer reads the complete round.
+It matches package receipt `dca58cff40d50021d3a50484a7e02bca33bbec94`.
+Exact head: `0844f9dfadee637197d1bbbfc4ea5dcd7c951325`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `e6e94ec9c9294fc10a21ac23252ba386c759598a`.
+Both reviews retain zero open findings, including LOW findings, and close RC-PIN46-1.
+The dependency and list scope, A22 ownership, R-111 entry, #321 trigger, corrected body hash, and initial gate scope match.
+Both verify gate SHA256 `e9bbd089dc393c27718d1c3e7928e16d7157f4408f3c63ecf2eb3b6052792cfb`.
+The gate is `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-46-0844f9df-pool-20261012-115709-55550.log`.
+Applicable train and combined reviews, final gate receipts, and equal-tree merge verification remain due.
+No later head, #313/#308 composition, future control, PC driver fix, specific retry, or final train result is accepted.
+The reviewer runs no execution check.
