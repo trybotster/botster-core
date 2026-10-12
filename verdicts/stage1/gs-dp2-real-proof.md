@@ -43,3 +43,17 @@ This CLEAN covers this exact source head and its supplied initial evidence. The 
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open)
+
+## Train 1 — source delta
+
+Exact train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`. Current v1 base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Frozen #304 member: `37e5ee32d326f588676b6fc727ad52c86022de61`. Lead assignment: `msg_plugin-w_1791781317_0b4065`.
+
+Sol-B inspected the train's merge ancestry and #304's complete delta. The train first merges #301 at `403bbf689cc9f745a9552cc518374a6a8f2cdb32` into current v1, then merges #304. The #304 own patch remains equal after excluding blob-index and hunk-location metadata. Its proof map, facade proof source, and worker proof source are byte-identical to the reviewed member.
+
+Sol-B independently checked the pending ID sets. The train set equals current v1 minus `conf::a2_1_attach_state_rules` from #301 and `conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy` from #304. The base's earlier tm_6 removal remains. The #301 comments retain their IDs. No unrelated ID disappears. The held and real-pending files equal current v1. The three DP-2 proof entries retain their reviewed mapping and order.
+
+Package delta CLEAN: `7b98dfd7e7b5009641af8fee4edba3ebfbea1af4`, `verdicts/gs-gate-speed.md`, on this exact train head. Sol-B read the complete #304 delta section. No package or integration delta finding remains. The original composed-proof and local-reversal provenance limits remain.
+
+The separate combined train review is in `verdicts/stage1/train-1.md`. This delta CLEAN accepts no train gate result. The final gate must run on the frozen train head after all required source reviews. Final evidence receipts and the base-tree verification remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; source delta only, train evidence pending)

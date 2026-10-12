@@ -97,3 +97,27 @@ This CLEAN verdict covers the exact source head and its initial evidence. The co
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check. This verdict accepts no later head, contracts pin, or status removal.
 
 VERDICT: CLEAN
+
+## Round 4 — import for train 2
+
+Exact head: `484912ac58743b899c7856e87bdcad0f2b398300`. Imported base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Tree: `cebfddcff16568bd2b487eada87b077a9501d321`. The merge parents are reviewed head `bd74a168fc1ef7e4774f635503f3707cc0dd2ec3` and this exact base.
+
+The lead removed #300 from train 1 because its driver merge conflicts. P6 requests this manual delta review for train 2 in `msg_plugin-w_1791781322_511f36`. Sol-B inspected the merge object, combined conflict diff, complete own diff against the imported base, and relevant driver context.
+
+The first more site retains #291's comment and calls self.more(&budget). The settle site calls self.more(&budget) || self.draining(). The helper uses the held-aware runnable decision plus budget.more_input. The drain term appears only at the settle site. No engine.runnable call remains in the driver.
+
+The merged driver retains the hold filter before choices, successful-admission report, and deadline and fixed-timing bypass. The imported draining implementation remains unchanged. It observes ended links whose frames do not wait for queue room. The resolution composes the reviewed E1 behavior with #291's drain rule.
+
+Sol-B independently compared the own changes against the original source base and the imported base. All unchanged own patches match after excluding blob-index and hunk-location metadata. The driver-test module imports mod drain and retains the exact additions mod holds and mod seeded_trace. The driver conflict has only the composition above. Every path outside the seventeen own paths equals the imported base.
+
+Sol-B independently checked the three-way sets for mutation exclusions, core-pending, core-held, and core-real-pending. Each equals the imported-base set plus the PR's own additions, minus its own removals. No unexpected identifier or exclusion appears. The sole own pending removal remains a5_2_reads_match_atomic_transitions. The deferred-completion ID and its reason remain pending.
+
+The two equivalent provided-default exclusions remain at scheduler.rs:60:9 and :71:9. The existing capacity exclusion moves to core.rs:34:33. Sol-B inspected those source sites and the retained reasons. No override receives an exclusion.
+
+Package source delta CLEAN: `756e8776274e219d5a3d1a92a57b3b59784ba012`, `verdicts/p6-e1-scheduler-hold.md`, on this exact head. Sol-B read its complete Round 4. No package or integration source finding remains. Both earlier findings remain closed with their original proof scope.
+
+P6 reports no canonical base-merge-check record for this conflicting import. This round is the requested manual delta review. It claims no canonical PASS or automatic carryover. The earlier gate, API, trace, and seed records retain their original-head scope.
+
+The focused Mac job is still running. Sol-B read no unfinished result. Completed compile/test evidence, the applicable final train record, exact train gate, and final body remain due. This verdict accepts no later head or status removal. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; source delta only, evidence pending)
