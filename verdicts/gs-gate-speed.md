@@ -2733,6 +2733,14 @@ The merge tree equals the reviewed head tree, `98bb9f0393e4b63201927920a55d5d32c
 
 This completes the package evidence and merge receipt. Sol's earlier source delta receipt remains recorded separately. I ran no gate or execution job.
 
+Sol publishes final evidence and merge CLEAN in `0a1dab2f11ec34e7edbf4503f3eed3c0c5915607`, at `verdicts/stage1/gs-held-full.md`, round 4.
+
+I read the complete round and verified publication. Sol matches all 21 raw catches to their citations and normal passing tests.
+
+Both final reviews have zero findings at the same exact head and base. Both confirm that merge `b0c0a419` retains the gated tree.
+
+This completes the integration receipt for #286. I ran no execution job.
+
 ### Core PR #293: in_8 disposition receipt
 
 GS-B13-R2-1 MEDIUM is closed. The exact split head still requires review before CLEAN.
