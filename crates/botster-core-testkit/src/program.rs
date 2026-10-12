@@ -524,7 +524,7 @@ impl Program for ScriptedProgram {
     }
 
     /// The in-process program has no terminal driver and no step that reads its size, so a resize changes nothing that it
-    /// does. Core's resize is observed through the worker's model (`ReadScreen`), not through the program.
+    /// does: the size is not observable here.
     fn resize(&mut self, _size: WindowSize) -> io::Result<()> {
         Ok(())
     }
