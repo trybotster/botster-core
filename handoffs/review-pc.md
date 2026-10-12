@@ -2288,3 +2288,18 @@ No reviewer execution job runs. #320 independent review continues after this pri
 Sol's efd4a8f7 record closes the topic-file finding and keeps the overflow gap finding open.
 The new test drops an older record. It does not prove gap for an empty log or a same-instance incremental read.
 The reviewer must complete independent source and evidence review. No #320 formal package verdict is issued yet.
+
+## #320 package inspection 1
+
+Inspected head: db97736b173d32ab78377a8f5ec2c6d083636bb8. Tree: 4d51aaac22b84007f83a614e62178e325e5afae2.
+Source base: 3e655eff46d36f8c337339a1a17d401c8c662594. Gated parent: 0da795878bd82cca266be57f558a70f3ee953ab5.
+RF-PC-1 / R320-SI-1 LOW closes after separate topic files, index links, references, and R-100 prose wrap.
+RF-PC-2 / R320-SI-2 MEDIUM stays open under full R-116: current overflow does not set gap without an older dropped entry.
+The pending first record and completed pair can report gap=false. A same-instance cursor can also hide the old-drop signal.
+The minimum formula and full source stay fixed. The owner must add overflow-based gap and first-input/incremental coverage.
+RF-PC-3 MEDIUM opens: an active route write can complete after RouteClosed and recreate its retired Activity key.
+The host completion arm has no route check. The worker keeps the active transaction and reports its completion later.
+Preserve the status update; suppress completion Activity for a closed route. Add live and closed completion coverage.
+Owner notice msg_plugin-w_1791840187_af296e; integration notice msg_plugin-w_1791840187_791121.
+Formal inspection is NOT CLEAN with two open findings. The complete review remains in progress.
+No gate acceptance or reviewer execution job occurs. Continue independent source and evidence review. Never poll.
