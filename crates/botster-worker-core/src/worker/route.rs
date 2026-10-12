@@ -845,11 +845,7 @@ impl Worker {
                     return;
                 }
             };
-            let receipt = match &decoded {
-                Decoded::Frame(frame) => receipt::of_frame(frame, &raw),
-                Decoded::Unsupported { .. } | Decoded::Invalid { .. } => receipt::of_raw(&raw),
-                Decoded::Ignored { .. } => Receipt::Part,
-            };
+            let receipt = receipt::of_decoded(&decoded, &raw);
             let received = match decoded {
                 Decoded::Frame(frame) => route.decide(frame, wire, key_text_bound),
                 Decoded::Ignored { .. } => continue,

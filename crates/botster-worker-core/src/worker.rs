@@ -1424,6 +1424,7 @@ mod model;
 mod receipt;
 mod route;
 
+pub use receipt::record_of_client_frame;
 pub use route::DescriptorId;
 
 #[cfg(test)]
