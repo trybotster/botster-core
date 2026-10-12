@@ -537,3 +537,42 @@ fn protected_records_over_the_byte_bound_are_kept_with_a_gap_and_nothing_older()
     assert!(len > minimum, "{len} <= {minimum}");
     assert_eq!(facts.list_len(), len);
 }
+
+/// Steward ruling R-116: the overflow itself is the `gap`, with no older record to drop. The first input of an empty log
+/// overflows while it is pending and after it ends, and every read reports `gap` while the list is over the bound,
+/// incremental reads of the same instance included. A list within the bound reports no `gap` (the other retention tests).
+#[test]
+fn an_overflowing_first_input_reports_gap_on_every_read() {
+    let t0 = start();
+    let tag_bytes = CoreLimits::default().max_route_tag_bytes;
+    let minimum = 2 * (128 + 2 * u64::from(tag_bytes));
+    let mut facts = Facts::new(1, &limits(64, minimum), t0);
+    let tag = "\u{1}".repeat(tag_bytes as usize);
+    let source = InputSource::Client {
+        route_tag: Some(tag.clone()),
+        owner: Some(tag),
+    };
+    let id = facts
+        .received(t0, source.clone(), Content::Payload(&bytes(b"x")))
+        .unwrap();
+    let pending = facts.read(t0, None);
+    let [InputRecordEntry::Record(r)] = pending.records.as_slice() else {
+        panic!("the pending record: {:?}", pending.records);
+    };
+    assert_eq!((r.state, &r.source), (InputRecordState::Pending, &source));
+    assert!(facts.list_len() > minimum);
+    assert!(pending.gap, "a pending record over the bound is a gap");
+    assert!(
+        facts.read(t0, Some(pending.next_cursor)).gap,
+        "an incremental read too"
+    );
+    assert!(facts.read(t0, Some(InputCursor(1 << SEQ_BITS))).gap);
+
+    facts.ended(id, InputRecordState::Written, Some(1));
+    let done = facts.read(t0, None);
+    assert_eq!(done.records.len(), 2);
+    assert!(facts.list_len() > minimum);
+    assert!(done.gap, "the completed pair over the bound is a gap");
+    assert!(facts.read(t0, Some(pending.next_cursor)).gap);
+    assert!(facts.read(t0, Some(done.next_cursor)).gap);
+}
