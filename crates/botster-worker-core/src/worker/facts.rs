@@ -389,7 +389,7 @@ fn largest_status_update() -> u64 {
 }
 
 /// The record of a received input: the 5.1A fields as sent, and its content cut at `input_event_payload_bytes`.
-fn record_of(
+pub(super) fn record_of(
     cursor: InputCursor,
     source: InputSource,
     at: u64,

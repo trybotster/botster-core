@@ -334,6 +334,7 @@ dependencies = [
 name = "botster-core-host"
 version = "0.1.0"
 dependencies = [
+ "bolero",
  "botster-core-contract",
  "botster-core-edges",
  "botster-core-link",
@@ -536,6 +537,7 @@ dependencies = [
 name = "botster-worker-core"
 version = "0.1.0"
 dependencies = [
+ "bolero",
  "botster-core-contract",
  "botster-core-edges",
  "botster-core-link",

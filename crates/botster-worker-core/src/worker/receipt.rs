@@ -15,8 +15,8 @@
 use super::facts::Content;
 use botster_core_contract::prelude::*;
 use botster_route_codec::prelude::{
-    base64_decode, HexBytes, Input, RefusalReason, ToWorker, TYPE_BYTES, TYPE_FILE_CHUNK,
-    TYPE_INPUT, TYPE_PASTE_CHUNK, TYPE_TEXT,
+    base64_decode, Decoded, FrameBounds, HexBytes, Input, RefusalReason, ToWorker, TYPE_BYTES,
+    TYPE_FILE_CHUNK, TYPE_INPUT, TYPE_PASTE_CHUNK, TYPE_TEXT,
 };
 use serde_json::Value;
 
@@ -49,8 +49,44 @@ impl Kept {
     }
 }
 
+/// What the codec's result for one client frame is for the facts (R-102, R-103). `raw` is the frame as received, its
+/// type byte first.
+pub(super) fn of_decoded(decoded: &Decoded<ToWorker>, raw: &[u8]) -> Receipt {
+    match decoded {
+        Decoded::Frame(frame) => of_frame(frame, raw),
+        Decoded::Unsupported { .. } | Decoded::Invalid { .. } => of_raw(raw),
+        Decoded::Ignored { .. } => Receipt::Part,
+    }
+}
+
+/// What the receipt makes of one client frame, as the bolero harness `receipt_decoder` reads it (plan section 8 step
+/// 9): `None` when the frame does not decode under `bounds` or is not input (R-102); else the record that the frame
+/// keeps when it is refused at receipt, with cursor 0, `at` 0, a client source with no tags and `payload_cap` as
+/// `input_event_payload_bytes`. `raw` is the frame as the route's reader gives it, its type byte first.
+pub fn record_of_client_frame(
+    raw: &[u8],
+    bounds: &FrameBounds,
+    payload_cap: usize,
+) -> Option<InputRecord> {
+    let decoded = ToWorker::decode(raw, bounds).ok()?;
+    let Receipt::Input(kept) = of_decoded(&decoded, raw) else {
+        return None;
+    };
+    let source = InputSource::Client {
+        route_tag: None,
+        owner: None,
+    };
+    Some(super::facts::record_of(
+        InputCursor(0),
+        source,
+        0,
+        kept.content(),
+        payload_cap,
+    ))
+}
+
 /// A decoded client frame (R-102, R-103). `raw` is the frame as received, its type byte first.
-pub(super) fn of_frame(frame: &ToWorker, raw: &[u8]) -> Receipt {
+fn of_frame(frame: &ToWorker, raw: &[u8]) -> Receipt {
     let body = raw.get(1..).unwrap_or_default();
     match frame {
         ToWorker::Bytes { bytes, .. } => Receipt::Input(Kept::Payload(InputPayload::Bytes {
