@@ -272,7 +272,7 @@ pub(super) mod netstat {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::{diag, netstat};
 
     /// One reply message: a header of `kind`, then `body`.

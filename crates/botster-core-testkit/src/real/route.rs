@@ -1314,6 +1314,17 @@ mod slow_tests {
         route.control("route_frames_taken", &json!({}))
     }
 
+    /// The worker's end reads exactly `n` bytes that the stream already holds: one nonblocking read, which never waits.
+    fn take(worker: &mut UnixStream, n: usize) {
+        worker.set_nonblocking(true).unwrap();
+        let mut buf = vec![0u8; n];
+        assert_eq!(
+            worker.read(&mut buf).unwrap(),
+            n,
+            "the stream holds the bytes"
+        );
+    }
+
     /// `route_frames_taken` on the real tier (R-93 Q1, the real-tier serving point), on this OS: a frame counts once the
     /// worker's end has read its last byte, as the kernel's count of the worker end's unread bytes shows. A frame read in
     /// part is not taken.
@@ -1324,18 +1335,17 @@ mod slow_tests {
         route.write(&frame(b"ab"));
         route.write(&frame(b"cdef"));
         assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 0}));
-        let mut buf = [0u8; 8];
-        worker.read_exact(&mut buf[..5]).unwrap();
+        take(&mut worker, 5);
         assert_eq!(
             frames_taken(&mut route).unwrap(),
             json!({"frames": 0}),
             "one byte short"
         );
-        worker.read_exact(&mut buf[..1]).unwrap();
+        take(&mut worker, 1);
         assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
-        worker.read_exact(&mut buf[..7]).unwrap();
+        take(&mut worker, 7);
         assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
-        worker.read_exact(&mut buf[..1]).unwrap();
+        take(&mut worker, 1);
         assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 2}));
     }
 
@@ -1351,8 +1361,7 @@ mod slow_tests {
         (&client).write_all(&[7u8; 100]).unwrap();
         worker.write_all(&[9u8; 40]).unwrap();
         assert_eq!(query(), 100, "the worker's writes are not its unread bytes");
-        let mut buf = [0u8; 30];
-        worker.read_exact(&mut buf).unwrap();
+        take(&mut worker, 30);
         assert_eq!(query(), 70);
         assert_eq!(
             query(),
