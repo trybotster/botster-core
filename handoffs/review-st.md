@@ -23,7 +23,8 @@ The broader Mac run passed 230/232 and exited 100. The verdict retains its known
 Integration reviewer Sol-B: `sess-1791760169-0182-7a5ca22a6e65a307e8f0b2a8fd1ef2d5`.
 
 #295 merged-head delta: `113da2366286adcef4a71449c5d362c146f6754f`, base `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
-No source finding from the diagnostics overlap. Wait for the completed final gate before the final receipt.
+No source finding from the diagnostics overlap. The final gate passed all ten steps, exit 0 on msa1.
+The package final receipt is CLEAN on the merged head. Sol-B requested the PR body's final evidence update.
 
 #298 first review: `0f9079c44e028644c6d1724c9dae9cd8b03d0459`, base `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
 Verdict: NOT CLEAN (5 open). Two HIGH findings concern reservation deadlock and failed-resume clock state.

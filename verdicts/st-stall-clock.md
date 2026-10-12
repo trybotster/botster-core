@@ -108,7 +108,7 @@ Six IDs move from testkit pending to real pending because their transcript fence
 Three additional IDs stay pending and gain lead-approved budget holds with full-seed slow proofs.
 The reviewer found no new list finding in this round.
 
-## Core #295: merged-head review in progress
+## Core #295: merged-head final receipt — CLEAN
 
 Merged head: `113da2366286adcef4a71449c5d362c146f6754f`.
 Merged base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
@@ -116,7 +116,19 @@ The merge has the previously reviewed head and the named base as its two parents
 The reviewer checked the failed base-merge report and the overlapping diagnostics change.
 `parked_on_room` excludes a budget-held frame while room is available. It includes a frame that waits only for room.
 The `ready_at` and `accepts_at` refactors preserve the decisions used by #295's driver paths.
-No source finding arose from that interaction. The completed final gate is still required before the final receipt.
+No source finding arose from that interaction.
+The reviewer compared the PR's patch content after removing index lines and hunk locations. The old and merged patches match.
+The reviewer also checked the four conformance lists by ID sets. Each merged set matches the base plus the PR's own changes.
+These checks support the delta review; they do not change the failed base-merge-check result into a pass.
+
+Completed final gate: `~/botster-sessions/gates/botster-core-stage1-st-more-input-113da236-pool-20261011-191408-70407.log`.
+The header names the merged head and declared base. All ten steps passed. The final status is exit 0 on msa1.
+Mutation result: 19 tested, 14 caught, 0 missed, 0 timeout and 5 unviable.
+Both removed `e3_1` IDs passed on the testkit and real tiers. The log contains no FLAKY result.
+The prior Mac and full-seed evidence remains recorded below. This merge adds no worker or link decoder change beyond the reviewed patch.
+The package reviewer reports CLEAN on `113da2366286adcef4a71449c5d362c146f6754f`.
+Sol-B separately requested the PR body's final gate and completed Mac record. This receipt does not waive that request.
+The reviewer ran no local build or test.
 
 ## Core #295: evidence review
 
