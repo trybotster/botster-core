@@ -396,7 +396,7 @@ mod tests {
     fn route(capacity: usize) -> (TestkitRoute, StreamEnd) {
         let scheduler = SchedulerHandle::with_seed(0);
         let (worker, client) = crate::net::stream_pair(&scheduler, capacity);
-        let workers = Workers::new(scheduler, Instant::now());
+        let workers = Workers::new(scheduler, crate::worker::WorkerClock::real());
         (
             TestkitRoute::new(client, workers, RouteId(1), RouteEnds::default()),
             worker,

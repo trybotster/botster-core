@@ -214,7 +214,11 @@ pub(crate) fn largest_frame(frame_bound: u32) -> usize {
 /// largest frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four cancels.
 /// With the default limits it is far above what a link holds in practice: the link edge's room (`HostEdges::link_room`) is
 /// the limit that binds.
-fn control_bound(limits: &CoreLimits, frame_bound: u32, control_message: usize) -> usize {
+pub(crate) fn control_bound(
+    limits: &CoreLimits,
+    frame_bound: u32,
+    control_message: usize,
+) -> usize {
     let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
     usize::try_from(limits.input_retained_bytes)
         .unwrap_or(usize::MAX)

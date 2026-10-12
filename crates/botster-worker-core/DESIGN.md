@@ -330,6 +330,11 @@ The resync sequence (at `Stalled → Open`, OU-9):
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
   fire-and-forget: only `input_refused` and the `input_done` of DP-5 are written back. `Observation::ClientInput{route,
   input_rev}` reports the admission to the host.
+- **Report order (steward ruling on a5_2 s74/s75, R-88 group E).** The worker writes a client frame's `ClientInput` report
+  on the control link before it gives any byte of that frame to the PTY. The worker reports each complete frame when it
+  receives it, and the frame reaches the PTY only later, at the admission point. The link is FIFO, so every PTY output that
+  the frame causes reaches the host after its report. A transcript can fence the report with that output. Proof:
+  `worker/tests/routes/report_order.rs`.
 - Exit (OU-7): the PTY tail is queued on every `Open` route before `Exited`; a `Stalled` route is skipped.
 
 ### Testkit
