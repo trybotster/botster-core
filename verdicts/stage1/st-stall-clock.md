@@ -77,3 +77,48 @@ Package attribution receipt: `d0e5f664dfaabd195534b06d1612c33173963bff`. Sol-B r
 The one re-gate must pass every step on this exact head. This receipt authorizes no further retry or pending-list change. The five findings remain open until the round-2 READY and completed evidence. Sol-B ran no local build, test, or diagnostic job.
 
 VERDICT: NOT CLEAN (5 open)
+
+## Round 2
+
+Exact head: `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6`. Source base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`. Gate comparison base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`. No new base merge belongs to this round.
+
+Sol-B read the complete source repair, new driver/host/worker proofs, exact-head Mac evidence, authorized re-gate, updated body, and package verdict `9d59fbec865c5f9d09b86467dd269e31d76213e2`.
+
+The original five findings are CLOSED:
+
+- ST-I298-1: asked state and slot ownership are separate. Same-link takeover preserves the asked step. The driver proofs cover the empty-queue resume, parked answer after a predecessor, and several due routes. Bounds, FIFO, and the steward's rule remain explicit.
+- ST-I298-2: a failed baseline retains the original stalled mark. The due close can end blocked writes with the first reason. Worker proofs cover SnapshotTooLarge and an existing healthy close. The host proof covers the typed close and slot release.
+- ST-I298-3: a replacement waiting step, stall, or resume clears obsolete parking. The new proof exposes the future deadline while room remains full and checks later parking.
+- ST-I298-4: report_output flushes route progress first. The new proof covers pending Output and progress under link backpressure.
+- ST-I298-5: completed exact-head Mac evidence supplies the changed checks. Its broader failures and dispositions remain recorded below.
+
+### ST-I298-6 — HIGH — OPEN: clock transitions precede their parked events
+
+Matches package ST298-R5. Sol-B independently checked inbound.rs, stall.rs, and run_parked. inbound applies route_stalled before route_event. That call releases the slot and arms close_at at the report-consumption pump. route_event can then append the stall event behind existing ParkedRoute work. run_parked posts that event later without applying its clock transition at the post.
+
+With the last slot reserved and an older parked close waiting, consuming the stall answer releases room for the predecessor. The predecessor fills the queue. RouteStalled remains unposted, but next_deadline exposes its close clock. A delayed next poll can therefore permit CloseDue before RouteStalled posts. The resume path also changes its clock before a deferred event.
+
+Required change: apply each host-visible stall/resume clock transition atomically with its event post. Preserve the report's mark while it waits. Use the posting pump's time for stall_close_after. Keep event order, mandatory bounds, and event budget.
+
+Require a driver proof with an older parked event, the last slot reserved, and a delayed second poll. No close deadline can appear before RouteStalled posts. The full close interval must start at that post. Cover a deferred resume as well. Sol-B sent this finding to ST and 0181.
+
+### ST-I298-7 — LOW — OPEN: the body overstates two evidence facts
+
+The body calls the re-gate's base 20b2525c. The retained gate header names comparison base bfef8865; 20b2525c remains the source base. The body also calls the AM-2 failure a Mac-only defect. The logs establish Mac failures and sampled Linux passes, while R-93 diagnoses a missing cross-source arrival fence.
+
+Required closure: distinguish the source and gate comparison bases. Describe the observed platform results without claiming that the defect is exclusive to Mac. Preserve the failures and R-93 disposition. Sol-B requested these corrections from ST.
+
+### Completed evidence and limits
+
+The one authorized re-gate is `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-200112-36429.log`. All ten steps PASS. Default: 1,907 passed. Slow: 609 passed. Held-full runs five budget IDs at 32 seeds. Mutants: 247 total, 227 caught, 0 missed, 0 timeout, 20 unviable. Three catches come from stage 2. The job exits 0 after 1,133 seconds; the wrapper exits 0 after 1,134 seconds on gaming. The earlier red in_9 gate remains recorded in the diagnostic receipt above. No further retry is approved.
+
+Mac log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-1d044f8b-pool-20261011-195909-27591.log`. The five changed packages pass 1,046 of 1,046 tests. The broader real run uses strict seeds 0-31, passes 240 of 242, and exits 100. This is not a green broader run.
+
+- ev_5_route_closed_retires_route_keyed_events: seed 13, step 28, activity_before_close false after close. This is the retained R-66 missing input-consumption fence. The repair remains contracts #69 through its pin.
+- am_2_one_admission_point_orders_all_sources: seed 1, step 14, BAC instead of ABC. The isolated base log `/Users/jasonconigliari/botster-sessions/gates/st-am2-isolated-base-20b2525c.log` reproduces the same ID, step, and bytes at seed 5. It records a target clean before fresh compilation from the separate base worktree. R-93 diagnoses the missing route-frame arrival fence before the host write. The lead assigns PC the route_frames_taken control and transcript fence. The admission queue is unchanged by #298. Its route timing can change arrival timing, but supplies no missing fence.
+
+The package verdict retains both broader failures and closes its original evidence finding. No conformance file changes in this repair delta. The earlier accounting remains in scope. No additional pending removal is approved.
+
+Sol-B ran no local build, test, gate, mutation job, reversal, or reproduction campaign.
+
+VERDICT: NOT CLEAN (2 open)

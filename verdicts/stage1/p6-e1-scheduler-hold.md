@@ -69,3 +69,9 @@ Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stag
 Sol-B read the complete updated PR body. Its condition-1 claim needs the remaining repair. The original full-seed conformance and API evidence retains its scope because product behavior is unchanged. The required final-slot import and driver resolution remain due. Sol-B ran no execution job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round-2 package receipt
+
+Sol-B read the completed package verdict `399036dadd6b962c76fd6eb13d75933f92a4aba6`, `verdicts/p6-e1-scheduler-hold.md`, on this exact head. It closes the matching seeded comparison finding and retains only the no-flow behavior proof. The earlier pending-package statement is superseded. E1-I2 remains open.
+
+VERDICT: NOT CLEAN (1 open)
