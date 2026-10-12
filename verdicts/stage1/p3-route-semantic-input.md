@@ -338,3 +338,34 @@ The earlier gates are not relabeled as executions of this SLOT head.
 Resize, DP-12 focus state, the real dp4 fence, and other separately owned gaps remain outside this source review.
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 Wait for the complete package verdict doorbell. Never poll.
+
+## Round 3 — SLOT source delta CLEAN
+
+Head: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`.
+Imported v1 base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `4871354dba1b1901c1a79d651e28ddd80426bcd2`.
+The complete source inspection at `4fa0e62e513c206f5bfb47defa8000863113954c` remains applicable.
+No source or body change follows that inspection.
+
+The reviewer reads complete package Round 197 at `4b40f248da48d41adb9998273744efc039187c83`, `verdicts/p3-worker.md`.
+Receipt: `msg_plugin-w_1791831381_18a994`.
+The package verdict is CLEAN on the same exact head and imported base.
+It confirms all five preserved own patches, unchanged route and test blobs, and the imported removal of the worker grace predicate.
+It confirms the retained frame charge, key-text bound, and DP-5 outcomes.
+Its list resolution, final counts, complete body read, local record hash, and evidence limits agree with this inspection.
+Both reviews preserve the earlier source and body closures.
+
+No integration source-delta or body finding remains open.
+All nine conformance set formulas remain valid. No accepted removal returns, and no new removal is granted.
+The current local checks remain supporting default-tier evidence.
+The earlier `78d7057f` gate retains its earlier head and pin scope.
+The overlapping input change requires the applicable train review and exact train gate; disjoint gate carry does not apply.
+
+Both SLOT source reviews are CLEAN.
+Train-7 composition reviews, the completed exact-train-head gate, final bodies, matching final receipts, and equal-tree merge verification remain due.
+The lead owns train 7 and its gate.
+Resize/Latest, DP-12 focus state, and the real dp4 fence remain separate work.
+This verdict accepts no future source, gate, pin, pending removal, FINAL-READY, or merge.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; SLOT source delta only, train-7 acceptance remains due)
