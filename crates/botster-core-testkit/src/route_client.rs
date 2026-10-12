@@ -528,6 +528,10 @@ mod tests {
         assert_eq!(ends.taken(a + b), 2, "an empty body ends with its prefix");
         assert_eq!(ends.taken(a + b + c - 1), 2);
         assert_eq!(ends.taken(a + b + c), 3);
+        // An empty frame that is the last bytes of a write ends with its prefix, before any later write.
+        let mut alone = FrameEnds::default();
+        alone.push(&frame(b""));
+        assert_eq!(alone.ends, vec![b]);
     }
 
     /// `route_frames_taken` on the testkit: the count follows the worker end's reads of the client's frames at the stream
