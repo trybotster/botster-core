@@ -442,7 +442,8 @@ impl HostEngine {
         match f.phase {
             StopPhase::RowWrite => self.write_session_row(id, SessionState::Stopping),
             // The graceful request goes out before the state event, so that a full queue never delays the effect of a stop
-            // (EV-5c). Without a link the host asks the verified worker (pid and start time, AD-6) to end its payload (`GroupSignal::EndPayload`).
+            // (EV-5c). Without a link the host asks the verified worker (pid and start time, AD-6) to stop its payload
+            // (`GroupSignal::EndPayload`); the kill at the end of `stop_grace` is `GroupSignal::KillPayload` (`kill_payload`).
             StopPhase::SendStop => {
                 if !self.send_msg(id, HostMsg::Stop) {
                     if let Some(identity) = self.identity_of(id) {
