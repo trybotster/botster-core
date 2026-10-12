@@ -576,8 +576,9 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it is empty: #243 removed the cause of the ev_5 flake and its entry (the Stage 1
-    /// exit needs the list empty).
+    /// The repository's list parses, and it holds exactly one entry: the in_8 real-tier race at transcript step 8 (Core
+    /// lead, 2026-10-12), which the contracts-v0.1.44 pin removes with its fix, contracts #79. (#243 removed the ev_5 entry
+    /// earlier. The Stage 1 exit needs the list empty.)
     #[test]
     fn the_repository_list_parses_and_holds_the_listed_tests() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
