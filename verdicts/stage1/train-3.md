@@ -135,3 +135,33 @@ The final gate must exercise the .44 resolver comparison and retain the moved me
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; reduced combined source only, final train evidence pending)
+
+## Round 3: train 3d source confirmation
+
+Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+Lead disposition: `msg_plugin-w_1791820076_b7954f`.
+
+The completed train 3c gate remains RED.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-3c-b78df725-pool-20261012-083917-27480.log`.
+Sol-B read its failure and final exits. The lists step reports that a5_2_deferred_completion passes but remains pending.
+Lists fails. Slow and mutants do not run. The wrapper exits 1 after 463 seconds.
+The lead removes #312 for its list repair. This disposition does not relabel that failed gate or accept the pin member.
+
+Train 3d contains #310 alone and equals the first parent already inspected in Round 2.
+Its four own file blobs and patch retain the accepted #310 versions.
+It retains the base's .43 pin. The resolver reads the delivered lock revision and retains its real slow comparison.
+The two-member .44 interaction is no longer present. All non-owned files equal the accepted train base.
+This source confirmation accepts no later member composition.
+
+Sol-B read package delta `5491782386f6c77e3b201ac889f79c68e838385b`, train 3d section.
+It names this head, tree, and base and reports zero findings.
+The #310 integration source confirmation is Round 3 in `verdicts/stage1/gs-no-cargo-default-tier.md` in this commit.
+No source finding remains in this one-member composition.
+
+The lead supplies a running train 3d gate. Sol-B reads no unfinished result.
+Final exact-head gate evidence, the package final receipt, body, and merge verification remain due.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; train 3d source only, final gate evidence pending)

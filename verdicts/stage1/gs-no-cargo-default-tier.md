@@ -105,3 +105,22 @@ The original evidence retains its original head. The final train gate and member
 This verdict accepts no later head or #306 retry. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; source delta only, final train evidence pending)
+
+## Round 3: train 3d source delta
+
+Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+The accepted member remains `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`.
+
+The lead removes #312 after train 3c's lists failure. The new train contains #310 alone.
+This head is the first parent inspected in Round 2. The four own blobs and accepted patch remain unchanged.
+The resolver now follows the retained .43 lock source. The real metadata tests and production checks remain selected.
+All non-owned files equal the accepted train base. No #310 source finding remains.
+Sol-B read exact-head package delta `5491782386f6c77e3b201ac889f79c68e838385b`; it agrees with these checks.
+
+This confirms source coverage of the one-member prefix. The RED train 3c gate remains failed.
+The completed train 3d gate, final package receipt, body, and lead merge verification remain due.
+Sol-B accepts no running result and ran no execution job.
+
+VERDICT: CLEAN (0 open; train 3d source delta only, final gate evidence pending)
