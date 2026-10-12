@@ -14699,3 +14699,101 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 202.
 
 VERDICT: CLEAN
+
+
+## Round 202 — #328 removes the fenced dp_3 real-pending ID, 2026-10-12
+
+Exact head: `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`.
+Tree: `cff0c4b99d6e157b2bb9aba0ab171abd553576e1`.
+Exact source and gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+READY receipt: `msg_plugin-w_1791837512_f37228`.
+Risk tier: STANDARD. The lead's plan-23a removal-only rule makes this list change STANDARD because it makes the gate stricter.
+The exact lead ruling is retained in shared core-lead.md:306. The changed file is absent from ci/high-tier-paths.txt.
+No Rust, shared crate, pin, CI, unsafe, FFI, or process-control source changes.
+The lead's supplied broadcast citation names 0165 and Sol-C; the body says Sol-C reviews when the lead schedules it.
+BUILD.md's STANDARD minimum requires the package review. This verdict does not cancel the lead's additional review assignment.
+
+### Scope and removal trigger
+
+The whole own diff changes only conformance/core-real-pending.txt: three comment additions and five removals, including one ID line.
+The sole removed ID is `conf::dp_3_route_codec_matches_client_appendix_a4_a5`.
+No ID is added. Real-pending decreases from 38 to 37.
+Core-pending remains at 387 and the canonical minimum-core list remains at 69.
+The removed ID stays active in the ledger and minimum list. It already remains absent from core-pending.
+The final ID sets equal the initially submitted 6a635072 sets. The final commit changes one comment line only.
+No test, terminal oracle, transcript, fence exception, timeout, proof, or production behavior changes.
+
+The train-6 trigger log names the exact base 3e655eff and reports this ID pending-real PASSED at line 6190.
+Trigger log: gates/botster-core-stage1-train-6-3e655eff-pool-20261012-123257-88248.log.
+SHA256: `4237d5aadea652758d6040dce166067584356a8addcbf088c667364851aaba5d`.
+The reviewer reads the relevant header, trigger, and summary only. This is not a new combined or final train-6 receipt.
+
+The source still pins contracts .44, `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+The exact .43 fence file (`898724b4c29ada110ae2503ca04f7aa5d55dd2ae`) lists this ID at step 11, R-60, and step 9, R-57.
+The exact .44 fence file has no entry for this ID.
+The reviewer reads the complete pinned transcript and its .43-to-.44 diff.
+The diff adds a title sentinel and await_title after the mode output, then program_ready before route input.
+The transcript retains its route barrier, oracle-derived key length, and await_pty floor before the PTY read.
+The expected terminal key bytes come from the terminal oracle. No handwritten terminal encoding is introduced.
+No route-end wait appears in this transcript, so the earlier R-68 retention rule does not hold this ID.
+The two dp_5 IDs retain their fence debt and remain real-pending. Their historical real passes do not justify their removal here.
+
+### Findings and body
+
+F155 LOW — CLOSED by the complete corrected body at unchanged initial 6a635072; the correction remains present at this final head.
+The initial body labeled a dirty-base local run as exact-head evidence.
+The final body names the pre-commit base, uncommitted list edit, absent tree hash/patch, and absent cargo-clean exit code.
+
+F156 LOW — CLOSED by the final one-line comment repair.
+The initial block used 'each step 9' for two retained dp_5 IDs.
+The corrected comment attaches both steps 11 and 9 to dp_5_no_input, and step 15 to dp_5_op_is_optional.
+The exact .44 fence entries at lines 81, 82, and 85 match that statement.
+P3 chose the source repair instead of STANDARD's linked LOW follow-up issue.
+No CLEAN at superseded 6a635072 was requested or published. No NOT CLEAN round was published during that completed initial inspection.
+
+The reviewer reads the complete final body at /private/tmp/review-p3-pr328-6b1918c9.json.
+Body UTF-8 SHA256: `14bc3d14680a82a0bc82718514809c052bbbab48f7505c450bda52e10b1a285e`.
+It separates the dirty-base local run, the first 6a635072 gate, and the final 6b1918c9 gate.
+The prior-art note states that old Core 72b2e335 has no core-real-pending list. The read-only tree query confirms no such path.
+No package finding remains, including LOW.
+
+### Supplied evidence
+
+Local log: shared/core-stage1/evidence/p3-dp3-real-check.log.
+SHA256: `81c526de2c2f6b24f0aefcd37ef84538bfc8c03c7190c3dec065a892b3863842`.
+It names head 3e655eff with an uncommitted list edit, not either submitted head.
+Format, actual CI taint, lists, prebuild, and the selected real ID report exit zero.
+The producer sets strict and seeds 0-31. The selected real trial reports one passed, zero ignored, in 9.53 seconds.
+It records no resulting source tree/patch or numeric cargo-clean exit code. The verdict uses the final pool gate for exact-head evidence.
+
+First gate: gates/botster-core-stage1-p3-unpend-dp3-real-6a635072-pool-20261012-130526-49234.log.
+SHA256: `4f786c33ea4a68d75603c6e84c5af982ca991d0b39aaa5e38a97138e4ca3f3f6`.
+It passes all ten steps and this ID in both tiers, but applies only to the superseded initial head.
+It is not carried as execution of the final comment-repair head.
+
+Final gate: gates/botster-core-stage1-p3-unpend-dp3-real-6b1918c9-pool-20261012-133354-1834.log.
+SHA256: `ce853de32931cb1b7b04c1ebb58a0c06c8427f4fe59d3f2d48d70fd0b815c689`.
+Headers match this exact final head and base. All ten steps PASS on msa1.
+Default: 2078 passed/411 skipped/13.304 seconds. Slow: 678 passed/2077 skipped/43.591 seconds.
+The removed ID has a normal conformance PASS at line 377 and slow_conformance PASS at line 4554.
+The real suite source classifies an ID absent from real-pending as a must-pass trial, not a passing ignored trial.
+The final gate no longer reports this ID as pending-real. The list step reports real-pending 37 and minimum 69.
+The strict report remains 281 passed with 300 pending transcripts run, 17 real-only not run, and four held IDs.
+The mutation step reports zero mutants because no Rust source changes. Fuzz selects no changed decoder harness.
+No FLAKY, TIMEOUT, or SKIPPED token appears. Total steps: 146.0 seconds.
+Jobq exits zero after 256 seconds; the wrapper exits zero after 257 seconds. The log records 99 seconds queued and 157 running.
+The supplied pre-review exact-head gate counts under BUILD.md's Q8 rule because the CLEAN head remains the gated head.
+The reviewer requests no rerun, new test, measurement, or additional gate.
+
+### Verdict and limits
+
+#328 is CLEAN at this exact head against the exact base. F155 and F156 are CLOSED. No package finding remains.
+The removal has its fenced source and exact-head real must-pass result. No other pending ID is accepted or removed.
+Sol-C's lead-scheduled additional review retains its separate scope. The lead owns the merge decision.
+A later base import or train composition retains BUILD.md's list-file delta and exact-final-head gate requirements.
+Equal-tree/push verification remains due. No future head, train, pin, or merge is accepted.
+#318's same-head integration delta, #302's train-7b final lifecycle, Mac IN-6, F28/F33/F39, and F61/F62 remain separate.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 203.
+
+VERDICT: CLEAN
