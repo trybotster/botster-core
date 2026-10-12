@@ -91,3 +91,43 @@ Matching integration CLEAN, applicable current-base or train reviews, completed 
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-12 — documentation correction
+
+- Head: `c3e1b41fb04a334eb9c5b864a6d3c68904743954`.
+- Tree: `97b65724575fb74d83c742af7e0de855b4a5a64a`.
+- Parent and previously reviewed head: `aed0c8e188d778960376b9a684741e9080feaa08`.
+- Branch base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Delta READY: `msg_plugin-w_1791835573_5de0f7`.
+- Prior package verdict: `cc79293e4b4e035496488315a660bb95650fecbe`.
+
+I read the complete one-commit, three-file correction: 27 additions and 21 deletions.
+Full-index delta SHA256: `10178e7ff45565e1836d1ebfa6c1456504da3095541094116f4c365fcc02d1dc`.
+Git whitespace check passes.
+
+### R325-F1 — LOW — CLOSED
+
+The rule now lives in crates/botster-worker-core/design/read-reply-order.md.
+DESIGN.md indexes that topic with its retained title. It is the only topic file, so index order is correct.
+I independently compare the old section and new topic: all rule words remain identical after whitespace normalization.
+The topic's maximum line width is 120 columns.
+The test comment names the new topic. Every executable line of the worker test file remains exact after excluding doc comments.
+The real resume file remains byte-identical to the first READY head.
+No existing topic, product source, fixture, test assertion, input, deadline, list, or dependency changes.
+
+I read the complete corrected body on this exact head and v1 PR base.
+It names the topic and DESIGN.md index, identifies this correction, and preserves the historical gate's actual head.
+Its source claims, prior-art note, HIGH tier, and reviewer assignment remain applicable.
+R325-F1 closes in this source and body correction.
+
+### Disposition and evidence limits
+
+Zero package findings remain, including LOW. Round 1's source conclusions and evidence audits retain their stated scope.
+The completed READY gate, reversal, and local observations belong to `aed0c8e188d778960376b9a684741e9080feaa08`.
+No new execution is supplied or claimed for this documentation correction.
+The unchanged tests and rule preserve their reviewed behavior; the old gate is not relabeled as execution of this head.
+This CLEAN accepts the corrected source and body, not final current-base or train acceptance.
+Matching integration CLEAN, applicable current-base or train delta review, completed exact merging-head gate, final receipt, and Q7 remain due.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
+
+VERDICT: CLEAN
