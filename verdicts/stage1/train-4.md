@@ -419,3 +419,55 @@ The #314 pair has zero open source findings on this exact train head.
 The complete #312 pair remains pending before the formal combined source verdict.
 The fresh gate, final member evidence bodies/receipts, and Q7 remain due.
 No running or completed train-4b evidence is accepted by these source receipts. I ran no execution job.
+
+## Round 2 complete — combined train-4b source before the fresh gate
+
+Exact head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Lead assignment: `msg_plugin-w_1791825491_e99ad8`.
+Lead request for the completed combined verdict: `msg_plugin-w_1791825970_0aa174`.
+The ordered frozen members remain #314 a4eac3c1, #312 c0f8a09c, and #307 2ed85f93, with full identities above.
+
+The delivery contract, owners, and acceptance plan from Round 1 remain applicable under the corrected R107-SI-2 disposition.
+The required new outcome is a reviewed composition on the landed #317 base, followed by one fresh exact-head gate.
+The known-flaky list is temporary. The .46 pin must remove its one entry and restore the empty-list assertion together.
+A31 and its new OU-7 id remain separate from this train and the EV-2 removal condition.
+
+I read the complete #312 integration Round 7 at `b8337e7eba5b70d753f06cff203e17b60bdbfb65`.
+I also read the complete matching package train-4b section at `6fe61678c003a1205e17a1cfd27f0c9e62ccf648`.
+Receipt: `msg_plugin-w_1791825962_d18e20`.
+Both confirm the exact head/base/tree, accepted #317 base delta, six own blobs, nine conformance blobs, and applicable .44 entry.
+Both retain the old RED record and accept source only before the fresh gate.
+Neither record has an open source or body finding.
+
+The complete six same-head source receipts are:
+
+- #314 package `6ba694457afca3f1e61a7dac0aa708bb203786ce` and integration `2befaf343cedc75dd535a4755be6571863e68567`.
+- #312 package `6fe61678c003a1205e17a1cfd27f0c9e62ccf648` and integration `b8337e7eba5b70d753f06cff203e17b60bdbfb65`.
+- #307 package `b8e4fa0d20d4c9b917be2667afecc212d25b5fd0` and integration `12fccdd1383d096d0accb9be752cd44ea2e3dab5`, Round 5 in pc-control-queue.md.
+
+I read every complete applicable section. All six are CLEAN on the exact rebuilt train head.
+All prior body and source findings remain closed. The member evidence keeps its original head and scope.
+
+My complete independent source audit above remains applicable without a new source push.
+The full-index train delta equals the accepted base delta, SHA256 `7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6`.
+All 26 prior train blobs remain byte-identical. The combined own diff stays `aa5a215608ed07d9f894c6265a9eb56d1d7d3c7f908dc9aa25926a7d340cde6b`.
+The ordered patches retain every accepted own change, with no extra path and no new source resolution.
+All 27 conformance set checks pass. Final pending is 403 and real-pending 34; no accepted removal returns.
+The scheduler trace, control-room/cancel behavior, hold separation, probe adapter, .44 pin, and checkout resolver retain their accepted interfaces.
+The one known-flaky entry cannot match the host trace or IN-6 trials.
+It suppresses no unmutated failure and supplies no mutation catch. The later fenced pin retains its explicit removal obligation.
+No new combined source, interface, body, or list finding remains.
+
+The lead owns the fresh gate on this exact head. The compile pre-check remains an operator report only.
+The gate must supply all required runtime, mutation, and fuzz outcomes, including the unchanged resolver comparison.
+The mutation evidence must not credit the omitted EV-2 trial as a catch. The normal slow and unmutated Stage 2 baseline still run it.
+Each member's final body and evidence receipt must name the completed exact train gate.
+The lead then owns Q7 ancestry, equal-tree merge, and remote verification.
+
+The old train 03709a0c stays RED and will not be re-gated. The #317 green gate is not train-4b evidence.
+This CLEAN accepts the combined source only. It authorizes no specific retry and accepts no gate, later head, pin, status removal, or merge.
+The remaining work is the fresh gate, all final member evidence receipts, and Q7. I ran no execution job.
+
+VERDICT: CLEAN (0 open; combined source on exact train-4b head, fresh final evidence pending)
