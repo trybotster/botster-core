@@ -205,7 +205,7 @@ struct Session {
 
 impl Session {
     /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
-    fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
+    fn launch(root: &Path, script: &str) -> Session {
         let payload_guard = PayloadGuard::new(root);
         let script = format!("{}{script}", payload_guard.prefix());
         let socket = root.join("c");
@@ -249,7 +249,6 @@ impl Session {
             stream,
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
-            stop_grace_ms,
             None,
             CoreLimits::default(),
         );
@@ -289,7 +288,6 @@ fn hello_and_launch(
     stream: UnixStream,
     launch: &WorkerLaunch,
     argv: Vec<String>,
-    stop_grace_ms: u64,
     route: Option<std::os::fd::BorrowedFd<'_>>,
     limits: CoreLimits,
 ) -> (Link, PayloadId) {
@@ -334,7 +332,6 @@ fn hello_and_launch(
         notification_policy: NotificationPolicy::All,
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
-        stop_grace_ms,
         limits: limits.clone(),
     }));
     match route {
@@ -441,21 +438,22 @@ fn exited(code: Option<i32>, signal: Option<i32>) -> WorkerMsg {
 #[test]
 fn ev_4_a_real_exit_carries_the_code_or_the_signal() {
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "echo out; exit 3", 5000);
+    let mut s = Session::launch(root.path(), "echo out; exit 3");
     assert_eq!(s.link.report(), exited(Some(3), None));
     s.remove();
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "kill -TERM $$", 5000);
+    let mut s = Session::launch(root.path(), "kill -TERM $$");
     assert_eq!(s.link.report(), exited(None, Some(15)));
     s.remove();
 }
 
 /// Core LC-5: `Stop` is the graceful request to the payload group; a payload that ignores it is ended by `Kill`, the group
-/// kill of `stop_grace`; the worker lives on after the payload (it still answers `Remove`, LC-7).
+/// kill that Core sends at the end of its `stop_grace`; the worker lives on after the payload (it still answers `Remove`,
+/// LC-7).
 #[test]
 fn lc_5_stop_asks_then_kill_ends_and_the_worker_survives() {
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "exec sleep 30", 5000);
+    let mut s = Session::launch(root.path(), "exec sleep 30");
     s.link.msg(&HostMsg::Stop);
     assert_eq!(s.link.report(), exited(None, Some(15)));
     s.remove();
@@ -466,7 +464,7 @@ fn lc_5_stop_asks_then_kill_ends_and_the_worker_survives() {
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     // The payload ignores TERM once it has written to the FIFO, so the Stop cannot race the trap.
     assert_eq!(first_line(&ready).1, "up\n");
     s.link.msg(&HostMsg::Stop);
@@ -489,7 +487,7 @@ fn lc_6_signal_reaches_the_whole_group() {
         "exec 3> {}; sleep 30 & /bin/echo up >&3; wait",
         held.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     let (mut reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     s.link.msg(&HostMsg::Op {
@@ -521,23 +519,25 @@ fn lc_6_signal_reaches_the_whole_group() {
     s.remove();
 }
 
-/// Core LC-5 and the P1 interface (F7): `SIGUSR1` on the worker ends its payload without a host request: the graceful
-/// request, then the group kill at `stop_grace`. The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
+/// Core LC-5 and the P1 interface (F7): the worker-control signals end the payload without a host request: `SIGUSR1` is the
+/// graceful request, and `SIGUSR2` the group kill that Core sends at the end of its `stop_grace` (steward ruling R-97,
+/// follow-up: the worker keeps no grace timer). The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
 #[test]
-fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
+fn lc_5_the_worker_control_signals_end_the_payload_and_the_worker_stays() {
     let root = temp_root();
     let ready = fifo(root.path(), "f");
     let script = format!(
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 200);
+    let mut s = Session::launch(root.path(), &script);
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::USR1);
+    s.signal_worker(rustix::process::Signal::USR2);
     assert_eq!(
         s.link.report(),
         exited(None, Some(9)),
-        "TERM is ignored, so the kill of the grace ends it"
+        "TERM is ignored, so the kill of SIGUSR2 ends it"
     );
     s.remove();
 }
@@ -650,7 +650,7 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::TERM);
     assert_eq!(s.link.report(), exited(None, Some(9)));
@@ -665,7 +665,7 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
 fn a_worker_that_does_not_end_fails_the_bounded_wait_with_its_pid() {
     let root = temp_root();
     let hold = Blocker::new(root.path(), "hold").unwrap();
-    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()), 5000);
+    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()));
     let id = s.worker.worker.id();
     // timer: deadline — the proof's own short bound, so that the test does not wait the cleanup bound; not a contract value.
     let deadline = Deadline::after(Duration::from_millis(100));
@@ -714,7 +714,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         "trap '' HUP TERM; exec 3> {}; /bin/echo up >&3; exec sleep 30",
         held.display()
     );
-    let mut session = Session::launch(root.path(), &script, 5000);
+    let mut session = Session::launch(root.path(), &script);
     let (mut reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     // The graceful group signal must not remove independent test ownership.
@@ -1104,7 +1104,7 @@ fn observer_parent() {
     let Some(root) = std::env::var_os("BOTSTER_DRIVER_PARENT_ROOT") else {
         return;
     };
-    let session = Session::launch(Path::new(&root), "exec sleep 30", 5000);
+    let session = Session::launch(Path::new(&root), "exec sleep 30");
     eprintln!("{}", session.worker.worker.id());
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
@@ -1216,7 +1216,6 @@ impl GuardedSession {
             stream,
             &launch,
             vec![wrapper.display().to_string()],
-            stop_grace_ms,
             route,
             limits,
         );
