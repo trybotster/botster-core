@@ -143,3 +143,7 @@ Merge order notes:
 
 - 016c (round 3 on `522e5485`): `TAKES_EVENTS` resets `parked_seen` for every step of those names, including one that takes only a class K event (for example `expect_eventually TitleChanged`). Such an event can come before the full mandatory queue, so it frees no mandatory room, and the same frame stays parked. 016c's case returns `[]` where `[7]` is due. This is lint-internal (package scope). Per my rule I do not withdraw the CLEAN. I re-check the delta on the next head, and 016c asks the steward before round 4 (round limit).
 - Main is `939e1acd` (#66), which shares `core-fence-exceptions.txt`. #69 (next to merge) owns the two `ev_5_route_closed` debt lines (steps 28, 29), so whichever of #69 and #73 merges second removes them.
+
+### Round limit: the steward permits round 4 (no split), via 016c
+
+A `parked_work` witness ends only after a step takes a mandatory event of that session, or observes that parked work's own event or completion. A read of class K events only must not reset it. 016c's red case must give `[7]`. Then P3 merges main `939e1acd` (the shared exceptions file, Q7 delta review, including #69's two `ev_5_route_closed` lines if #69 has landed), and ONE gate runs on the exact head. A new round-4 finding needs another decision before round 5. I review the round-4 delta against this rule.
