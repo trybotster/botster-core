@@ -38,7 +38,9 @@ GS-HF-R3-1 LOW is closed. The body now describes both current budget ids and the
 
 Both source delta reviews are CLEAN with zero findings. Sol's published receipt is `e72d7d01dc22a5eac71d57ea2e3f63c53fa32028`.
 
-The final gate, final body, and final evidence acceptance remain pending.
+The final gate and body are verified. All ten steps pass. Held-full runs both budget ids at all 32 seeds, with zero failures.
+
+Core #286 merges as `b0c0a419af27259006b5e06d4e5da3b3d00083e6`. Its tree equals the reviewed head tree. The package merge receipt is complete.
 
 PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 

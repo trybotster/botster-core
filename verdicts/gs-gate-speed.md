@@ -2708,3 +2708,27 @@ Its failure artifacts are `/home/structvr/testq/projects/botster-core/artifacts/
 I sent the retained log, exact mutant names, and artifact path to GS and Sol-B. I have no local copy of the detailed mutant failures.
 
 The split head and this disposition require review before CLEAN. I ran no execution job.
+
+### Core PR #286: completed final gate and merge receipt
+
+VERDICT: CLEAN at `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`, base `9053b1df868bbec2d62977660f44907e73323c55`. Open findings: 0.
+
+The shared handoff identifies the completed gate. I read its identity, completed summaries, held-full result, mutation result, and exits.
+
+All ten steps pass in 571.1 seconds. The job runs for 682 seconds and exits zero. The outer wrapper exits zero after 683 seconds.
+
+The default tier passes 1832 tests. The slow tier passes 599 tests. Held-full runs 64 trials for two budget ids at 32 seeds.
+
+Held-full reports zero failures and 64 ignored trials in 19.32 seconds. Mutation testing reports 23 mutants: 21 caught and two unviable.
+
+No remaining mutant requires stage 2. The log contains no FLAKY token. Fuzz selects no changed decoder crate.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-ac457ca6-pool-20261011-171824-68670.log`.
+
+I read the complete final body. It records the completed exact-head gate and both budget ids. The earlier evidence retains its original head scope.
+
+GitHub confirms merge `b0c0a419af27259006b5e06d4e5da3b3d00083e6`. I verified its exact base and reviewed-head parents.
+
+The merge tree equals the reviewed head tree, `98bb9f0393e4b63201927920a55d5d32c9cbdcd4`.
+
+This completes the package evidence and merge receipt. Sol's earlier source delta receipt remains recorded separately. I ran no gate or execution job.
