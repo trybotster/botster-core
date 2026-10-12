@@ -3579,3 +3579,20 @@ This FINAL accepts #312's package source and completed evidence on this exact tr
 The matching integration FINAL, other member FINAL receipts, required combined review, and equal-tree merge verification remain due.
 This verdict accepts no later head, future pin, #309 or #311 composition, or A31 implementation.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — matching FINAL integration receipt
+
+Integration message: `msg_plugin-w_1791827521_f43e44`.
+Integration FINAL: `b6a96042e0b4facb73ad895e1fd902c26d687eba`, Round 8 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+Its exact train head is `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Its base is `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`; its tree is `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+The frozen #312 member remains `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+The complete gate, body, source scope, mutation outcomes, seed limits, and retained obligations match package FINAL `ff3fb3392fe3c1ebeba5eb507de0e4bc84355a4e`.
+Both #312 FINAL reviews are CLEAN with zero open findings, including LOW findings.
+Both name `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+Both verify SHA256 `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+Other member FINAL receipts, combined FINAL acceptance, and lead ancestry, equal-tree merge, and push verification remain due.
+No later head, future pin, specific retry, #309/#311 composition, or A31 implementation is accepted.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
