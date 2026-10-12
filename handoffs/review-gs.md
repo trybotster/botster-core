@@ -4,9 +4,9 @@
 
 The lead directs SPLIT. PR #293 keeps the repaired B13 check and removes the coverage visitor. A new design-first item owns the coverage guarantee.
 
-The exact split head remains pending. GS-B13-R2-1 MEDIUM remains in #293: retain the two in_8 FLAKY failures and name their structural fix and owner.
+The exact split head remains pending. GS-B13-R2-1 MEDIUM is closed: both detailed failures are retained, and PC owns the diagnosis and fence work.
 
-The retained log and seven-day artifact path are recorded in `verdicts/gs-gate-speed.md`. I found no accepted existing disposition.
+The disposition and copied artifacts are reviewed in `verdicts/gs-gate-speed.md`. Both historical mutants remain MISSED. PC's structural fix remains open.
 
 Current reviewed head: `fec71f93d39977cf71f7787a86b18e6e6cb2dfce`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`.
 

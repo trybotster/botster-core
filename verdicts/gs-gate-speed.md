@@ -2732,3 +2732,31 @@ GitHub confirms merge `b0c0a419af27259006b5e06d4e5da3b3d00083e6`. I verified its
 The merge tree equals the reviewed head tree, `98bb9f0393e4b63201927920a55d5d32c9cbdcd4`.
 
 This completes the package evidence and merge receipt. Sol's earlier source delta receipt remains recorded separately. I ran no gate or execution job.
+
+### Core PR #293: in_8 disposition receipt
+
+GS-B13-R2-1 MEDIUM is closed. The exact split head still requires review before CLEAN.
+
+I read `~/botster-sessions/shared/core-stage1/evidence/gs-b13-in8-flaky/disposition.md` and the lead's recorded assignment.
+
+The lead assigns PC the rule-9 diagnosis and in_8 fence work after #77. The proposed mechanism concerns the R-74 held-write form. No completed fix is claimed.
+
+I inspected the copied stage-2 logs under the note's `artifacts/jobq-botster-core-96c58d88-20261011173013-3033/` directory.
+
+The files `target-mutants-stage2-mutants.out/log/xtask__src__prebuild.rs_line_95_col_5_003.log` and `_004.log` name the two exact mutants.
+
+Each first attempt fails with `INCONCLUSIVE`, seed 0, step 8, and `limit=step_timeout`. Each second attempt passes. Both logs retain their FLAKY summaries.
+
+The plain-v1 record also fails in_8 at step 8 with `step_timeout`, at seed 5. It does not contain this PR's source change.
+
+Plain-v1 log: `~/botster-sessions/gates/botster-core-detached-5e953398-5e953398-pool-20261011-160013-7403.log`, line 1961.
+
+The disposition correctly distinguishes the normal gate from mutation stage 2. A normal prebuild using either replacement writes no worker entry and candidate verification refuses it.
+
+The candidate unit test covers a missing worker entry. Stage 2 instead uses the unmutated candidate built earlier, so it cannot exercise the mutated prebuild shell.
+
+I verified that source path. The later whole-body exclusion retains its I/O-shell reason. It supplies no catch of these two historical mutants.
+
+Both historical mutants remain MISSED. The structural fix is open under PC. The id remains live and is not re-pended.
+
+This receipt accepts the required retained evidence and owned disposition. It does not assert that PC completed the fix. I ran no execution job.
