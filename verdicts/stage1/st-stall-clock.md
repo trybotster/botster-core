@@ -178,3 +178,72 @@ Package final CLEAN: `8b2d3a41af91a74386354fdd46a84e4feb6e47e7`, with body follo
 All earlier findings remain closed. The earlier Mac failures, copied reversal provenance, adoption limit, and pending scope remain recorded at their original evidence scope. No source, evidence, or body finding remains on this exact head. This receipt accepts no later train composition or base update. The lead controls that next step and its applicable review and gate. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; reviewed import head and completed evidence)
+
+## Round 5: train 2 import delta and completed evidence
+
+Exact head: `5d5d4eefd5872864a972bc248f415f9cf6673ef3`.
+Tree: `ff95a381f46a06a47a16c2285deb904f484dbb04`.
+Previous accepted head: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Imported and gate base: `080987829a2e2245a7ea97606020400392c974d6`.
+Three-way base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Merge `d1ff70d31b8f0fc71a2e5112c625a86740ee64bf` has the previous head and imported base as parents.
+The follow-up `5d5d4eef` has that merge as its only parent.
+The lead orders this import after #298 leaves train 2 for conflicts.
+This manual delta review supplies no automatic canonical PASS claim.
+
+Sol-B read the merge objects, both conflict resolutions, semantic follow-up, and complete driver and engine delta against the imported base.
+The host design retains train 2's F7 KillPayload rule at stop grace under R-97.
+It retains #298's carried due-step rule and stall section.
+The driver module list retains `holds`, `seeded_trace`, and `stall`, alongside the imported drain module.
+The follow-up replaces `Work::Silent` with `Work::DueStep` in `Driver::held` and updates its comment.
+DueStep includes a due Silent event and a route stall step. Both bypass scheduler holds and operation deferral.
+Other work retains the imported scheduler filter before choice selection.
+Runnable work, synchronous wake, and both `more` calls use that filter.
+The driver retains the bounded initial due-step loop and the imported drain check after wake settlement only.
+No obsolete `Work::Silent` reference remains in the host crate.
+
+Sol-B independently compares all 38 own file patches before and after the import.
+Only the declared held predicate and comment differ. All other added and deleted lines match.
+No extra own path appears. The reviewed host and worker stall rules remain unchanged.
+The imported stop grace, scheduler, drain, and test changes retain their accepted base scope.
+
+Sol-B independently checks all nine conformance text sets with the three-way formula.
+Every result matches the base plus own additions minus own removals.
+Held contains seven IDs; pending contains 400; real-only contains 26; real-pending contains 49.
+Real-proofs contains seven proof rows for four IDs. Both deferred entries retain their exact fields.
+Both mutation exclusion arrays satisfy the same three-way formula.
+No process allowlist or known-flaky change appears. No extra status removal is approved.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-5d5d4eef-pool-20261012-083713-16979.log`.
+SHA256: `4831462bf016f8212cc7e0aa028b5f7137e3d7d42b145abf6126dfe082e893d6`.
+Sol-B reads the identity, base accounting, affected tests, raw mutation results, citations, summaries, and exits.
+Gate and merge base both equal the imported base.
+All ten steps PASS in 1,124.2 seconds. Default passes 1,987 tests; slow passes 619 tests.
+Strict conformance passes 267 tests without failure. Held-full runs six budget IDs at 32 seeds.
+The repaired stall-post, resume, imported drain, scheduler hold, and retained seeded trace proofs PASS.
+
+Stage 1 tests 244 mutants: 225 caught, five missed, and 14 unviable, with zero timeout.
+The unmutated slow baseline passes all 619 tests.
+Stage 2 tests those five exact misses: three caught and two unviable, with zero missed or timeout.
+The final result has 228 caught, 16 unviable, zero missed, and zero timeout.
+Sol-B independently matches all 228 raw catch identities to their citations. Every catcher has a normal PASS.
+No FLAKY or INCONCLUSIVE record appears. Unviable results supply no catch evidence.
+The two link fuzz harnesses complete 6,536,902 and 4,248,656 runs.
+The job and wrapper exit 0 after 1,238 seconds on msa1, with one second queued and 1,237 seconds running.
+
+Local log: `/Users/jasonconigliari/botster-sessions/gates/st-298-merge-local-5d5d4eef.log`.
+Sol-B reads its retained script, identity, selected summaries, and exits without executing it.
+The script selects the ST worktree and shared ST target. The log records a clean at `2026-10-12T15:25:41Z`.
+All 14 commands report exit 0. Selected packages pass 1,104 tests with one skipped.
+Strict default conformance passes 595 tests at seeds 0-31.
+These are retained owner-run results. Sol-B does not independently verify target exclusivity or cleanup.
+Earlier Mac evidence, broader failures, copied reversal provenance, adoption limit, and pending scope retain their original scope.
+
+Sol-B reads package receipt `5db1fdd56758aeb842346b1c064373ff1055c74d`, its complete #298 Round 5 section.
+It agrees with these checks and reports zero findings.
+Sol-B reads the full exact-head PR body. It names both text resolutions, the semantic repair, bases, local results, and completed gate.
+All earlier findings remain closed. No source, body, or supplied-evidence finding remains on this exact import head.
+This receipt accepts no later base update or train composition. The lead controls the next train and its final gate.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; train 2 import delta and completed exact-head evidence)
