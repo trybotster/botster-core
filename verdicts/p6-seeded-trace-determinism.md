@@ -103,3 +103,62 @@ This verdict accepts no later train head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-12: #314 base delta on train 4b
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Train base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Previously reviewed train: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Previous train base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Reviewed #314 input: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead request: `msg_plugin-w_1791825491_62b81e`. Scope: #314's source delta from the new base only.
+
+I inspect the ordered merge objects and their exact parents:
+
+- `471c0dece49519bcd4f31932eb8bef449d723233` adds #314 to the new base.
+- `89808877dc1e5664cd4ec59877c4980bc064dbf4` adds #312 input `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+- The exact train head adds #307 input `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+
+The first merge still changes only seeded_trace.rs. The members and their order match the earlier train.
+I independently compare the complete train delta with the complete base delta. They are byte-identical.
+Delta SHA256: `9635ef61f78726c5a95dfc5d60c2d01324c31ba2355e7b0ebb0e3384038481c3`.
+Both change only `ci/known-flaky.toml` and `xtask/src/known_flaky.rs`, from accepted #317.
+The complete botster-core-host tree is unchanged between the two train heads.
+The #314 file remains byte-identical to its reviewed input and the earlier train.
+Blob: `0239e231ffea4525211d28bc753931e130506988`.
+File SHA256: `a5fa1504ab5ea12099d3be93f3a9f7d31ba1a7256f636e4eaf73682ef630da38`.
+The public full-trace repeatability, non-empty, and seed-variation assertions remain unchanged.
+The earlier shared-fixture review carries without a new fixture or scheduler delta.
+
+I read the complete two-file base delta and the relevant known_flaky filter implementation.
+The new entry names only `botster-core::slow_conformance` `conf::ev_2_mandatory_and_keyed_never_dropped`.
+The unchanged filter subtracts exact binary/test pairs from mutation-stage lists.
+It does not exclude the #314 host test. It changes no normal-test retry, host workload, scheduling policy, or source assertion.
+The xtask change updates only the repository-list test to expect that one entry.
+None of the 25 catch citations in #314's earlier synthetic mutation evidence names the newly listed test.
+That evidence retains its original head and three-file source scope. It supplies no execution result for train 4b.
+
+I read #317's complete body after GitHub MCP truncates it.
+Body SHA256: `bb5b1335a54be139851a7387d9291d929085f6b9636ef6e89d2a157c6aadf01e`.
+GitHub records #317 merged at the exact new base. The entry names diagnosis R107-SI-2, owner RC, and removal PR #316.
+I read #316's visible state and plan. It remains an open draft for the future pin and entry removal.
+The train retains contracts-v0.1.44. Cargo.toml and Cargo.lock are byte-identical between the two trains.
+No train member changes the base's known-flaky entry or its repository-list assertion. The removal trigger has not occurred.
+
+The earlier train remains RED. I read its named failure and final summaries.
+Log: `~/botster-sessions/gates/botster-core-stage1-train-4-03709a0c-pool-20261012-092150-15636.log`.
+It reports `INCONCLUSIVE conf::ev_2_mandatory_and_keyed_never_dropped seed=0 step=71 limit=step_timeout`.
+That signature matches the new entry. The slow step fails; mutants and fuzz do not run. The final exit is nonzero.
+I read BUILD.md Testing rule 9 and the train rule. The known-flake exception permits only one additional gate under its three conditions.
+This source verdict does not turn the earlier failed gate green or supply a train-4b gate result.
+The lead reports an xtask check and plans one fresh gate after the six deltas. Those reports remain outside this source verdict.
+
+No #314 source finding remains on this exact train head.
+This CLEAN covers the requested base delta and preservation of #314's reviewed test.
+It does not replace #317's independent reviews, the other member reviews, or the combined integration review.
+The fresh exact-head train-4b gate, final evidence body and receipts, and lead merge verification remain due.
+No later train head, contracts pin, status removal, or additional re-gate is accepted.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
