@@ -99,3 +99,56 @@ This verdict accepts no #318 repair, future pin, additional pending removal, spe
 I ran no build, test, gate, mutation, reversal, reproduction, measurement, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW; combined source only)
+
+
+## Round 2: FINAL whole-train receipt
+
+- Exact head: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+- Tree: `fe7700440d2c658dbdfe223ae7b54c17f5516654`.
+- Gate base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Complete combined source receipt: `d76d87f3982c87a03a96bb15ace15f456532cc8a`, Round 1 above.
+- Lead gate message: `msg_plugin-w_1791842386_6807e4`.
+- Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-9b-3e4b3ab8-pool-20261012-142747-53965.log`.
+- Verified SHA256: `79198775495746aa7b8d918598060c5c12ccaccdeb99371dc4842ba182a3bb71`.
+
+The frozen order and member heads remain #328 6b1918c9, #319 71ec2783, and #326 797f090a, as fully recorded above.
+The exact gate header names the reviewed train head and base. The tree remains the reviewed combined tree.
+The command sets both parallelism caps to four. The pool runs on msa1 with the stated Linux platform limits.
+All ten steps pass. Default records 2100 passes and 412 skips. Slow records 690 passes and 2090 skips.
+Every ordinal in both tiers is present exactly once. Stage 2's unmutated baseline records all 700 normal passes before mutation trials.
+The strict report has 281 passes and zero failures. It runs 298 of 315 pending transcript IDs; 17 are real-only, and four are held.
+The minimum report counts 69 of 69, including one budget-held ID. Every named real-process minimum proof has normal PASS evidence.
+
+The held-full run records three budget IDs at all 32 seeds, with all 96 unique trials passing.
+The IDs are dp_5_full_input_queue_stops_reading_the_route_and_never_drops, dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves, and ev_8_every_query_stays_in_output.
+Each trial is within the two-second limit; the largest recorded duration is 1.268 seconds.
+The run supplies the required budget-held minimum evidence. No first-seed-only strict result substitutes for those trials.
+
+The removed dp3 real-pending ID passes normally in default and slow, and in the Stage 2 baseline.
+The ignored real report retains 37 pending IDs and reports 29 passing. Those passes do not count as active conformance acceptance.
+No additional removal follows from that report. The two deferred .46 candidates and all earlier thirty-row review limits remain applicable.
+
+I match all 92 unique raw mutation outcomes. Final outcomes are 88 caught and four unviable, with no miss or timeout.
+All 88 unique catches match citations and normal PASS records. Stage 1 catches 46; Stage 2 catches 42 of its 43 remaining trials.
+The other Stage 2 trial is unviable. Three Stage 1 unviable outcomes affect sock_diag; the fourth affects real/rqueue's error constructor.
+The unmutated baseline passes before Stage 2 begins. No FLAKY or RETRY trial appears, and no such trial supplies catch credit.
+The only INCONCLUSIVE text is the existing R-111 exclusion's descriptive signature, not a new trial result.
+That exclusion retains its accepted scope. This receipt removes no known-flaky entry and accepts no future #321 composition.
+
+Both decoder properties have normal default PASS records. The fuzz step actually runs both selected harnesses:
+
+- frame_ends_decoder: configured 60 seconds; 3212181 runs in 61 seconds.
+- sock_diag_decoder: configured 60 seconds; 6382660 runs in 61 seconds.
+
+The reviewed CI path uses cargo_nightly and fails on command failure. The exact tree pins nightly-2026-09-30.
+Both fuzz runs complete, and the fuzz step passes. No missing harness, skipped fuzz run, or new check family is accepted.
+CI takes 1759.1 seconds. The pool job exits zero after 1904 seconds, including 69 seconds queued and 1835 seconds running.
+The wrapper exits zero after 1905 seconds. The earlier train-9 reports and individual gates remain historical.
+
+All applicable source findings remain closed, including LOW. This is the ONE final whole-train receipt under BUILD Green.
+No unchanged member requires another final package receipt. No #318 change enters this train.
+The separate #318 Round 6 source CLEAN at 836d3395 does not change this composition or gate.
+The lead must verify the equal-tree fast-forward and remote push. This receipt does not claim a completed merge or external-tool installation.
+I ran no build, test, gate, mutation, reversal, reproduction, measurement, merge-check job, or pool job.
+
+VERDICT: FINAL CLEAN (0 open, including LOW; complete source and exact-head train gate)
