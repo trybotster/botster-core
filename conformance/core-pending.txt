@@ -410,7 +410,6 @@ conf::sv_9_sigterm_then_group_kill
 conf::sv_9_start_rollback
 # SZ-3: host resize coalescing, Superseded{by}: Core applies every Resize (s6 fails on the testkit, step_timeout on the real tier).
 conf::sz_3_coalesced_resize_is_superseded
-conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
 conf::tp_1_full_tap_drops_oldest_with_loss_marker_and_never_slows_the_pty
