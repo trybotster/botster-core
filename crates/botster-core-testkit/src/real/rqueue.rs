@@ -57,8 +57,9 @@ pub(super) mod diag {
     const NLMSG_ERROR: u16 = 2;
     const NLMSG_DONE: u16 = 3;
     const AF_UNIX: u8 = 1;
-    /// `UDIAG_SHOW_PEER | UDIAG_SHOW_RQLEN` (0x4 and 0x10): the peer's inode and the receive queue.
-    const UDIAG_SHOW: u32 = 0x4 | 0x10;
+    /// `UDIAG_SHOW_PEER | UDIAG_SHOW_RQLEN` (0x4 and 0x10): the peer's inode and the receive queue. One literal: the two
+    /// flags are distinct bits, so `|` and `^` give the same value, an equivalent mutant.
+    const UDIAG_SHOW: u32 = 0x14;
     const UNIX_DIAG_PEER: u16 = 2;
     const UNIX_DIAG_RQLEN: u16 = 4;
     /// `INET_DIAG_NOCOOKIE`: the lookup names the socket by its inode alone.
