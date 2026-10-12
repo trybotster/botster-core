@@ -478,3 +478,55 @@ The earlier f16a10ba RED cannot carry acceptance to this head. No later head or 
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open source-delta findings; final acceptance remains due) at 77eae642eaac0c56cde035870616d17bf2f877ba against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
+
+## Round 6 — completed final gate and final evidence acceptance
+
+Head remains `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Imported base remains `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Reviewed source tree remains `9423da03abc7b905308920570cf767216e0f3ee5`.
+Owner completion receipt: `msg_plugin-w_1791780845_f66e4d`.
+Round 5 and package `cd036b066e4ce6c2f2e9493bc2ddb5fa5d242afc` cover the exact source delta.
+Complete package matching receipt `840e018668db17bf7c59c7951d6c37e880c2f8fc` is also read.
+
+I read the completed final gate header, outcomes, summaries, mutation records/citations, and final job records.
+Log: `~/botster-sessions/gates/botster-core-stage1-rc-pin-42-77eae642-pool-20261011-214255-19819.log`.
+SHA256: `5d27138eebfb9ae3f40ee105eee61061b883103e840393ab5d986366f96b26e8`.
+All ten steps PASS in 610.0 seconds.
+Job and wrapper exit zero after 627 seconds on msa1. The job has one queued second and 626 run seconds.
+Default: 1914 PASS, 432 skipped, 9.748 seconds. Slow: 616 PASS, 2060 skipped, 39.014 seconds.
+`conf::in_9_legacy_keys_table` has normal PASS in 0.962 seconds, within its unchanged two-second limit.
+Both strict summaries have 259 PASS and zero failures.
+Prebuild writes the three-binary candidate manifest.
+
+I independently match all 26 unique first mutation identities: fourteen caught and twelve missed.
+Stage 2 tests exactly those twelve misses, all in real/route.rs, and catches all twelve.
+All 26 raw catches equal their citations. Every cited test has normal PASS.
+All twelve stage-2 catchers also have baseline PASS.
+Baseline: 616 PASS, eleven slow, 2810 skipped, 40.977 seconds.
+The mutation stage durations are 80.9 seconds, 62.9 seconds for baseline, and 252.1 seconds for stage 2.
+No mutation remains missed, timed out, or unviable. The log has no FLAKY token.
+Fuzz selects no changed crate with a decoder harness.
+
+Both original removal ids have normal testkit and real PASS: tm_6_parked_work and tm_6_begin_and_attach.
+All 34 reported passing ignored real ids remain in the unchanged 43-entry real-pending list.
+Held-full runs three budget ids at 32 seeds: 96 expected ignored results, zero failures, 21.74 seconds.
+The full-input queue id remains pending and budget-held. No new removal follows from the profile mitigation.
+
+I read every changed line of the final body after the complete Round 5 body review.
+Final raw JSON SHA256: `23d1eeac493ad72fe9c9064142060d6be86ea784e7ef39cd5d507fac28a47934`.
+GitHub names this exact head and base.
+Gate entry 9 now reports the exact-head completed PASS, mutation identities, legacy-key duration, held-full scope, and final job durations.
+The final-slot section names this same completed gate. Earlier RED gates and all source/cache/evidence limits remain.
+
+No integration source, body, or evidence finding remains.
+I read complete package final acceptance at `4a9011bf0b2485f7eb1e6b86ecd17b7a877d5ea7`.
+Package receipt: `msg_plugin-w_1791780944_b08a7a`.
+Its exact source identity, completed final gate, mutation audit, body comparison, and retained limits agree with this review.
+Both final reviews have zero open findings. The prior default-budget acceptance condition closes on this completed exact-head gate.
+The canonical base-merge-check FAIL retains both explicit source delta reviews.
+The earlier local clean-proof, reversal, synthetic-event, attribution, and platform limits remain.
+Q7 and an equal-tree merge receipt remain due under the lead's role.
+This record accepts no later head, source tree, gate, or merge.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open) at 77eae642eaac0c56cde035870616d17bf2f877ba against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
