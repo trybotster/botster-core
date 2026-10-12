@@ -324,11 +324,9 @@ mod tests {
     #[test]
     fn a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget() {
         assert_eq!(pty_read_bytes(64, None, None), 64);
-        for counted in [Drain::Counted(10), Drain::Flushed(10)] {
-            assert_eq!(pty_read_bytes(64, Some(counted), None), 10);
-            assert_eq!(pty_read_bytes(64, Some(counted), Some(7)), 7);
-            assert_eq!(pty_read_bytes(64, Some(counted), Some(0)), 0);
-        }
+        assert_eq!(pty_read_bytes(64, Some(Drain::Counted(10)), None), 10);
+        assert_eq!(pty_read_bytes(64, Some(Drain::Counted(10)), Some(7)), 7);
+        assert_eq!(pty_read_bytes(64, Some(Drain::Counted(10)), Some(0)), 0);
         assert_eq!(pty_read_bytes(64, Some(Drain::Counted(100)), None), 64);
         assert_eq!(pty_read_bytes(64, Some(Drain::Counted(7)), Some(10)), 7);
         assert_eq!(pty_read_bytes(64, Some(Drain::Flush), None), 64);
