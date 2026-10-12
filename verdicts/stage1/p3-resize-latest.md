@@ -98,3 +98,49 @@ Owner receipt `msg_plugin-w_1791790911_e58d88` reports later head `e214bbe03bfe5
 Package Round 192 is CLEAN at `e214bbe03bfe5347879f6723f91eef7e96436fc7`. Its verdict is `51304c533d8460204ea4fcdc40c267b1e0a41052`, file `verdicts/p3-worker.md`. I read its published disposition. It closes F145 through F149 for package scope and reports the completed exact-head gate. Package receipt `msg_plugin-w_1791791622_0e8a06` explicitly grants no permission for integration round four. This record supplies no independent integration source or gate acceptance. The lead's decision remains required.
 
 VERDICT: NOT CLEAN (4 open)
+
+## Round 4: lead-authorized repair review
+
+- Head: `e214bbe03bfe5347879f6723f91eef7e96436fc7`.
+- Tree: `3782dff7e6759d8e85671b909ce2ebda70d20d0e`.
+- Previous integration head: `fd84949c27b2613fa3dbdcc4db4729152c1dd2c2`.
+- Reviewed delta: seven files, 692 additions and 62 deletions; the PTY-result interface, restoration, resize order, drivers, and behavior tests.
+- Source base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- Gate reference: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, not imported.
+- Package verdict: `51304c533d8460204ea4fcdc40c267b1e0a41052`, file `verdicts/p3-worker.md`, complete Round 192.
+
+Lead receipt `msg_plugin-w_1791818404_8a1341` explicitly approves round four at this head. If this round is NOT CLEAN, the PR must split; round five is not authorized. This round preserves the earlier round-limit history.
+
+### Boundary and finding closures
+
+**R311-I1 and F148 — HIGH — closed.** `Action::ResizePty` now has an answer through `Input::PtyResized(Result<(), i32>)`. Both drivers report the syscall result. Both use the raw errno, or EIO when no PTY exists. The real driver queues the answer before a later payload read. The testkit offers the ready answer before payload output or exit input. Both retain the same production worker state machine.
+
+The worker permits one outstanding PTY resize. It changes the model, revision, observed size, and route modes only after PTY success. A direct failure produces Internal and leaves those values unchanged. If the model refuses a size that the PTY accepted, the original completion waits for restoration. Its Internal detail distinguishes restoration success from failure.
+
+Failed restoration prevents a cached-size no-op. A later request for that size asks the PTY and waits for success before Applied. The public behavior tests cover that request, its completion, and the later normal no-op. A result after reap completes SessionEnded. Adoption retires queued host requests and the outstanding request number, including during restoration. It therefore sends no old-host completion through the new link.
+
+**F149 — MEDIUM — closed.** The worker computes the policy result at the input that changes it. A queued policy resize retains that size and arrival position. A partial read or ordinary input with no policy change leaves the queued resize in place. A later actual policy change replaces only the waiting policy entry and preserves host requests. The delayed-answer test checks both partial and complete ordinary input. It observes actions A, B, C and final modes C.
+
+**F145, F146, and F147 remain closed.** The current package review and gate retain failed-spawn completion, bounded real-test FIFO operations, and adoption retirement. I checked those boundary proofs and the driver result mapping. The #302 route-key bound and semantic-input charge remain. The earlier oracle-history repairs remain in both testkit layers.
+
+The list files do not change in this repair. The nine complete removals and three real-pending moves retain Round 1's fence and evidence limits. Host resize coalescing remains outside this PR. No production test branch, timeout increase, mutation exclusion, pin change, or additional pending removal appears.
+
+### Evidence
+
+I read the complete current body from `/private/tmp/review-p3-pr311-e214bbe0.json`. Its current repair descriptions agree with the source. Its historical gates retain their heads. It distinguishes the imported source base from the later gate reference.
+
+I read the restoration/order reversal script and full log. With the earlier worker source and the new tests, three tests fail and Cargo exits 101. After restoration, 225 tests pass and Cargo exits zero. The package clean exit does not prove a full target clean. This reversal supplies supporting evidence only. The separate current local-check record names a full target clean, the exact head, and numeric exits.
+
+Completed gate:
+
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p3-resize-latest-e214bbe0-pool-20261012-003514-95084.log`
+
+SHA256: `b8ab9ae44c96c4522049f094e88d4ab254e4c63a754a76641a24086a076bb5d1`.
+
+The header names this exact head and the stated gate reference. All ten steps pass. Default tests report 1965 passes and 416 skips. Slow tests report 630 passes and 2051 skips. The new restoration and ordering tests, earlier failed-spawn and adoption tests, and real PTY-size test pass.
+
+I independently matched 92 unique mutation outcomes: 83 caught and nine unviable, with no final miss or timeout. All 83 catches match their citations and have a normal PASS. No FLAKY token appears. Stage 2 catches the Payload::resize replacement through the real PTY-size test. The unviable outcomes comprise five unsupported Default replacements and four non-exhaustive match replacements. Fuzz selects no changed decoder harness. Job and wrapper exit zero after 368 seconds on msa1.
+
+Zero integration findings remain. This CLEAN accepts the complete PR source and READY evidence at this exact head. The final import, applicable train reviews, final train gate, member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
