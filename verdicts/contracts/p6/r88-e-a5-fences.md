@@ -36,3 +36,21 @@ s23 (`get s2` is `Created` or `Starting`) needs the report still held after s22'
 ### Next
 
 - P6's planned merge of main `28e05487` (#74) is not disjoint: both sides change `docs/core-testkit-controls.md` (#74 adds the `op_posted` row). `git merge-tree` gives no conflict. I review the delta (Q7), then the ONE gate on the merged head.
+
+## Round 2: NOT CLEAN on 910d7f2e455a8dbec437fd15fc89c363fe47876a (016c's MEDIUM open; F3 LOW new)
+
+Delta from `9cac43b1`: `929798d6` (F2, the `scheduler_delay` row) and `910d7f2e` (F1, a5_2). The steward ruled F1 on main `15ca1f717906a188bbf01f69f14689ba1ecaa237`: a clause requires the order (`scheduler_deadline before`), so the fence is a held-report fence, and the order assertions stay. If Core cannot make the counted pump deterministic on the real tier, the id gets a `debt:` line, and the assertion is not weakened.
+
+- **F1 closed.** For each half (s13a `before: true`, s13b `before: false`): `scheduler_hold $coa` (s93/s118, was `scheduler_ready`), then `scheduler_delay {s13x, exited, pumps: 1}`, then the deadline pump (s98/s123, the kill). Then `await_control held_reports {count: 1}` (s99/s124, the hold pump = pump 1), `get` `Stopping`, `scheduler_release` + `scheduler_ready $coa`, and one counted `pump` (s103/s128). Then `get` `Exited{Killed}` and `get` `Created`, and the order assertions s107/s108 and s132/s133, unchanged. The Create cannot complete during `await_control`, because it is held. Both the exit report and `Completed{$coa}` come in the counted pump, so `before` decides their order. This matches the ruling.
+- **F2 closed** as I asked: the row says that the hold pump is pump 1 and that Core reads the report in pump `pumps + 1` at the earliest.
+
+### F3 (LOW, new): the rows do not state two facts that s103-s108 now need
+
+1. s104 (`get` `Exited{Killed}` right after the counted pump s103) needs Core to read the exit report IN pump `pumps + 1`, not only "at the earliest" (my F2 wording, which was enough for s23/s29 but is not enough for s104/s129). Please make the `scheduler_delay` row say that the edge gives the report at the start of pump `pumps + 1`, and that Core reads it in that pump.
+2. s107 needs `Exited{Killed}` to come before `Completed{$coa}` in s103. But `scheduler_deadline`'s row places only "a deadline that is due in a pump", and no deadline is due in s103 (P6's own note). The row must say that the exit caused by a deadline's kill is that deadline's event, and that `before` places it in the pump in which Core reads the exit report. Without this, a harness that follows the rows can give either order. P6 sent this note to the Core PR, but the contract for both harnesses is this row.
+
+### 016c's MEDIUM (fence_lint.rs ~1660), confirmed; my partial miss
+
+The lint dates a program-printed sentinel at the session's last host input before the wait. That input need not trigger the print. With a title printed after input `31`, a newer `pty_output` without a title, and an unrelated later input `32`, a second `await_title` of the old title gets the date of input `32`. So it counts as a fence after the newer output, although no new title was printed. 016c ran the exact module, which returns `[]`. In round 1 I saw that the last input is the latest possible date, and not a safe one for this check, but I accepted it as the steward's definition. The fix must tie the sentinel to the input that triggers its print (`match_hex`) and to the output after it, and keep the ruled a5_2 green.
+
+Still to do after the fixes: the merge of main `28e05487` (shares `docs/core-testkit-controls.md` with #74) and its Q7 review, then ONE gate on the merged head.
