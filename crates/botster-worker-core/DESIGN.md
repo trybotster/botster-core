@@ -38,6 +38,13 @@ One line per file in `design/`, sorted by file name (pair-common, "Design docume
 The payload's exit is `Exited{code}` or `Exited{signal}` (EV-4), sent after one drain of the PTY that follows the exit, so the
 output written before the exit is read first (the final model holds it, ST-5).
 
+The drain (`Drain`, both drivers; A31, R-108) repeats a counted part and then a flushing read, and it ends only when a read
+finds nothing or the output ends (`EIO` or EOF). It has no byte bound: a count is only the size of the next reads (OU-7
+"lossless"; R-12). **Known contract gap (R-108 (3), Core Amendment 24):** a process that holds the PTY and keeps writing
+after the payload's exit (one that left the group after `Stop`'s kill, or a group member after the leader's own exit) keeps
+the drain going, and with it `Exited` and a `Stop`'s completion. Until Amendment 24 states when that tail ends, the drain
+does not stop it early, and no transcript asserts this case.
+
 ## Choices where the contract is silent (each is reviewable)
 
 | Choice | Reason |
