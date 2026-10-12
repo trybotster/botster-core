@@ -615,6 +615,7 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     let mut events = Events::with_capacity(16);
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut exited = false;
+    let mut saw_pty_event = false;
     while !exited {
         let left = deadline
             .checked_duration_since(Instant::now())
@@ -626,7 +627,10 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
         for event in &events {
             match event.token() {
                 EXIT => exited |= h.driver.exits.1.try_recv().is_ok(),
-                PTY => h.driver.pty_readable = true,
+                PTY => {
+                    saw_pty_event = true;
+                    h.driver.pty_readable = true;
+                }
                 _ => {}
             }
         }
@@ -644,7 +648,7 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     }
     if !read_while_waiting {
         assert!(
-            h.driver.pty_readable,
+            saw_pty_event,
             "a PTY event came on the poll before the exit"
         );
     }
