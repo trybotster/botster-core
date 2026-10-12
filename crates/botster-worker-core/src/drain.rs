@@ -1,7 +1,6 @@
 //! The drain of the PTY at the payload's exit (`Action::DrainPty`), as one decision that a driver advances after each read.
-//! The testkit edge drives it now. The real driver adopts it with audit finding A31 (#163 part B); until then the real
-//! driver's drain reads only the count, without the flushing read. That is the open A31 defect: the two drains differ
-//! until A31 lands (BUILD.md: a behavior that differs between them is an edge bug).
+//! Both drivers drive it: the testkit edge and the real driver (audit finding A31, R-107), so the two drains are the same
+//! (BUILD.md: a behavior that differs between them is an edge bug).
 
 /// The drain of the PTY that `Action::DrainPty` asks for at the payload's exit: the output written before the exit is read
 /// before the exit is reported (EV-4, ST-5), and output that a remaining process of the group writes later cannot hold the
