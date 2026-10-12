@@ -3448,3 +3448,16 @@ This CLEAN satisfies the requested #312 package source delta review on this exac
 Matching integration delta, other required member reviews, combined review when required, final train gate, final receipts, and equal-tree merge verification remain due.
 This verdict accepts no later head, different tree, or final train result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — matching train 4 integration delta
+
+Integration message: `msg_plugin-w_1791821690_8b186f`.
+Integration verdict: `cc05c841f4b02e096d4e72c1043b6b46aa8be9c3`, Round 6 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+It is CLEAN for the source delta at `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`, base `838e4bb01dda53c419ab824913fdc5adae7a16c1`, tree `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Its own-blob comparison, nine list formulas, imported interfaces, and retained evidence scope match package receipt `a401c753c91855cc484db771539e11b395db1ca9`.
+Both #312 train source delta reviews have zero open findings.
+Sol owns the combined review. Other member reviews, final train gate, member receipts, and equal-tree merge verification remain due.
+No #309, #311, or future frame-bound composition is accepted here.
+The reviewer runs no execution job and waits for the next assigned review doorbell.
