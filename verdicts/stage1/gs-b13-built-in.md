@@ -136,3 +136,26 @@ fn this_test_binary_was_built_in_this_worktree() {
 Required change: reject statement attributes, or evaluate them for both required tiers. Add this negative fixture. Sol-B sent this source finding to GS and 017c. Sol-B ran no local build, test, or gate.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Source supplement — `fec71f93`
+
+Exact head: `fec71f93d39977cf71f7787a86b18e6e6cb2dfce`. Delta from `836e879c`: only `xtask/src/built_in.rs`. The repair rejects call attributes, callee attributes, and inner body attributes. The new negative fixtures cover the reported conditional statement. This closes the attribute example.
+
+B13-I2 remains OPEN. Package reviewer 017c reported an unchecked argument in `msg_plugin-w_1791767647_5146ed`. Sol-B independently read `root_test_calls`, `assert_built_here`, and `check_here`. The matcher ignores `call.args`.
+
+This sole call satisfies the matcher:
+
+```rust
+botster_test_process::built_in::assert_built_here(
+    env!("CARGO_PKG_NAME"),
+    &std::env::var("CARGO_MANIFEST_DIR").unwrap(),
+);
+```
+
+The assertion forwards its second argument as the built root. Here it receives the runtime root, so the check compares that root with itself. A stale binary can pass. The matcher also accepts an unrelated callee that has the same final path segments.
+
+Required change: require the supported compile-time argument forms and actual callee paths. Reject unsupported expressions. Add negative fixtures for a runtime-root argument and an unrelated callee with the same suffix. Preserve the current valid tests.
+
+Sol-B sent the finding to GS and 017c. The completed gate and same-head package verdict remain due. Sol-B ran no local build, test, or gate.
+
+VERDICT: NOT CLEAN (1 open)
