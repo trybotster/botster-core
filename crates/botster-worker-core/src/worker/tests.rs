@@ -1618,6 +1618,57 @@ fn reads_come_from_the_model() {
     assert_eq!(modes.model_rev, screen.model_rev);
 }
 
+/// R-114 (DESIGN.md, "A read's reply follows the observations of the output before it"): the worker sends a read's reply
+/// only after the output observations of every byte that it applied before it took the read. The host is slow here, so
+/// the `Output` report of the second read waits; the reply sends it first.
+#[test]
+fn a_reads_reply_follows_the_observations_of_the_output_before_it() {
+    let mut w = World::running();
+    w.instant_link = false;
+    let mut actions = w.feed(Input::PtyOutput(b"a".to_vec()));
+    actions.extend(w.feed(Input::PtyOutput(b"\x1b]2;T2\x07\x1b[?25l".to_vec())));
+    actions.extend(w.send(&HostMsg::Op {
+        req: 1,
+        op: Op::ReadScreen {
+            session: sid(),
+            history: false,
+        },
+    }));
+    let reports = w.reports(&actions);
+    let Some((
+        WorkerMsg::Done {
+            req: 1,
+            result: OpResult::Ok(OpOutput::Screen(screen)),
+        },
+        before,
+    )) = reports.split_last()
+    else {
+        panic!("the reply is the last report: {reports:?}");
+    };
+    let observed = |m: &WorkerMsg, f: &dyn Fn(&Observation) -> bool| matches!(m, WorkerMsg::Observed { observation } if f(observation));
+    assert!(
+        before.iter().any(|m| observed(m, &|o| matches!(
+            o,
+            Observation::Title { title, .. } if title == "T2"
+        ))),
+        "{reports:?}"
+    );
+    assert!(
+        before.iter().any(|m| observed(m, &|o| matches!(
+            o,
+            Observation::Modes { flags, .. } if !flags.cursor_visible
+        ))),
+        "{reports:?}"
+    );
+    let last_output = before.iter().rev().find_map(|m| match m {
+        WorkerMsg::Observed {
+            observation: Observation::Output { model_rev },
+        } => Some(*model_rev),
+        _ => None,
+    });
+    assert_eq!(last_output, Some(screen.model_rev), "{reports:?}");
+}
+
 fn paste(req: u64, require_bracketed: bool) -> HostMsg {
     HostMsg::Op {
         req,
