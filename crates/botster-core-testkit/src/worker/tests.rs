@@ -40,6 +40,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         payload: None,
         spawned: None,
         exit: None,
+        watch_failed: false,
         drain: None,
         pty_write: None,
         pty_resized: None,
