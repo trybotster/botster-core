@@ -2204,3 +2204,17 @@ Premature package CLEAN cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c is superseded a
 No terminal package CLEAN from that commit was sent to the lead. Round 2 is NOT CLEAN with one open finding.
 All four earlier source/body findings remain closed. PC and Sol receive the correction before any terminal lead receipt.
 Wait for PC's completed correction receipt. No reviewer execution job runs. Never poll.
+
+Publication: corrected #319 Round 2 is pushed at 80d96b69804fda10d7f13eaa26f8bee4aa6ea462.
+PC and Sol receive NOT CLEAN with one open finding, CQ-RFT-5 / R319-SI-3.
+Premature CLEAN cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c is superseded. No terminal CLEAN went to the lead.
+The worktree is clean. Wait for the completed correction receipt. Never poll.
+
+Sol receipt msg_plugin-w_1791837647_fb7734 supplies complete #319 integration Round 2 at 7cc7f0ac08b5b4788de403834a84bdcf4d0bac71.
+The reviewer reads the complete verdict and verifies publication on the remote integration branch.
+It matches package 80d96b69804fda10d7f13eaa26f8bee4aa6ea462 on head fabbf66c, source base 08098782, and tree 56a6056c.
+Both reviews close four findings and retain CQ-RFT-5 / R319-SI-3 as MEDIUM. The two parent-gate FLAKY trials earn no credit.
+The reviewer independently confirms that the old head lacks the built_in_test macro API and current base 3e655eff defines it.
+The fix needs the newer dependency API. Sol has asked the lead to decide early import versus final-slot timing.
+That decision and completed corrected-head evidence remain due. No early import or provisional CLEAN is approved here.
+Wait for the lead decision or correction doorbell. No reviewer execution job runs. Never poll.

@@ -337,3 +337,19 @@ The reviewer proves the omission from source and runs no test or reproduction.
 Package commit `cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c` published CLEAN before the reviewer read Sol's new finding.
 That premature CLEAN is superseded. No terminal package CLEAN from that commit was sent to the lead.
 Round 2 remains NOT CLEAN with CQ-RFT-5 open. The four earlier closures and their evidence scopes remain valid.
+
+### Matching complete integration repair verdict and import decision
+
+Sol receipt `msg_plugin-w_1791837647_fb7734` supplies commit `7cc7f0ac08b5b4788de403834a84bdcf4d0bac71`.
+The reviewer reads its complete Round 2 in `verdicts/stage1/pc-route-frames-taken.md`.
+The reviewer verifies that the remote integration branch publishes that exact commit.
+It matches package `80d96b69804fda10d7f13eaa26f8bee4aa6ea462` on head `fabbf66c`, source base `08098782`, and tree `56a6056c`.
+Both complete reviews close the four earlier findings and retain CQ-RFT-5 / R319-SI-3 as MEDIUM.
+Both preserve the parent gate and its two FLAKY outcomes without catch credit.
+
+The reviewed head has no `macro_rules! built_in_test` in `botster-test-process`.
+Current base `3e655eff` defines that macro in `src/built_in.rs:127`.
+The marker fix therefore needs the newer dependency API before it can compile.
+Sol has asked the lead to decide whether PC can import that base before the final slot.
+This receipt records that pending decision; it approves no early import or provisional CLEAN.
+Wait for the lead decision or completed correction doorbell. Never poll. No reviewer execution job runs.
