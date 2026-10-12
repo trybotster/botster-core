@@ -8,11 +8,12 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #312 | Train 4 source delta CLEAN at `03709a0c`, Round 6. Final gate RED. The lead withdraws the unchanged re-gate request. R-107 identifies the Core exit-tail defect. | The lead plans train 4b after the owned known-flaky PR lands. A new source delta and fresh gate remain due. |
 | #309 | Replacement member source delta CLEAN at `f41b7e82`. Same-head package `ade8bbee` checked. RC-R100-TRAIN-1 closes through the fixture repair. | The lead excludes #309 from train 4 after a conflict. Train 5 work remains separate. |
 | #311 | Authorized Round 4 CLEAN at `e214bbe0`. Package Round 192 `51304c53` checked. | The lead excludes #311 from train 4 after conflicts. Final import and train 5 evidence remain separate. |
+| #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. KF317-1 closes through body precision. | Lead ancestry, equal-tree merge, and push verification. Future train 4b evidence remains separate. |
 
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 
-The lead assigns Sol and Sol-C to the new HIGH known-flaky PR under R-107. No READY head is supplied yet. P3 owns the A31 structural fix and must check each proposed identifier's exit shape.
+The lead assigns Sol and Sol-C to #317. Both reviews now accept its exact READY head. P3's A31 structural fix remains separate.
 
-R107-SI-1 closes by the steward's disposition at `fe209c65`: Output Ack means queued. The EV-2 entry must name the probe-write fence and A31, with both owners. Removal requires both fixes and the required failing-seed passes. No implementation is accepted yet.
+R107-SI-2 replaces R107-SI-1's EV-2 removal condition. The .45 title fence already fixes EV-2. The entry leaves with #316's .46 pin, together with restoration of the empty-list test. A31 no longer gates that removal.
 
 I ran no build, test, gate, or pool job. I read new messages only after a doorbell.
