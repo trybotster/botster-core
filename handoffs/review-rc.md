@@ -1776,3 +1776,52 @@ Its filtered reversal and multiplication-PASS limits match package receipt `2a79
 One acceptance condition remains: the completed new-head gate, full mutation closure, and matching body.
 Final-slot import and final evidence remain due after source CLEANs.
 The reviewer reads no running output and runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — corrected source verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/299`.
+Exact head: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Imported source base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Gate reference: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+The gate reference is not an imported ancestor. This distinction remains explicit in the body.
+Source tree: `1646e3c80c5843854069d8ae622d3324de847628`.
+Gate message: `msg_plugin-w_1791775998_7cfdaa`.
+Open package findings: 0, including LOW findings.
+RC-PIN43-1 through RC-PIN43-4 remain closed in the recorded source and body corrections.
+
+RC-PIN43-5 — LOW, closed in the published body.
+The reviewer identifies that the historical 3f1fc94d paragraph incorrectly calls all thirteen stage-1 misses real-tier mutants.
+Its raw line 5348 is a testkit subtraction miss. The reviewer requests a precise split.
+Correction message: `msg_plugin-w_1791776096_8ccc41`.
+The reviewer verifies the unchanged live head and complete body delta.
+The paragraph now names twelve real-tier misses and the one testkit subtraction miss, while retaining its baseline FAIL and absent stage-2 result.
+No source change or additional execution is required for this body correction.
+
+Completed source gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-42-7c7dadd1-pool-20261011-202300-83199.log`.
+The reviewer reads the exact header, step summary, suites, mutation records, catchers, relevant PASS records, held-full report, and final exits.
+The header names this exact head and gate reference. All ten steps pass.
+The step total is 572.6 seconds. The job and wrapper exit 0 after 585 seconds on msa1.
+The default suite reports 1856 passes. Both unmutated slow runs report 611 passes.
+The resume test passes in both slow runs; the new two-send test passes normally.
+The gate reports all three budget IDs at all 32 seeds through held-full.
+Stage 1 catches fourteen of 26 mutants; stage 2 catches the twelve remaining mutants.
+The combined result is 26 caught, no miss, no timeout, and no unviable result.
+All 26 raw catch identities equal 26 unique citation identities. Each cited test has a normal PASS. No FLAKY token exists.
+The subtraction mutant is caught in stage 1 by the new peer-byte test.
+No production mutant is hidden by the cfg(test) injection method, and no new exclusion covers progress.
+Fuzz passes without a changed decoder crate selected; no fuzz execution or Mac gate is claimed.
+
+The body preserves the earlier budget failure, old missed mutants, resume baseline failure, stopped queued job, and subtraction miss.
+It preserves both separate repairs, filtered reversal limits, synthetic-event limits, and the partial-write test limit.
+The 36 retained seed-zero passes and separately proved wake removal remain distinct.
+The two removed IDs have normal PASS records. The full-input ID stays pending with its approved budget hold and full-seed proof.
+The pin, copied CI bytes, per-project fetch ruling, and R-86 form remain as reviewed above.
+The real pending raw-data echo failure remains recorded in A5-4; no extra pending removal is accepted.
+
+This CLEAN covers the exact source head above. The integration reviewer must publish its completed matching source verdict.
+After both source CLEANs, the lead's final slot still requires one current-v1 import, applicable canonical check and delta reviews, one final exact-head gate, and final body.
+This source gate does not replace that final-slot gate. This verdict accepts no later head or different source tree.
+The reviewer ran no test, build, gate, or diagnostic.
