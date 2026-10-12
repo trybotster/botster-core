@@ -18,7 +18,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
-use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, HEADER_LEN};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, WorkerMsg};
 use botster_core_link::proof::TOKEN_LEN;
@@ -89,6 +89,11 @@ pub trait HostEdges: Send {
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
+    /// The bytes that the link's control stream may still take, beyond the driver's own count (IN-6, steward ruling R-91).
+    /// The production edge sets no bound of its own: the driver's bound decides. The testkit's `control_queue` answers 0.
+    fn link_room(&self, _link: LinkId) -> usize {
+        usize::MAX
+    }
     fn link_close(&mut self, link: LinkId);
     /// Write interest follows the outbound buffer (plan 2.5): on while bytes wait, off when none do.
     fn set_write_interest(&mut self, link: LinkId, on: bool);
@@ -190,6 +195,42 @@ pub struct HostDriver<E: HostEdges> {
     /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
     /// closes the link for it, after the frames that came before it (9B, TM-6).
     link_ends: BTreeMap<LinkId, String>,
+    /// The bound of each link's control stream, its unsent bytes (IN-6, steward ruling R-91; DESIGN.md "The control
+    /// queue").
+    pub(crate) control_bound: usize,
+    /// One control message: the size of the largest `Cancel` frame (SV-3: the refused cost).
+    pub(crate) control_message: usize,
+}
+
+/// The largest frame that a link takes: its header and the link's frame bound (`HostEngine::link_frame_bound`). It is the
+/// control queue's term for one host message with no input payload (steward rulings R-91 and R-100; DESIGN.md "The control
+/// queue"). It is a true bound: `encode_frame` refuses a larger payload, so no host message is queued larger. Some of those
+/// messages carry strings that no `CoreLimits` value bounds (R-100), so the frame bound is the only bound for them.
+pub(crate) fn largest_frame(frame_bound: u32) -> usize {
+    HEADER_LEN + frame_bound as usize
+}
+
+/// The bound of a link's control stream (DESIGN.md "The control queue"): the input that one session may retain (IN-5), one
+/// largest frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four cancels.
+/// With the default limits it is far above what a link holds in practice: the link edge's room (`HostEdges::link_room`) is
+/// the limit that binds.
+fn control_bound(limits: &CoreLimits, frame_bound: u32, control_message: usize) -> usize {
+    let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
+    usize::try_from(limits.input_retained_bytes)
+        .unwrap_or(usize::MAX)
+        .saturating_add(ops.saturating_mul(largest_frame(frame_bound)))
+        .saturating_add(4 * control_message)
+}
+
+/// The room of a link's control stream: the bound less its unsent bytes, and never more than the link edge allows.
+fn control_room<E: HostEdges>(
+    links: &BTreeMap<LinkId, LinkState>,
+    edges: &E,
+    bound: usize,
+    link: LinkId,
+) -> usize {
+    let unsent = links.get(&link).map_or(0, |s| s.out.len());
+    bound.saturating_sub(unsent).min(edges.link_room(link))
 }
 
 /// The next cursor ordinal of the data directory (steward ruling R-101 Q6): one above the registry's counter, or 1 when no
@@ -227,6 +268,13 @@ impl<E: HostEdges> HostDriver<E> {
         engine.next_ordinal = next_ordinal(&mut edges)?;
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
+        let mut payload = Vec::new();
+        HostMsg::Cancel { req: u64::MAX }.encode(&mut payload);
+        let mut frame = Vec::new();
+        encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame)
+            .expect("a cancel frame is within every frame bound");
+        let control_message = frame.len();
+        let control_bound = control_bound(&engine.limits(), frame_bound, control_message);
         Ok(HostDriver {
             engine,
             edges,
@@ -236,6 +284,8 @@ impl<E: HostEdges> HostDriver<E> {
             failed_handoffs: std::collections::VecDeque::new(),
             next_exit: None,
             link_ends: BTreeMap::new(),
+            control_bound,
+            control_message,
         })
     }
 
@@ -628,9 +678,29 @@ impl<E: HostEdges> HostDriver<E> {
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
+            self.control_room(link, budget);
             self.retry_held(link, budget);
             self.read_link(link, budget);
         }
+    }
+
+    /// After a flush: a control stream with room for one control message lets a session whose `cancel` was refused `Full`
+    /// post `SessionWritable` (IN-6, SV-3). The event counts against the pump (9B); with no budget left it waits for the
+    /// next pump, which the pump reports as `more`. A link with no refused cancel has no waiting work, so its room is never
+    /// `more` (TM-6).
+    fn control_room(&mut self, link: LinkId, budget: &mut Budget) {
+        if !self.engine.waits_for_room(link)
+            || control_room(&self.links, &self.edges, self.control_bound, link)
+                < self.control_message
+        {
+            return;
+        }
+        if budget.exhausted() {
+            budget.more_input = true;
+            return;
+        }
+        self.engine.control_room(link);
+        budget.account(&mut self.engine);
     }
 
     /// An open link of an ended worker with no held frame is runnable work (R-78 item 4, TM-6: `more` only for input that is
@@ -1012,9 +1082,17 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     }
 
     /// The cancel's message to the worker is queued, and the next `pump` sends it (OR-1, TM-6, IN-6: `Admitted` is "admitted to
-    /// the worker stream").
+    /// the worker stream"). A control stream with no room for one control message refuses it `Full` (IN-6, R-91).
     fn cancel(&mut self, op: OpId) -> CancelResult {
-        let result = self.engine.cancel(op);
+        let (links, edges, bound, need) = (
+            &self.links,
+            &self.edges,
+            self.control_bound,
+            self.control_message,
+        );
+        let result = self
+            .engine
+            .cancel_with_room(op, |link| control_room(links, edges, bound, link) >= need);
         self.sync_wake();
         result
     }

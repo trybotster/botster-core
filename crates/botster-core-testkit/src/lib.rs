@@ -28,6 +28,7 @@ pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod pty_controls;
+pub mod queue_controls;
 #[cfg(feature = "slow")]
 pub mod real;
 pub mod refusal;
