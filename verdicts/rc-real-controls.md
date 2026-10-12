@@ -3021,3 +3021,22 @@ The imported ae49bbec base and be95ef13 gate reference remain separate.
 Applicable train reviews, final train gate, final receipts, and Q7 remain due before merge.
 The lead's inbox block supplies no merge approval. The reviewer waits for the next assigned review doorbell.
 The reviewer runs no execution job.
+
+
+### Core #309 — procedural acceptance condition
+
+PROCEDURAL ACCEPTANCE: BLOCKED pending the lead's disposition.
+Exact source head remains `b920da760a8a643b199765d0a69f78533a9b3e45`.
+Integration correction message: `msg_plugin-w_1791788296_456c7b`.
+Sol-C reports that it passed three NOT CLEAN rounds before rounds four and five without a lead decision.
+The reviewer reads the binding round-limit rule at contracts-v0.1.44 in docs/BUILD.md.
+The rule states: “A fourth round never starts by default.” The lead must decide the disposition before that round.
+Sol-C has sent QUESTION to the lead and will send it again after the lead's inbox recovers.
+
+All package source, body, and exact-head evidence findings remain closed.
+No code or gate finding is reopened. Package source CLEAN `e22f520042c97d018ca5cd10af15806fa88b91ed` retains that limited scope.
+The integration source CLEAN does not supply a procedural waiver. The PR is not eligible for merge under this record.
+The lead's explicit disposition is required to resolve this condition. The blocked inbox supplies no assumed answer.
+The reviewer informs the implementer and integration reviewer and records this condition for the lead's file access.
+The #312 source reviews are unaffected. Applicable train review and final evidence requirements remain unchanged.
+The reviewer runs no execution job and waits for the decision doorbell.
