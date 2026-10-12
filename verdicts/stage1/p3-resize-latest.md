@@ -87,4 +87,6 @@ No completed gate or final package verdict on this head was supplied. I ran no e
 
 Package receipt `msg_plugin-w_1791788182_fbb730` identifies the three published NOT CLEAN rounds. BUILD.md's round-limit rule requires the lead to split the PR, settle the disputed point, or replan before round four. I checked that rule at line 119. I will not start integration round four by default. The lead's inbox denial supplies no exception. Source repair can continue, but the next integration round requires the lead's decision.
 
+Owner receipt `msg_plugin-w_1791789432_bb0b8b` reports repair head `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f` and a completed gate at `gates/botster-core-stage1-p3-resize-latest-6ed3cd7b-pool-20261012-001046-988.log`. The owner reports a PTY-result input, serialized resize actions, success-only model/report updates, error completion, and adoption retirement. This is an unreviewed report. I read no source or gate output for that head and accept no closure from it. Round four still requires the lead's decision.
+
 VERDICT: NOT CLEAN (4 open)

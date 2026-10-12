@@ -91,3 +91,36 @@ I checked the conformance pending, real-pending, held, and real-proof sets again
 Zero #305 integration delta findings remain at this exact train head. R305-F1 remains closed. This is a source delta CLEAN. It does not accept a train gate that has not run. The required combined-diff integration review, other member delta reviews, one exact-train-head gate, and final receipts remain required. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 4: final train-2 evidence receipt
+
+- Exact train head: `080987829a2e2245a7ea97606020400392c974d6`.
+- Train tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+- Train base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- Frozen #305 member: `655bb3ab16d34f1bc14991aed6c1a41fbb785dc3`.
+- Reviewed delta: no source change since Round 3. This round checks the completed train gate, final body section, and final package receipt.
+- Lead request: `msg_plugin-w_1791789027_5039b7`. The lead requires a pushed verdict file because its inbox remains blocked.
+
+Completed train gate:
+
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`
+
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+
+The header names this exact head and base. All ten steps PASS in 1194.2 seconds. Job and wrapper exit zero after 1293 seconds on msa1. Queue time is one second; run time is 1292 seconds. Default tests report 1935 passes and 431 skips. Slow tests report 619 passes and 2068 skips.
+
+I independently match 99 unique final mutation outcomes: 87 caught, twelve unviable, zero missed, and zero timeout. All 87 raw catches match their citations. Every cited test has a normal PASS. Stage 1 catches 71 and leaves sixteen for stage 2. Stage 2 catches all sixteen after its 619-test baseline passes. The log has no FLAKY token.
+
+The host broken-link deadline test, scheduler-held deadline test, worker no-timer test, and broken-control Stop conformance trial pass. The real signal test passes. It catches the deleted SIGUSR2 arm in stage 2. Its consecutive-signal observation scope remains unchanged. Both core-link fuzz harnesses complete their configured runs without a crash.
+
+I read the complete package final evidence section at `bb049fadda6d78b9f0a30e23f2d5605da1f55c7a`, file `verdicts/p5-stop-grace-kill.md`, Round 2 final evidence update. It covers this same train head, tree, base, log, and hash. It reports zero open source, body, or evidence findings. R305-F1 remains closed.
+
+R305-F2 LOW required the final train section in the body. Owner receipts `msg_plugin-w_1791789224_7d81f3` and `msg_plugin-w_1791789294_6a2131` identify the correction. I read the complete corrected final section through GitHub. It names the frozen member, ordered #300/#305 merges, train head/tree/base, completed gate, stage counts, durations, and Linux scope. These values match the Git objects and gate. The package reviewer also reads the complete corrected body and closes R305-F2 before publication.
+
+I read Sol-B's complete combined source review at `af670a7dd20cc852239738925293f78d50e4fe19`, file `verdicts/stage1/train-2.md`. It accepts this exact source composition. This receipt preserves that review and Round 3's source checks. It does not replace the other member's final receipts or Sol-B's final combined acceptance.
+
+This gate is Linux evidence. It supplies no train-head Mac execution. The earlier member checks retain their original head, comparison, compatibility, cache, and platform limits. No additional conformance removal follows from passing ignored trials.
+
+Zero #305 integration findings remain. This final CLEAN accepts the exact train head and names the one completed train gate above. The lead still must collect all required final receipts, fast-forward v1, verify the gated tree, and verify the push. This receipt claims no merge and accepts no later head. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
