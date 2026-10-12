@@ -873,6 +873,7 @@ impl Spawner for WorkerSpawner {
             exit: None,
             drain: None,
             pty_write: None,
+            pty_resized: None,
             wait_writable: false,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
@@ -996,6 +997,8 @@ enum Ready {
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
+    /// The answer to `ResizePty`.
+    PtyResized,
     /// The hold of the start ended, and the worker kept a spawn: the spawn runs now, and its answer is the input.
     HeldSpawn,
     /// A `PtyWrite` waits to be offered to the program.
@@ -1066,6 +1069,8 @@ struct WorkerEdges {
     drain: Option<Drain>,
     /// The bytes of a `PtyWrite` that the program has not been offered yet.
     pty_write: Option<Vec<u8>>,
+    /// The answer to the last `ResizePty`, until the worker takes it.
+    pty_resized: Option<Result<(), i32>>,
     /// The program took no byte at the last write: `PtyWritable` follows its write readiness.
     wait_writable: bool,
     /// The inputs counted by the last `ready`.
@@ -1271,6 +1276,10 @@ impl Binding<SharedWorker> for WorkerEdges {
             if !self.start_held() {
                 self.ready.push(Ready::HeldSpawn);
             }
+        } else if self.pty_resized.is_some() {
+            // As on the real driver, the answer comes before any later input of the payload: output that the program
+            // writes at the new size reaches the model after it took the size.
+            self.ready.push(Ready::PtyResized);
         } else if self.payload.is_some() {
             if self.wait_writable
                 && self
@@ -1383,6 +1392,9 @@ impl Binding<SharedWorker> for WorkerEdges {
             }
             Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
+            Ready::PtyResized => {
+                Input::PtyResized(self.pty_resized.take().expect("counted as ready"))
+            }
             Ready::HeldSpawn => {
                 let spec = self.held_spawn.take().expect("counted as ready");
                 Input::Spawned(self.spawn_payload(&spec))
@@ -1527,7 +1539,7 @@ impl Binding<SharedWorker> for WorkerEdges {
                 self.poll_payload_exit();
             }
             Action::ResizePty(size) => {
-                if let Some(program) = self.payload.as_mut() {
+                let resized = self.payload.as_mut().map(|program| {
                     let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
                     let (width_px, height_px) = size.cell_px.map_or((0, 0), |px| {
                         (
@@ -1535,14 +1547,18 @@ impl Binding<SharedWorker> for WorkerEdges {
                             clamp(size.rows.saturating_mul(px.height)),
                         )
                     });
-                    // The scripted program takes every size; it has no answer, as on the real PTY.
-                    let _ = program.resize(WindowSize {
+                    program.resize(WindowSize {
                         cols: clamp(size.cols),
                         rows: clamp(size.rows),
                         width_px,
                         height_px,
-                    });
-                }
+                    })
+                });
+                // No PTY any more (the leader was reaped): the resize fails as one of a closed PTY does.
+                self.pty_resized = Some(match resized {
+                    None => Err(EIO),
+                    Some(result) => result.map_err(|e| e.raw_os_error().unwrap_or(EIO)),
+                });
             }
             Action::ReapPayload => {
                 self.payload = None;
