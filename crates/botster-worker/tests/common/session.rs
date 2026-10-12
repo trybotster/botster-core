@@ -876,7 +876,9 @@ impl RouteClient {
 }
 
 /// DP-2, DP-5, OU-9 on the real driver (plan section 6.3 item 1): the route's stream carries `attached`, the baseline and
-/// `live`; then the client's input reaches the payload, and the payload's output reaches the client.
+/// `live`; then the client's input reaches the payload, and the payload's output reaches the client. It is a proof of Core
+/// DP-2 (`conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`, real-only `slow:fd-handoff`): the real worker
+/// binds the stream that it received with its `AttachRoute` frame as the route's own.
 #[test]
 fn a_real_route_carries_the_attach_the_input_and_the_output() {
     use botster_route_codec::prelude::{Op, ToClient, ToWorker};

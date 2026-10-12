@@ -12,6 +12,9 @@
 #   botster-core::slow_conformance names no other trial.
 # - The doc comment of each named test cites its `conf::<id>` and its clause; the reviewers check it by reading.
 conf::ad_6_reused_pid_is_never_killed	botster-core::slow_conformance	conf::ad_6_reused_pid_is_never_killed
+conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy	botster-core::slow_facade_worker	the_host_keeps_its_copy_of_a_route_stream_until_the_worker_reports_it_received
+conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy	botster-core::slow_facade_worker	the_worker_owns_the_route_stream_and_the_host_moves_no_byte_of_it
+conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy	botster-worker::bin/botster-worker	slow_driver::a_real_route_carries_the_attach_the_input_and_the_output
 conf::e1_1_worker_found_by_host_supplied_path	botster-core::slow_conformance	conf::e1_1_worker_found_by_host_supplied_path
 conf::lc_2_data_dir_is_exclusive	botster-core::slow_real_core	a_second_open_is_refused_until_the_first_is_dropped
 conf::lc_2_data_dir_is_exclusive	botster-core::slow_real_core	an_open_held_by_another_process_is_refused_until_that_process_dies
