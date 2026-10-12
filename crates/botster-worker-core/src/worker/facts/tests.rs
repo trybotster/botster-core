@@ -495,3 +495,45 @@ fn an_oversize_record_with_no_payload_is_minimal() {
     );
     assert!(r.payload_truncated);
 }
+
+/// Steward ruling R-116: the newest record and its status update are always kept. When their minimal form alone exceeds
+/// `input_events_bytes` (route tags of control bytes at `max_route_tag_bytes`, which JSON writes as six bytes each, with
+/// `input_events_bytes` at the 9B minimum), the list keeps both, with the full source, drops every older record and
+/// reports `gap`. This is the only case where the list exceeds the bound.
+#[test]
+fn protected_records_over_the_byte_bound_are_kept_with_a_gap_and_nothing_older() {
+    let t0 = start();
+    let tag_bytes = CoreLimits::default().max_route_tag_bytes;
+    let minimum = 2 * (128 + 2 * u64::from(tag_bytes));
+    let mut facts = Facts::new(1, &limits(64, minimum), t0);
+    let older = facts
+        .received(t0, client(), Content::Payload(&bytes(b"a")))
+        .unwrap();
+    facts.ended(older, InputRecordState::Written, Some(1));
+    let tag = "\u{1}".repeat(tag_bytes as usize);
+    let source = InputSource::Client {
+        route_tag: Some(tag.clone()),
+        owner: Some(tag),
+    };
+    let newest = facts
+        .received(t0, source.clone(), Content::Payload(&bytes(b"bc")))
+        .unwrap();
+    facts.ended(newest, InputRecordState::Written, Some(2));
+    let read = facts.read(t0, None);
+    assert!(read.gap, "the older record was dropped");
+    let [InputRecordEntry::Record(r), InputRecordEntry::StatusUpdate(u)] = read.records.as_slice()
+    else {
+        panic!("only the protected pair: {:?}", read.records);
+    };
+    assert_eq!(u.updates, r.cursor);
+    assert_eq!(r.source, source, "the full source is kept");
+    assert_eq!(
+        (r.kind, r.payload.as_ref()),
+        (InputKind::Bytes, None),
+        "the minimal form"
+    );
+    assert!(r.payload_truncated);
+    let len = serde_json::to_vec(&read.records).unwrap().len() as u64;
+    assert!(len > minimum, "{len} <= {minimum}");
+    assert_eq!(facts.list_len(), len);
+}
