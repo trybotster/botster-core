@@ -2760,3 +2760,82 @@ The implementer confirms the initial worker bound and plans checks against DEFAU
 That planned repair and its shared-decoder regression remain unreviewed.
 Both reviewers wait for the repaired exact head and completed evidence. No CLEAN carries from this head.
 The reviewer runs no execution job.
+
+
+### Core #312 — contracts .44 source verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/312`.
+Exact head: `54805661b93f7acc7c548d0a429d429247c54255`.
+Imported source base and gate reference: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Source tree: `02831589acd6254eb42b6bf68b4e8a35cf10ef4f`.
+READY message: `msg_plugin-w_1791786647_486707`.
+Open package findings: 0, including LOW findings.
+The HIGH tier is correct: the PR moves a pin and changes the shared testkit.
+
+The reviewer reads the complete five-file Core delta, .44 tag annotation, changed controls and probe protocol, applicable rulings, and evidence.
+The seven direct dependencies move from .43 to .44. All nine contracts lock records use commit `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+No other lock record changes. The checked CI job bytes equal the .44 tag's bytes.
+No new control operation enters this tag. Probe print reporting changes oracle_resume condition 1 under an opt-in variable.
+The tag and lead explicitly assign the serving implementation to P3 after this pin.
+Programs::env still sets only CONTROL_ENV. The probe sends Printed only when PRINTS_ENV equals 1.
+The new unused report arm enables compilation without claiming support for print history.
+The existing known-output-history check still refuses programs with prints. Its normal and baseline tests pass.
+This verdict accepts no implementation of the later P3 print-history work or new terminal model.
+
+The route-log test finds the single route_expect_pty step by its key, then changes and truncates that step as before.
+The transcript contains exactly one such read. Both attribution tests retain their public transcript outcomes.
+The test adds no private-state assertion, real process, sleep, or terminal expectation.
+The inserted program_ready fence moves the zero-based read index from twelve to thirteen.
+The existing await_quiet remains before the read.
+
+The reviewer independently compares all nine removed IDs with the .43 and .44 fence-exception lists.
+Every removed ID has an old exception and no .44 exception. No ID enters the pending list.
+All nine have normal testkit and real PASS records in the exact-head gate.
+Five are minimum IDs: dp_3_data_frames_are_raw, dp_5_bytes_and_text_reach_the_pty_exactly, ou_1_attach_hands_transport_to_worker, ou_3_progressing_reader_lossless, and ou_9_attach_is_sync_baseline_in_pump.
+The reviewer reads their program-ready, input, held-write, and output-title fences as applicable.
+The four other removals are the three named dp_5 IDs and in_9_key_encoded_by_worker_modes_at_write.
+The latter uses the R-74 held-write fence. The dp_5 reads retain their empty-read and positive input-fence conditions.
+The remaining passing real-pending IDs retain their recorded owner and reason. This verdict accepts no additional removal.
+
+RC-PIN44-1 — LOW, closed in the body.
+The initial body says the lock changes only seven crates. The corrected body distinguishes seven direct dependencies from nine lock source records.
+Correction message: `msg_plugin-w_1791786878_940b3a`.
+
+RC-PIN44-2 — MEDIUM, closed in the body.
+The initial body calls #309's R-100 gate a v1 baseline and misstates its gate reference.
+The corrected body cites the plain be95ef13 train-1 gate and makes no causal claim for the raw-data change.
+The reviewer independently verifies its exact header and 35 observed passes among 43 pending IDs.
+Eight of these nine removals appear in that set. dp_3_data_frames_are_raw does not.
+The exact-head .44 gate and absent fence exceptions supply the removal evidence, independently of that baseline observation.
+
+RC-PIN44-3 — LOW, closed in the body.
+The initial body says .44 adds await_quiet. The transcript delta actually adds program_ready before route_send.
+Correction message: `msg_plugin-w_1791786972_17bb6e`.
+The reviewer verifies the old and new transcript indices and the published correction to the body and commit-message claim.
+All three corrections leave the exact source head unchanged.
+
+Completed source gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-44-54805661-pool-20261011-232531-16645.log`.
+Log SHA256: `2ee6636403272d6fd6805631945e20ba967a50390f9e9937ae6108803828935e`.
+All ten steps pass in 268.2 seconds. Jobq and the wrapper each exit zero after 277 seconds on msa1.
+The default suite reports 1920 passes. The ordinary slow suite and unmutated mutation baseline each report 626 passes.
+Strict summaries report 260 passes and no failure. The default seed setting is 0-31; the slow seed setting is zero.
+The nine real removals use the PR gate's normal real PASS evidence. No separate full-seed real run is claimed.
+The mutation run tests one mutant. Stage 1 misses it; stage 2 catches that exact serve replacement.
+Its cited cancellation test has a normal PASS. No miss, timeout, unviable result, or FLAKY token remains.
+The mutation configuration equals the previously reviewed configuration byte for byte, including every exclusion.
+No exclusion covers serve, print-history checks, or the changed route-log test beyond the existing test-file exclusion.
+Held-full runs three budget IDs at 32 seeds. The 34 remaining real-pending IDs include 27 observed passes; all remain pending.
+Fuzz selects no changed decoder crate. No fuzz execution or Mac gate is claimed.
+
+The reviewer reads the supplementary strict script and log on be95ef13 with the uncommitted two-file pin delta.
+It reports seeds 0-31, 260 passes, no failure, and exit zero. Its clean marker supplies no numeric clean exit or independent raw clean proof.
+The exact-head gate supplies acceptance. The separate slow evidence job reports 617 passes before the nine removals.
+The earlier E0004 build failure and route-log index failure remain explicit in the body and are closed by this exact-head gate.
+The reviewer reads the complete corrected body and verifies GitHub's exact head and base.
+
+This CLEAN covers the exact source head and completed source evidence. Sol-C's matching source verdict remains due.
+Applicable train delta reviews, combined review when required, final train gate, final receipts, and Q7 remain due before merge.
+This verdict accepts no later head or different source tree.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
