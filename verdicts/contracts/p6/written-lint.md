@@ -42,3 +42,19 @@ No finding. CLEAN on `9dbb526c4dc536e62b45cd8a72739a9d94054215`.
 Note for 016c (package scope, not a finding): the running total is kept per session name for the whole transcript. The probe's count starts again at 0 in a new probe process (after `Restart`, or after a `Create` that reuses a removed name). There the lint covers fewer outputs than the probe proves. That can give a false finding, and it cannot hide a case. No corpus transcript has a `pty_output_written` wait after such a restart.
 
 No finding. CLEAN on `635c014acd96e5119c2129ebf15cac888eba6398`.
+
+016c's round 2 (REJECT on `635c014a`): F1, F3 and F4 closed; F2 open (a title inside an output covered the bytes after it, and an old title fenced a new A-then-T output); new F5 (MEDIUM), from my per-probe count note.
+
+## Delta round 2: CLEAN on 2682b631b14375de611df7e6d3b05bd9681fa317
+
+- **The delta.** One commit, `2682b631`, on `635c014a`. It changes only `fence_lint/written.rs`.
+  - F2: a required title covers the outputs up to the first output that holds it, and it covers that output only when the output ends with the title. A title equal to the last proven title (or the program's `print` title) covers nothing.
+  - F5: each `Create` of a name builds a new `Session` with a count of 0, and `Restart` resets the count, the unfenced outputs and the title to the program's `print` title. Adoption keeps the count, because adoption keeps the probe process.
+- **The corpus.** The corpus test passes with no new exception line (0.938 s). Each corpus title fence ends its output: `ev_2` s67 (`OSC 0 TB ST`), `ev_2_retired` s122 (BEL, then the sentinel, which ends it), `ev_1` s10 (`OSC 0 T3 ST`) and `e3_1` s17 (the sentinel ends it). The A23 transcript's `{bytes: 14}` is its total in one probe.
+- **The reversal with the unfenced transcripts** (`…-reversal-2682b631-20261012-114534.log`, HEAD `2682b631`): exactly `ev_2` s67, `ev_2_retired` s55 and `ev_5_released` s60, then a restore.
+- **Per-check reversals** (`…-check-reversals-2682b631-20261012-114322.log`, HEAD `2682b631`): 19 stubs. Each one turns 1 to 12 `written` or corpus tests red, apart from the two `unheld` wall-clock tests on the Mac.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 429 s on gaming, base main `1fa085fa`: `~/botster-sessions/gates/botster-contracts-p6-written-lint-2682b631-pool-20261012-114546-75340.log`.
+- **Main** is `1fa085fa`: #95's merge (`8dabe804`, probe paths only) and R-110 (`docs/steward-rulings.md`). Neither touches `fence_lint`. The steward makes #94's base merge with its own gate, and I check it per Q7. That gate lints the A23 transcript with this rule.
+- **Round count.** 016c has given two NOT CLEAN rounds (on `9dbb526c` and `635c014a`). A third would reach BUILD.md's limit.
+
+No finding. CLEAN on `2682b631b14375de611df7e6d3b05bd9681fa317`.
