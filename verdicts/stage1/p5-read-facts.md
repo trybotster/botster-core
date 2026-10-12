@@ -92,3 +92,67 @@ The complete matching package review and any corrected source delta remain due b
 The reviewer changes no product code and runs no execution job.
 
 VERDICT: NOT CLEAN (2 open; complete review remains in progress).
+
+## Inspection 2 — VERDICT: NOT CLEAN (1 open; R-116 applied, complete review remains in progress)
+
+Current supplied head: `db97736b173d32ab78377a8f5ec2c6d083636bb8`.
+Tree: `4d51aaac22b84007f83a614e62178e325e5afae2`.
+Parent: `1dbbb241d94f8e99eb7250dc883314ff99790c0e`, tree `ee850db6875083571187bc2027575c01ce692dba`.
+Source base remains `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Wrap correction: `msg_plugin-w_1791839571_626a88`.
+R-116 test/documentation correction: `msg_plugin-w_1791839746_e41588`.
+Scope: complete supplied documentation corrections, complete R-116 ruling, and the new overflow test against unchanged facts production code.
+The complete remaining source and evidence review and matching package verdict remain due.
+
+### R320-SI-1 — LOW, closed
+
+The reviewer reads the complete 1db wrap correction and compares the complete R-100 worst-case item word for word.
+Only whitespace changes. Its maximum line width is 119.
+The earlier topic move's exact 397/816 word checks, 120-column limits, links, and preserved existing rules remain applicable.
+The current complete body names both new topic paths and preserves the gate at its actual 0da READY head.
+Body SHA-256: `ae6ecde87831d90980ad807356605980a782824a985702453fc1d4fd1fdeb167`.
+The required topic move, references, and wrap are complete. The finding closes without a new execution requirement.
+
+### R-116 decision and revised R320-SI-2 closure
+
+Lead decision: `msg_plugin-w_1791839671_297d20`.
+The reviewer reads complete R-116 at contracts `3ad0ce7e7bc0fd3df44c64b9de4a1b7061eda34d`.
+R-116 resolves the apparent conflict in favor of unconditional retention.
+The frozen 9B minimum stays. Attach adds no restriction. The minimal form retains full source tags.
+If the minimal protected record or pair alone exceeds input_events_bytes, Core keeps it, drops every older record, and sets gap.
+Only that case permits overflow. Every other retained list remains within the byte bound.
+No contracts amendment, pin change, new control, or conformance id follows from this ruling.
+R-116 supersedes the earlier finding's assumption that the byte bound was unconditional.
+It also supersedes the earlier request for a contract-path decision. The decision is now complete.
+
+### R320-SI-2 — MEDIUM, open: the overflow itself does not set gap
+
+The db correction adds the required control-character source case to facts/tests.rs and describes R-116 in the topic file.
+The reviewer reads that complete two-file delta. Production facts.rs remains unchanged.
+The new test first appends an older record and its update, then the over-bound protected pair.
+Its read uses after None, and its gap assertion explicitly depends on the older record's removal.
+That test proves the supplied history-loss path. It does not prove the overflow signal when no older record was removed.
+
+With an empty log, receive the same control-character-tagged first client input.
+The minimal newest record already exceeds the byte bound. Retain finds no unprotected entry and returns without changing dropped_upto.
+Facts::read(None) therefore reports gap false: its current condition checks only dropped_upto, which remains zero.
+Completion appends the protected status update. Neither protected entry can be dropped, so dropped_upto still remains zero.
+The over-bound pair still reports gap false. This contradicts R-116's explicit overflow condition.
+An incremental read with a cursor at or above the dropped floor can also report false while the protected list still overflows.
+These are static source paths. The reviewer runs no reproduction.
+
+Required closure:
+
+1. Make the protected-list overflow itself cause gap, independently of prior retention loss.
+2. Cover an over-bound first input while pending and after completion.
+3. Cover a same-instance incremental read whose prior drop condition is false while overflow remains.
+4. Preserve full source, unconditional protected retention, the frozen minimum, and the bound in every other case.
+5. Supply applicable corrected-head evidence and both complete delta reviews.
+
+Remaining-path notices: owner `msg_plugin-w_1791839819_ee2e51`; package `msg_plugin-w_1791839819_8769d4`.
+The owner's two retained reversal variants address dropping protected entries. They do not address this missing gap condition.
+Those reversal logs are not yet audited in this record.
+The READY gate stays scoped to 0da. The db unit test and any further source correction need their own evidence scopes.
+Continue independent review while the owner corrects this remaining path. No integration CLEAN is granted.
+
+VERDICT: NOT CLEAN (1 open; complete review remains in progress).
