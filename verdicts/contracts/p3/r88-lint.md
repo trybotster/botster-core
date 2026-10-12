@@ -124,3 +124,17 @@ Open:
 - **F1 (LOW), partly open.** P3's READY says "e3_1_carried's lines go, because #71's `parked_work {s2}` fences them". Only steps 27 and 32 go. Steps 28-31 stay, with the old debt text: "an R-57 title sentinel on s17's output and await_title s1 before s18, then await_control parked_work {s1} {parked: true}". The title fence has landed (#71, s18), #71 proved s2 parked in 32 of 32 and s1 INCONCLUSIVE, and the s32 fence comes after these reads. So these four lines prescribe the fence that F1 asked to remove. Please give them the same form as the eventless/runnable_silent lines (the session that per-seed runs prove parked, a fence before the read, at the un-pend), or an `exception:` with a reason, and correct the READY text.
 
 Still to do after the next head: the second merger reconciles with #75 if it lands first.
+
+## Round 3: CLEAN on 522e5485cee9aa574c9bfb94ef52edba6c3ad23a
+
+One commit on `2b4cad92`.
+- **016c's MEDIUM: closed.** `State::parked_seen` holds each (handle, session) whose parked frame a `parked_work` fence has used. A second read of it returns without clearing, until a step on that handle takes events from the queue (`TAKES_EVENTS`: the polls, `drain`, `collect_events`, `pump_until`, `pump_collect`, and the event forms of `expect`, `expect_eventually` and `expect_set`, but not a route's `on` form). Red cases: two reads give `[6]`, and a read of another session gives `[6]`. With a `drain` between the two reads, the result is `[]`.
+- **F1: closed.** e3_1_carried s28-s31 stay as debt for P5, and their text now states the facts: the s18 title fence and #71's `parked_work {s2}` at s32 are in (s2 proved in 32 of 32 seeds, s1 INCONCLUSIVE), but these reads come before s32, so each needs its own `exception:` reason or an earlier fence at the un-pend. P3's round-2 READY claim is corrected in the PR body.
+- Gate PASS on the exact head, all ten steps, exit 0 after 180 s on msa1, base main `8ce40a0d`: `~/botster-sessions/gates/botster-contracts-p3-r88-lint-522e5485-pool-20261011-172108-78178.log`, sha256 `d92f402b26db70c6041840619268b0ace9aef8729f45b9bdb5497042435b2750` (I computed it).
+- Main is now `13ad6720`. `8ce40a0d..13ad6720` changes only `docs/steward-rulings.md`, which is the rulings-only exception.
+
+No open finding. CLEAN on `522e5485`.
+
+Merge order notes:
+- #66 changes `conformance/core-fence-exceptions.txt` and `driver_steps.rs` (`driver_steps.rs` is not in #73). If #66 lands first, #73's merge shares the exceptions file and needs a Q7 delta review.
+- #75 changes `fence_lint.rs` (the program-printed sentinel and the R-80 follow-up on main `c6287e0`). The second of #73 and #75 to merge reconciles `fence_lint.rs`, and I review that delta.
