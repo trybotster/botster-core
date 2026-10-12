@@ -3999,3 +3999,13 @@ The head and base remain unchanged. The accepted source repair and completed gat
 This verdict supersedes the late NOT CLEAN entry. All findings, including LOW, are closed. The integration receipt and final delivery procedure remain due.
 
 I ran no execution job.
+
+### Sol-B resolved-signature receipt
+
+I read the complete #308 integration artifact and train-3 remediation note at `1ab4c96393e7e87f8afbd49da04225fe4bfa4697`.
+
+Sol-B accepts the same exact replacement head and completed gate. Both reviews close the obsolete-entry HIGH finding and the corrected severity-label LOW finding.
+
+No finding changes. The initial integration receipt is complete. The abandoned train remains unaccepted, and its history is unchanged.
+
+The authorized later delivery, applicable delta, final gate, and lead merge checks remain due. This receipt authorizes no retry.

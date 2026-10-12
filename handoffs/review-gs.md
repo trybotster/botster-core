@@ -90,6 +90,8 @@ Superseding CLEAN at unchanged `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`. GS-FS
 
 The body now records T3-I2 HIGH. Open findings: 0. Source and gate acceptance retain their earlier scope. Integration and final delivery remain due.
 
+Sol-B replacement-head CLEAN is published at `1ab4c96393e7e87f8afbd49da04225fe4bfa4697`. I read the complete artifact and remediation note. Initial integration is complete.
+
 NOT CLEAN at unchanged `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`: GS-FS-R3-1 LOW is open after Sol-B's body review.
 
 The body labels T3-I2 MEDIUM; its final severity is HIGH. Correct or omit that label. Source and gate conclusions remain unchanged. No new gate is required.
