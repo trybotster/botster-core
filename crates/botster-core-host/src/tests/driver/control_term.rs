@@ -162,6 +162,7 @@ fn a_launch_over_the_frame_bound_is_refused() {
             size_policy: SizePolicy::Latest,
             link_frame_bound: 0,
             limits: CoreLimits::default(),
+            cursor_ordinal: 0,
         }))
     });
 }
