@@ -108,6 +108,9 @@ pub struct StopFlow {
     pub deadline: Option<Instant>,
     /// How the session ended, once it did.
     pub end: Option<End>,
+    /// The kill of `stop_grace` found the link broken, and the identity check of the spawned worker decides the reason
+    /// (steward ruling R-78 item 3): `Absent` or `Reused` is `Lost(WorkerGone)`, `Matches` is `Lost(WorkerUnreachable)`.
+    pub probing: bool,
 }
 
 /// `begin(Remove)`: LC-7 in order.

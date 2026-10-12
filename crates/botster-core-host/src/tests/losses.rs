@@ -402,7 +402,7 @@ fn a_lost_session_closes_its_routes_session_lost_after_its_state() {
     settle(&mut w);
     let (one, two) = (attach(&mut w), attach(&mut w));
     settle(&mut w);
-    w.exited("s1");
+    w.worker_ends("s1");
     let events = settle(&mut w);
     let lost = events
         .iter()
@@ -750,17 +750,19 @@ fn closes_of(events: &[Event]) -> Vec<(RouteId, RouteCloseReason)> {
         .collect()
 }
 
-/// OU-7 (#217 R2-1): when the worker's process ends after `Exited` and before the link reports its close, the host
-/// closes the link itself. A route that the worker did not report delivered closes `SessionLost`, once, and the stop
+/// OU-7 (#217 R2-1), as the steward's R-78 follow-up changes it: the worker wrote `Exited` and then the route's close
+/// (`RouteClosed{SessionEnded}`), and its process ended. The exit report asks the driver to drain the link
+/// (`LinkPeerEnded`); the drain delivers the close, then closes the link. The route closes `SessionEnded`, once, and the stop
 /// flow ends: no work is left.
 #[test]
-fn a_held_route_closes_session_lost_when_the_worker_process_ends_after_the_exit() {
+fn a_route_closed_behind_exited_closes_session_ended_when_the_worker_process_ends() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     settle(&mut w);
     let route = attach(&mut w);
     settle(&mut w);
+    let link = w.link_of("s1");
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
@@ -770,7 +772,56 @@ fn a_held_route_closes_session_lost_when_the_worker_process_ends_after_the_exit(
     );
     assert!(closes_of(&settle(&mut w)).is_empty());
     w.exited("s1");
-    let events = settle(&mut w);
+    assert_eq!(w.peer_ended, vec![link], "the exit report drains the link");
+    let mut events = settle(&mut w);
+    let exit = Exit {
+        code: Some(4),
+        signal: None,
+        cause: ExitCause::Normal,
+    };
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SessionEnded { exit },
+            route_tag: None,
+        },
+    });
+    w.feed(Input::LinkClosed { link });
+    events.extend(settle(&mut w));
+    assert_eq!(
+        closes_of(&events),
+        vec![(route, RouteCloseReason::SessionEnded { exit })],
+        "{events:?}"
+    );
+    assert!(w.engine.ready().is_empty(), "the stop flow ended");
+}
+
+/// OU-7 (#217 R2-1): the worker wrote `Exited` and no close of the route, and its process ended. The drain finds nothing
+/// more and closes the link. A route that the worker did not report delivered closes `SessionLost`, once, and the stop flow
+/// ends: no work is left.
+#[test]
+fn a_held_route_closes_session_lost_when_the_worker_process_ends_after_the_exit() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    let link = w.link_of("s1");
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    assert!(closes_of(&settle(&mut w)).is_empty());
+    w.exited("s1");
+    assert_eq!(w.peer_ended, vec![link], "the exit report drains the link");
+    let mut events = settle(&mut w);
+    w.feed(Input::LinkClosed { link });
+    events.extend(settle(&mut w));
     assert_eq!(
         closes_of(&events),
         vec![(route, RouteCloseReason::SessionLost)],
