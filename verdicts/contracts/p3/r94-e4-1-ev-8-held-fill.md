@@ -32,3 +32,14 @@ No finding. CLEAN on `4f8ab836d9a181707033df39b35ba4131dadb452`. If main moves b
 - **Gate PASS on the exact head**, all ten steps, exit 0 after 181 s on msa1, base main `4fd81f1c`: `~/botster-sessions/gates/botster-contracts-p3-r94-e4-1-ev-8-held-fill-6bf07fc7-pool-20261011-212834-25294.log`.
 
 No finding. CLEAN on `6bf07fc73f04e1fccc760463016c43188fe449a6`.
+
+016c's round 2 (REJECT on `6bf07fc7`): F2 stays open (an earlier entry of the same `let`). 016c's scope.
+
+## Round 3: CLEAN on 7b4dd06f8369361f1ce733692add521619b1c826
+
+- **The delta.** One commit on `6bf07fc7` changes only `fence_lint/order.rs` (+19 −2): a `hex_concat` argument that another entry of the same `let` binds proves nothing. 016c's scope. No transcript, exception line or list changes.
+- **Red/green** (`shared/core-stage1/evidence/p3-r94/red-lint-r3.log`): with `6bf07fc7`'s lint code the self-test `a_value_is_resolved_through_the_binding_in_effect_where_it_is_read` fails (76 passed, 1 failed); with this head's code 77 of 77 pass.
+- **Main** is `b11db6b5476f50ba1e0b4d2a962477a0faa99188`, the gate base (rulings-only since `3756a34c`).
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 173 s on msa1: `~/botster-sessions/gates/botster-contracts-p3-r94-e4-1-ev-8-held-fill-7b4dd06f-pool-20261011-213720-66367.log`.
+
+No finding. CLEAN on `7b4dd06f8369361f1ce733692add521619b1c826`.
