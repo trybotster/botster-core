@@ -2,6 +2,12 @@
 
 ## Current Core PR #308 result
 
+Current reviewed head: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
+
+The lead authorizes one in_8 known-flaky entry. It preserves ordinary slow and baseline execution. Its removal trigger is the contracts-v0.1.44 pin.
+
+GS-FS-R2-1 LOW is closed by the comment-only repair. Final CLEAN waits for the completed exact-head gate and evidence.
+
 GS-FS-R1-1 LOW is closed on the unchanged exact head `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`. I read the corrected complete body.
 
 Open source findings: 0. The completed gate remains required before final CLEAN. I accept no gate result yet.
@@ -69,6 +75,10 @@ The lead authorizes review before READY. After #299 lands, the implementer impor
 Wait for repairs and the doorbell. I ran no execution job.
 
 ## Current Core PR #304 result
+
+MERGED through train 1 at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. GitHub and the remote-tracking v1 ref agree. The tree equals the gated tree.
+
+The #304 GS review record is complete. No finding remains. I ran no execution job.
 
 Final #304 train receipt CLEAN at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, gate base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open findings: 0.
 

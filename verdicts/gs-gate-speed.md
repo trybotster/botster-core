@@ -3429,3 +3429,55 @@ Sol-B reports source delta CLEAN at `2fa58b79291f44023778a8a53f8bd05387e93cfb`, 
 Both reviews confirm that no executable default-tier test is removed. The slow tier retains the eleven targets and their approved root macros.
 
 No finding changes. The failed gate remains failed. Completed new-head evidence, timing, and the final body remain pending. I ran no execution job.
+
+## Core #308 — authorized in_8 entry and comment repair
+
+Exact head: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`. Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+I read the complete delta at `66369ef8365d0c05bfa2767328546381bfcdcc52` and its following comment-only repair. I read the complete live body.
+
+The lead's handoff authorizes the in_8 entry and names PC, contracts #79, and the contracts-v0.1.44 pin as the removal trigger.
+
+The entry names only `botster-core::slow_conformance` and `conf::in_8_mode_checked_at_write_start_by_worker`. It changes no pending status.
+
+The signature names gate step `slow`, symptom `step_timeout`, seed `any`, and literal text `step=8 limit=step_timeout`.
+
+I read the failed #306 gate `gates/botster-core-stage1-gs-built-in-coverage-2fa58b79-pool-20261011-223259-12751.log`.
+
+It reports this exact test INCONCLUSIVE at seed 0, transcript step 8, and step_timeout. The slow step fails. The job and wrapper exit 1 after 121 seconds.
+
+The recorded signature matches that reported failure. The cause attribution remains the lead's accepted diagnosis and prior in_8 disposition, not a new reviewer execution.
+
+The existing exact binary/test filter excludes the listed test only from mutant runs that list it. The ordinary slow tier and stage-2 baseline retain it.
+
+The default conformance binary has a different binary ID and is not excluded. A listed test's first failure cannot count as a mutant catch.
+
+Removing a genuine catch from this listed test cannot turn a missed mutant into a pass. The mutant still needs another valid catch under the unchanged two-stage verdict.
+
+The signature does not select mutant tests. It records the failure for policy review. No automatic matcher or retry authorization is added.
+
+`removal` keeps the earlier Core PR form and adds exactly three numeric version components between `contracts-v` and ` pin`.
+
+Malformed component counts and nondigit components fail. The parser still rejects an empty field. This syntax check does not prove that the pin or fix exists.
+
+The repository test now requires the exact in_8 entry and removal trigger. The lead requires removal when the .44 pin carries its fix. Stage 1 still requires an empty list.
+
+### GS-FS-R2-1 — LOW — CLOSED: the repository test's comment described an empty list
+
+At 66369ef8, the renamed test's doc comment still said the list was empty. The source and test required one entry.
+
+I sent the finding to GS and Sol-B. Required change: name the current entry and removal trigger in that comment.
+
+The comment-only repair at the exact reviewed head names the in_8 race, PC's fix through the .44 pin, and the retained empty-list exit condition.
+
+No source finding remains. The completed exact-head gate, mutation results, final body, and integration receipt remain due before final CLEAN.
+
+I ran no execution job.
+
+## Core #304 — completed train merge receipt
+
+The lead records the train fast-forward in its handoff. GitHub reports #304 MERGED with commit `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+
+The local remote-tracking v1 ref names that same head and tree `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`, which equals the reviewed gated tree.
+
+The frozen member and all final receipts remain unchanged. No finding remains for #304. This completes the GS review record for this merge.
