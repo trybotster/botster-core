@@ -469,6 +469,8 @@ impl HostEngine {
             Op::WriteInput { payload, .. } => self.payload_size(payload)?,
             _ => 0,
         };
+        // R-100: after `PayloadTooLarge`, so a write over `max_paste_bytes` keeps that code.
+        self.check_frame_fit(&op)?;
         if self.ops.len() >= self.cfg.limits.pending_ops as usize {
             return Err(err(
                 ErrorCode::PendingLimit,
@@ -940,6 +942,7 @@ impl HostEngine {
             return Err(invalid("attach takes a connected stream (DP-2, A17-1)"));
         }
         let limits = self.applied_route_limits(options)?;
+        self.check_attach_fit(options, &limits)?;
         let s = self.sessions.get(session).expect("checked");
         if s.routes.len() >= self.cfg.limits.routes_per_session as usize {
             return Err(err(
