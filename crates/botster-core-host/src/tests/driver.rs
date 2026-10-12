@@ -1170,11 +1170,10 @@ fn adopted_with_a_route(instance: &InstanceId) -> Vec<u8> {
     out
 }
 
-/// 0181's ST313-R1, DP-8 phase 3, EV-6, on the production driver and scheduler: with one mandatory slot and late polls,
-/// the session ends and the worker reports the route's delivered close before the route's `RouteAdopted` posts. The
-/// caller sees `Running`, then `RouteAdopted`, then the completion of `AdoptAll`, then the end and the route's close.
-#[test]
-fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it_with_late_polls() {
+/// A new handle with one mandatory slot adopts `s1`, whose worker reports one live route. Pumps with no poll until the host
+/// sent the route's `RouteId`: `Running` holds the slot, and the route's `RouteAdopted` waits for a poll. Returns the handle,
+/// the `AdoptAll` op, the link and the route.
+fn adopting_with_a_waiting_route() -> (Rig, OpId, LinkId, RouteId) {
     let (first, instance) = first_handle();
     let mut again = first.reopen_with(limits(|l| l.mandatory_events = 1));
     again
@@ -1199,6 +1198,15 @@ fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it_with_la
         }
     }
     let route = route.expect("the host sent the route's RouteId at the state post");
+    (again, adopt, link, route)
+}
+
+/// 0181's ST313-R1, DP-8 phase 3, EV-6, on the production driver and scheduler: with one mandatory slot and late polls,
+/// the session ends and the worker reports the route's delivered close before the route's `RouteAdopted` posts. The
+/// caller sees `Running`, then `RouteAdopted`, then the completion of `AdoptAll`, then the end and the route's close.
+#[test]
+fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it_with_late_polls() {
+    let (mut again, adopt, link, route) = adopting_with_a_waiting_route();
     again.worker_says(
         link,
         WorkerMsg::Exited {
@@ -1250,4 +1258,37 @@ fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it_with_la
         ["running", "adopted", "completed", "exited", "closed"],
         "{events:?}"
     );
+}
+
+/// The number of `HostMsg::Stop` frames that the host wrote on `link`.
+fn stops_sent(rig: &Rig, link: LinkId) -> usize {
+    rig.host_frames(link)
+        .iter()
+        .filter(|(kind, payload)| {
+            *kind == FrameType::HOST_MSG && matches!(HostMsg::decode(payload), Ok(HostMsg::Stop))
+        })
+        .count()
+}
+
+/// ST313-R2, EV-5(c), on the production driver and scheduler: a `Stop` admitted while the route's `RouteAdopted` waits for a
+/// poll runs its steps with no event (the row write and the stop request) with no poll.
+#[test]
+fn a_stop_reaches_the_worker_with_no_poll_while_a_route_adopted_waits() {
+    let (mut again, _, link, _) = adopting_with_a_waiting_route();
+    again.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    for _ in 0..5 {
+        again.pump();
+    }
+    assert_eq!(stops_sent(&again, link), 1);
+}
+
+/// ST313-R2, EV-5(c): the same for `StopAll`, which stops each session with the same flow.
+#[test]
+fn a_stop_all_reaches_the_worker_with_no_poll_while_a_route_adopted_waits() {
+    let (mut again, _, link, _) = adopting_with_a_waiting_route();
+    again.driver.begin(Op::StopAll).unwrap();
+    for _ in 0..5 {
+        again.pump();
+    }
+    assert_eq!(stops_sent(&again, link), 1);
 }
