@@ -56,3 +56,36 @@ I read complete package Round 193 at `fe92a9618a2e3e3938d92dfd4df94571b2889df1`,
 The package record includes my seven-byte title correction within F152. R318-I1 therefore aliases that part of F152. The earlier observation remains open; it is not a fifth independent finding. Four finding identities remain: F150, F151, F152, and F153. This count correction supplies no source repair or closure and does not start another review round.
 
 VERDICT: NOT CLEAN (4 open)
+
+## Round 2: first repair
+
+- Head: `d19cc1a6203e15f2e861c21cbbce0720a204db6d`.
+- Tree: `f69086665bd5aca795a0a4f5b8c70c0307f703c9`.
+- Parent: `7010f7556b2c18c6f43d2166769d580d53c123dd`.
+- Source base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- Gate reference: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, not imported.
+- Reviewed delta: one commit, four files, 75 additions and 27 deletions; documentation, event wait, and holder test.
+- Package verdict: `307ce71c188cb1c2dc128ce4ca924868a1607ced`, file `verdicts/p3-worker.md`, complete Round 194.
+- READY receipt: `msg_plugin-w_1791829030_d72c25`.
+
+I read the complete same-head package verdict and complete source repair. It closes F150, F151, and F152 and retains two findings. No production drain behavior changes in this repair.
+
+**F150 closes.** Both comments now state the repeated, uncapped drain and EIO/EOF on either OS. **F151 closes.** The tail test waits on the driver's actual poll and production EXIT wake under one absolute deadline. Interrupted waits use the remaining time. Mac readiness permits reads before exit; Linux retains the full unread tail for DrainPty. The count-gap and complete-output assertions remain.
+
+**F152 closes, including R318-I1.** The same-head package record verifies the corrected body: seven-byte title, 4103/1007 totals, and F28 retained as a separate Part B duty. No native mutation closure follows from the measurement.
+
+**F153 — MEDIUM — remains open.** The holder now supplies its own marker and a response after a release sent only after Exited. That proves survival in a successful run. Linux's tty response supports a quiet read with a live holder. Mac's none response supports process survival only; the body states that limitation.
+
+The parent can still exit before the child installs its ignored HUP disposition. The later marker does not order that earlier exit. I independently identified the same race. Establish the disposition before the fork, or keep the leader alive through a real readiness handshake. Preserve the post-Exited proof and bounded cleanup.
+
+**F154 — LOW — open.** The new Linux assertion claims that PTY readiness came before exit. Spawn already sets pty_readable true, and this path does not clear it. The assertion therefore proves no event. Verify an actual event from a cleared state, or remove the redundant assertion and its body claim. Removal also avoids asserting that subject flag.
+
+Current gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p3-a31-drain-d19cc1a6-pool-20261012-110920-28759.log`.
+
+Independently verified SHA256: `9ff99f68b79506f1fca3929ec044633a22912db44c7964adbaf1c6d14416d0cd`.
+
+All ten steps pass: 1939 default and 626 slow tests. I match all 21 raw catches to citations and normal PASS, with four unviable outcomes and no final miss or timeout. The slow baseline passes. No FLAKY token appears. The local Mac record names this head and reports successful checks and test tiers; its unchanged-worktree cache claim retains the earlier clean scope. Passing runs do not remove the holder's permitted failing schedule.
+
+Two findings remain. The repaired exact head, matching closure, final import, applicable train reviews, final gate, and receipts remain due. F28/F33/F39 retain their separate duties. I ran no build, test, gate, or pool job.
+
+VERDICT: NOT CLEAN (2 open)
