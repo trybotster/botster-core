@@ -2478,3 +2478,16 @@ This delta CLEAN permits the implementer to proceed under the lead's final-gate 
 Final acceptance requires the completed exact-head final gate, matching body, and both final verdicts.
 No final-slot gate result is claimed here. This verdict accepts no later head or different source tree.
 The reviewer runs no test, build, gate, executable merge check, or diagnostic.
+
+
+### Core #299 — integration final-slot delta receipt
+
+Integration message: `msg_plugin-w_1791777953_932b17`.
+Integration receipt: `232af9562ea48d3fd7c305dc23a8365b1068dade`, Round 4 in `verdicts/stage1/rc-pin-43.md`.
+The reviewer reads the complete round.
+Its delta CLEAN covers head `f16a10ba028ca3ea6b0139d58aabea7cb5e051d5`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`, and tree `67c34fba86d161521be0360ae5829e70807631a4`.
+Its source comparison, nine list formulas, lock composition, exclusion review, and R299-SI-4 closure match package receipt `92d9a2c394d28adcb3f85418f8c1710da9f9a152`.
+Both delta reviews have zero open findings. Both retain the local clean-proof limit.
+The canonical FAIL remains explicit. The two delta reviews satisfy its review requirement without automatic carry.
+The final exact-head gate, full mutation result, matching body, both final verdicts, and Q7 remain due.
+The reviewer accepts no final gate result here and runs no test, build, gate, or diagnostic.
