@@ -3316,3 +3316,45 @@ Required change: describe the actual selected refusal cases without claiming tha
 I sent this finding to GS and Sol-B. No CLEAN is issued while this LOW finding remains open.
 
 The exact-head gate, mutation evidence, final body, and integration review remain due. I ran no execution job.
+
+### Sol-B signature review receipt
+
+I read the complete verdict at `0f779dbb1ca907f97c623eed0bbcb937bf533d16`, file `verdicts/stage1/gs-flaky-signature.md`.
+
+Sol-B reports NOT CLEAN with the same LOW body finding on the same exact head and base. Sol-B finds no additional parser or filter defect.
+
+Both reviews distinguish schema validation from failure matching and retry authorization. No finding changes. The body correction and completed gate remain due.
+
+## Core #304 — train 1 final evidence receipt
+
+- Exact train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- Train tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`.
+- Gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- VERDICT: CLEAN (#304 member source and final train evidence).
+- Open findings for #304: 0.
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`.
+
+I read the completed gate header, base accounting, proof results, mutation summary, and final status. The header records this exact train head and base on MS-A1.
+
+The lists step uses the same base and merge base. It reports 691 ledger IDs, 407 pending, 2 deferred, 18 withdrawn, and 264 to run.
+
+All three named DP-2 tests PASS in the slow tier. The real-proofs report credits DP-2 through each exact binary and test entry.
+
+The default tier reports 1,920 passed. The slow tier reports 617 passed. The slow coverage check and seven named proof checks succeed.
+
+All ten gate steps PASS. The step total is 520.5 seconds. The job and wrapper exit 0 after 850 seconds, with 232 seconds queued and 618 seconds running.
+
+The train mutation report contains 29 mutants: 21 caught, 8 unviable, 0 missed, and 0 timeout. No FLAKY result appears.
+
+Stage 1 catches all viable mutants. Stage 2 does not run because stage 1 misses none. These mutants belong to #301's testkit source changes.
+
+This receipt does not claim a new mutation proof for #304's test-only patch. Sol-B and the #301 reviewers own the remaining member and combined evidence reviews.
+
+I read #304's complete live body. It retains the original member head and original gate evidence. This train receipt records the later combined gate separately.
+
+The prior source delta remains CLEAN. The original Mac proof and local reversal retain their recorded scope and provenance limit. The composed-proof limit remains.
+
+This receipt accepts #304 on the frozen train head. The lead must complete the train record and verify the final base tree and push before declaring the train merged.
+
+I ran no execution job.

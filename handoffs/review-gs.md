@@ -8,6 +8,8 @@ GS-FS-R1-1 requires an accurate description of the twelve refusal cases. No pars
 
 The list remains empty. No additional test is skipped. The matcher remains proposed follow-up work. The exact-head gate and integration review remain due.
 
+Sol-B publishes matching NOT CLEAN in `0f779dbb1ca907f97c623eed0bbcb937bf533d16`. I read the complete verdict. No finding changes.
+
 Review held at `c5b3804222de5b3ecf5f5139852294787bd669b1`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
 
 Sol-B relays the lead's instruction `msg_plugin-w_1791782721_1fa4f3` to replace comma clauses with named signature fields before review continues.
@@ -55,6 +57,12 @@ The lead authorizes review before READY. After #299 lands, the implementer impor
 Wait for repairs and the doorbell. I ran no execution job.
 
 ## Current Core PR #304 result
+
+Final #304 train receipt CLEAN at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, gate base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open findings: 0.
+
+The completed train gate passes all ten steps. All three DP-2 proofs pass. The log is `gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`.
+
+Sol-B owns the combined final evidence receipt. The lead owns the final train record, base-tree check, and verified push. I ran no execution job.
 
 Train 1 source delta CLEAN at `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, current v1 base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
 
