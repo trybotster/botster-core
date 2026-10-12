@@ -542,6 +542,9 @@ fn serve(hub: &Hub, stream: UnixStream) {
             // A probe reports its prints only under `PRINTS_ENV` (contracts #80, R-62 follow-up), which the testkit does not
             // set yet: the serving PR (P3, after the .44 pin) records them and answers `Recorded`.
             Some(Report::Printed { .. }) => false,
+            // Contracts #91 (.47, R107-SI-1) answers `pty_output_written` with `Written`. P6's PR serves the control and records
+            // the bytes; until it is on this branch the testkit sends no `Written` request, so no probe answers with it.
+            Some(Report::Written { .. }) => false,
             None => {
                 probe.closed = true;
                 drop(state);
