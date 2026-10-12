@@ -4369,3 +4369,85 @@ The wrapper exits 0 after 768 seconds on MS-A1, with 408 seconds queued and 360 
 The prior-art tree has no matching conformance testkit, pending lists, or held-full run. The old failed gate and local evidence retain their stated scopes.
 
 Sol-B's complete integration review, the replacement-head gate and final body, and authorized current-base delivery remain due. I ran no execution job.
+
+## Train 8 — #324 package delta
+
+- Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+- Current v1 base: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Frozen #324 member: `0572493fc9e695acd57b1916e485fdd900ba7643`.
+- VERDICT: CLEAN (#324 source delta only; 0 open).
+
+The lead assigns this delta in `msg_plugin-w_1791837736_8b01a8`. The train merges #325, #327, #324, and #329 in that order.
+
+I read the merge objects, complete applied #324 patch, changed own blobs, imported route context, and codec at the new pin.
+
+#324 merge `5f8ad97b4effb96cd54d5500c444bf1b59ec7f5c` joins `3d8b0ae29dc9da81f6114dac92a314d0da9e5c2b` and the frozen member.
+
+Its complete patch equals the accepted member patch after index lines and hunk positions are removed. All five own paths retain their changes.
+
+The final program, session control, and real-route blobs equal the accepted member. Both log append paths and the hex-cache response callers remain exact.
+
+The route-client blob differs only in its test constructor: Workers now takes WorkerClock::real instead of Instant::now. I read that imported clock interface.
+
+This adaptation changes no route response or log encoding. The private route_pty_log helper retains the accepted bytes object, empty behavior, and unattributed segment.
+
+The following #329 merge changes the held header and permitted proof accounting, already reviewed in that member. It retains #324's timing metadata and owner.
+
+The contracts pin moves from .44 to .46 through the train base. Static tag comparison finds no change to the hex encoder or HexBytes::to_hex implementation.
+
+The cache invariant, accepted byte order, partial acceptance, blocked queue, release, and same-answer argument remain valid on this exact train head.
+
+No #324 source delta finding remains. Earlier timing reports and completed gate evidence retain their original heads. The new pin supplies no new measured gain here.
+
+The lead's pre-checks remain operator reports. The train gate and merge checks remain due. Sol-B owns the combined review and single final train receipt.
+
+This verdict accepts no later head or additional retry. I ran no execution job.
+
+## Train 8 — #329 package delta
+
+- Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+- Current v1 base: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Frozen #329 member: `b9763b0f851a029a48af3a0f495388d69683f10b`.
+- VERDICT: CLEAN (#329 source delta only; 0 open).
+
+I read the complete applied #329 patch, all changed own blobs, imported CI and lists context, current list sets, and relevant .46 transcript identities.
+
+The final merge joins the #324 merge and the frozen #329 member. Its own delta has eight paths; #324's four code paths are already present.
+
+Static comparison matches every own added and deleted line to the accepted member. The comparison separates the already-applied #324 held-record metadata.
+
+The held list, pending implementation, suite, test-budget code, and mutation configuration blobs equal the accepted #329 member.
+
+CI differs from that member only by the imported #308 step_names function and signature in the listed-test fixture. Both retain their accepted behavior.
+
+The held-full call, exact matrix decision, failure handling, two-second constant, profile selection, JUnit freshness, process bounds, and regression tests remain exact.
+
+Lists adds the imported #323 re-entry parser and command wiring. The held parser and K calculation remain intact beside that independent real-pending decision.
+
+Both command paths parse their own records and preserve their earlier refusal checks. No re-entry tag supplies a held-full proof or changes K.
+
+The train base has 388 pending IDs. This train removes only the three authorized budget IDs, leaving 385. It adds no pending ID.
+
+Real-pending remains 38, the ledger remains 692, and minimum remains 69. These three sets equal the train base exactly.
+
+The imported base's earlier removals remain removed. The train does not restore stale pending lines from the member branch.
+
+The held ID and class sets remain unchanged. The repaired header remains exact. K still counts only the minimum intersection, including dp_5_full.
+
+Static .44-to-.46 comparison finds no changes in the three held transcripts. Fresh runtime evidence still must prove every trial with the imported worker clock and pin.
+
+Every mutation configuration value equals the train base. Only accepted explanatory comments change. The known-flaky list also equals the train base.
+
+No new exclusion, retry policy, passing proof, timeout, seed count, or deadline appears in this composition. Existing root checks and mutation catch decisions remain intact.
+
+Both earlier LOW findings remain closed. No #329 source delta finding remains. This source verdict does not reuse an old gate as train-head evidence.
+
+The lead reports ID-set, workspace compile, and strict-conformance pre-checks. I retain them as operator reports and accept no completed train gate here.
+
+Sol-B owns the integration deltas, combined review, and single final train receipt. The exact-head train gate and lead merge checks remain due.
+
+Per the BUILD Green rule, no package final receipt is due unless a member changes. This delta accepts no later head or specific retry.
+
+I ran no execution job.
