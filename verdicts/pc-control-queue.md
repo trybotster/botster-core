@@ -493,3 +493,13 @@ The matching formal integration member verdict, other member reviews, and combin
 The exact train gate must complete the unmutated baseline, Stage 2 mutation proof, and fuzz omitted by the RED member gate.
 Final evidence receipts, lead Q7, and an equal-tree merge receipt remain due. No later train head or merge is accepted.
 No reviewer build, test, gate, mutation, reproduction, or executable base-check job ran. Wait for the doorbell. Never poll.
+
+### Matching formal train-source verdicts
+
+Sol receipt `msg_plugin-w_1791822093_81313e` supplies commit `584b736e3dc90dc0114e573d9f4ed2372232d0ca`.
+The reviewer reads its complete #307 Round 4 verdict and complete train-4 combined Round 1 verdict.
+Publication is verified on `origin/stage1/integration-review-sol`.
+The formal #307 verdict matches package `76ae3ad37fc67b47cf2fbaea794cb77554b526d1` on the exact train head, base, and tree.
+The combined verdict also has zero open source findings. It reports all six exact-head member source receipts read and CLEAN.
+The matching #307 formal source-review condition closes. The combined source condition has its published integration verdict.
+No completed train gate is accepted. Final member evidence receipts and lead Q7 merge/tree/push verification remain due.

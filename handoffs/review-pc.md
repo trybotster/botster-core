@@ -1992,3 +1992,11 @@ All four findings remain closed. Formal Round 5 #307 train-delta source verdict 
 The lead's compile PASS and strict 264/0 pre-checks are reports; no separate retained log is supplied here.
 Matching formal Sol member verdict, other member reviews, combined review, exact train gate, final receipts, Q7, and equal-tree merge remain due.
 No reviewer job runs. No later train head or merge is accepted. Wait for the doorbell. Never poll.
+
+The #307 exact train-delta source verdict is pushed at 76ae3ad37fc67b47cf2fbaea794cb77554b526d1. PC, Sol, and the lead receive it.
+Sol receipt msg_plugin-w_1791822093_81313e supplies matching #307 and combined train-source CLEAN at 584b736e3dc90dc0114e573d9f4ed2372232d0ca.
+The reviewer reads its complete #307 Round 4 and combined train-4 Round 1 verdicts and verifies publication.
+Both #307 formal verdicts match train 03709a0c, base 838e4bb0, tree 4bb9e8c7. The matching formal source-review condition closes.
+The combined record reports all six exact-head member source receipts read and CLEAN, with zero combined source findings.
+The ordered .44 fix is present. The historical member gate stays RED. No completed train gate is accepted yet.
+The exact train gate, final member evidence receipts, and lead Q7 merge/tree/push verification remain due. No reviewer job runs.
