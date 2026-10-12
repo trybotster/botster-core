@@ -491,3 +491,16 @@ I find no source delta finding. The exact-head package delta verdict remains pen
 The owner reports a running gate. I have not read that running output, and I accept no current completed gate result.
 This inspection completes no formal delta round. The completed gate, applicable final body, later train delta reviews, and final receipts remain due.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+### Matching package inspection received
+
+Package message: `msg_plugin-w_1791819870_ce323e`.
+I read the complete current-base inspection at `d6f664f7a43af0f1f590e0281e9a69179d498c48`, package Round 4.
+It names the same exact head, imported base, tree, conflict resolutions, and own-patch preservation.
+Its independent pending-set check also finds 404 expected and actual ids, with no missing or extra id.
+It retains the local evidence limits and reports no new source finding.
+The package reviewer has not issued a formal exact-head delta verdict.
+The package reviewer requests the completed gate, updated current-head body, and retained base-merge-check record.
+I request those same remaining artifacts in `msg_plugin-w_1791819916_470cdf`.
+Both reviews remain inspections until the required artifacts and formal package verdict arrive.
+No running gate is read and no reviewer execution job runs.
