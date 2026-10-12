@@ -289,9 +289,9 @@ The resync sequence (at `Stalled → Open`, OU-9):
   from the stream. The client counts its own frame boundaries (`FrameEnds`, the 4-byte length prefixes). The testkit reads
   the taken bytes at the in-memory stream (`EndControl::taken`). The real tier subtracts the worker end's unread bytes from
   the bytes that the client's stream accepted, by a read-only kernel query (`real/rqueue.rs`: `unix_diag` on Linux,
-  `netstat` on macOS). A failed query is a harness error. The fence holds only under the premise that the order lint
-  checks: no `route_gate` or `route_accept` limit, and no lowered `route_queue_bytes`, on the route between the fenced sends
-  and the fence (R-93 (a)).
+  `netstat` on macOS). A failed query is a harness error. The fence holds only under the premise of R-93 (a): no
+  `route_gate` or `route_accept` limit in force on the route from its first frame to the fence, and `route_queue_bytes` at
+  the Core default. A reviewer checks the premise (checklist item 6, R-115); no lint checks it.
 
 ### Real-only (not in the P4a testkit PRs)
 
