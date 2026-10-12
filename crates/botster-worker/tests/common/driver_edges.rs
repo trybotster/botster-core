@@ -607,9 +607,9 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     // its loop does.
     let mut output = Vec::new();
     let mut waited = Duration::ZERO;
+    let slice = Duration::from_millis(50);
     loop {
         // timer: deadline — one slice of the bounded wait for the production exit watch after the group kill.
-        let slice = Duration::from_millis(50);
         if h.driver.exits.1.recv_timeout(slice).is_ok() {
             break;
         }
