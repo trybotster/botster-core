@@ -112,3 +112,88 @@ This verdict covers only the reviewed source, corrected body, and completed firs
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open integration findings; first-READY source, evidence, and body) at 403bbf689cc9f745a9552cc518374a6a8f2cdb32 against base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
+
+## Round 2 — train 1 member source delta
+
+Train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Train tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`.
+Train base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Frozen #301 member: `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+Frozen #304 member: `37e5ee32d326f588676b6fc727ad52c86022de61`.
+Lead assignment: `msg_plugin-w_1791781317_4ac1d8`.
+
+I read the complete steward-approved train rule and PR body in contracts BUILD PR #86 at `b6c7ea9d6abd37d723ecf491c618013eb36d9da7`.
+That PR is open at this read; I do not claim it merged. The lead explicitly instructs this train under its approved rule.
+The rule requires frozen member heads, ordered merge commits, member delta reviews for lists/shared helpers, and a combined integration review where required.
+It also requires one exact-train-head gate, member final evidence receipts, equal base/gated trees, and a verified fast-forward push.
+This round covers only #301's source composition. Sol-B owns #304 and the combined train review.
+
+### Train identity and own patch preservation
+
+I independently read both merge Git objects.
+First merge `f3b80d034acf7872fa2cc4009002a2460a5d5329` has parents train base ae49bbec and frozen #301 head 403bbf68.
+Its tree is `8ffdc4aaee69ecb159f569b9027b567c707b3375`.
+The train head has parents that first merge and frozen #304 head 37e5ee32.
+The member order matches the lead's instruction. The train whitespace check reports no error.
+Combined full-index diff SHA256: `528c21f21fe4413e0cf1d2510ad3592b6b92855947a0aad3ae77f96da5adcd78`.
+
+The first merge changes exactly #301's nine own paths. Every outside-own blob equals the train base.
+For every own path, the accepted patch equals the new first-merge patch after removal of index and hunk-location metadata.
+Accepted own diff SHA256: `7f5c282bf1e62d68e9b95a4182ae5fba2b8ba90c483720b833ba15dcb998b7ac`.
+New first-merge diff SHA256: `4bc6ea8a302dd28de650dc678f40968f88b3b5b8759e584460ab99a8978432cf`.
+Seven source blobs are byte-identical to the accepted member.
+The worker blob retains the same #301 patch plus v1's imported six-line `add_node` helper.
+The final #304 merge leaves all eight #301 source blobs equal to the first merge.
+It overlaps #301 only in core-pending.txt.
+
+### Imported worker helper and interface composition
+
+I read the complete worker delta from #301's original base bfef8865 to the train base.
+It contains only `add_node`, compiled for unit tests and private to the crate.
+The helper adds a node to the existing worker simulation for the already accepted route-progress test from #299.
+It changes no production worker path, clock, host pump, process identity, hold map, accept order, or report filter.
+The train retains that helper and #301's `holds_reports_but` and `edges_quiet_but` changes.
+The quiet control still reads the applicable host's held workers and process table.
+It excludes only held worker link reports. Ready worker work, exits, other connections, and unheld worker reports still count.
+The hold remains at the injected accept edge. Release removes the hold and signals the host wake without replacing the buffered link.
+All hold controls, per-host state, accepted byte order, and tests retain the reviewed source.
+
+The #304 merge adds its reviewed proof mapping and real-process test changes.
+It changes no testkit hold control or report filter. It supplies no acceptance evidence for #301's own removal.
+The combined source review separately checks the member interaction.
+
+### Shared conformance accounting
+
+I independently check all nine conformance text sets after each merge, using each member's merge base.
+Both three-way formulas PASS for every set. Every base removal remains removed.
+Pending counts: original #301 base 410, accepted member 409, train base 409, first merge 408, final train 407.
+The final train removes exactly these ids from its base:
+
+- #301: `conf::a2_1_attach_state_rules`.
+- #304: `conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`.
+
+No pending id is added. The remaining #301 explanatory comments and pending ids remain.
+The train real-pending set has 43 entries, held has four, ledger has 691, and minimum has 69.
+The #304 real-proof additions are its three accepted entries; they do not change #301's harness proof.
+The removed attach-state transcript is byte-identical at .41 and the train's .43 pin.
+Its SHA256 is `57f313c9d98cd2ad6ce5e4d65dff0426dc425d251225604cb5d3bda99c873990`.
+The train changes no imported pin, dependency profile, CI file, build-root rule, or mutation exclusion.
+
+### Required source receipts and limits
+
+I read complete package #301 train Round 2 at `78a42cd654105b23aa7362cd81689cd54679242b`.
+Package receipt: `msg_plugin-w_1791781752_b81ef9`.
+Its exact identities, source composition, imported helper, pending removals, and retained limits agree with this review.
+I also read Sol-B's complete combined source review and #304 train delta at `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab`.
+Sol-B receipt: `msg_plugin-w_1791781706_52d460`.
+That combined review has zero interaction findings and retains #304's separate composed-proof and provenance limits.
+
+No #301 source-delta finding remains. The initial source/evidence verdict remains `500639cb61565a1a42adadf7e46938728fdb6d81`.
+R-97's separate clock fix, identity hold, and guardian-exit work remain outside this member review.
+The lead and steward permitted #301 before the separate R-97 fix. The train adds no workaround for it.
+The original source, body, local provenance, platform, and first-gate limits remain.
+This round accepts no train gate result and does not replace the required member final evidence receipts.
+The completed exact-train-head gate, all final receipts, base-tree verification, and verified push remain due under the train rule.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open #301 source-delta findings; train evidence pending) at be95ef13edc6d9eccf87a8c0b2c09b9cf820963a against base ae49bbec2d1086f918341bc596bf8560ba27bcd1
