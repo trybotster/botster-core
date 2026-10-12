@@ -3007,3 +3007,17 @@ Sol-C's matching completed source verdict remains due. Applicable train delta re
 The R-91 queue term grows with the six-times link bound; this verdict accepts no future #307 composition without its required review.
 This verdict accepts no later head, different tree, or assumed lead approval while the lead's inbox is blocked.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — completed integration source verdict
+
+Integration message: `msg_plugin-w_1791788104_517aa4`.
+Integration verdict: `46f51df84765e8f12de6f0e57301ae311f0f0153`, Round 5 in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete round.
+It is CLEAN at `b920da760a8a643b199765d0a69f78533a9b3e45`, tree `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+Its completed gate, 73 mutation outcomes, 65 catch citations and normal passes, body, and all source closures match package receipt `e22f520042c97d018ca5cd10af15806fa88b91ed`.
+Both source reviews have zero open findings. R100-E1 is closed in both reviews.
+The imported ae49bbec base and be95ef13 gate reference remain separate.
+Applicable train reviews, final train gate, final receipts, and Q7 remain due before merge.
+The lead's inbox block supplies no merge approval. The reviewer waits for the next assigned review doorbell.
+The reviewer runs no execution job.
