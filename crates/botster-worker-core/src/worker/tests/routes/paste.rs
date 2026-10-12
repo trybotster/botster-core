@@ -476,37 +476,72 @@ fn a_refused_commit_is_recorded_with_an_empty_paste_and_ends_refused() {
 }
 
 /// R-102 item 5: a `reply_terminal_query` that the worker refuses is one client input: one `rev` step, one record at
-/// receipt, and its `not_written{unsupported}` at once. R-103 (1): the record is `kind: bytes`, and its payload is the
-/// reply's bytes, not cut.
+/// receipt, and its `not_written{unsupported}` at once. R-103 (1), R-105 Q2: the record is `kind: bytes`, not cut. An
+/// `encoded` reply keeps its decoded terminal bytes; a typed reply keeps the JSON of its `reply` as received.
 #[test]
 fn a_refused_query_reply_is_recorded_and_ends_not_written_unsupported() {
     use super::super::read_facts::{read_facts, records, status_updates};
-    let (mut w, mut client, _) = attached(limits());
-    let reply = ToWorker::Input(Wire::ReplyTerminalQuery {
-        op: Some(Op(2)),
-        query_id: "7".into(),
-        reply: botster_route_codec::prelude::QueryReply::Decline,
-    });
-    let all = send(&mut w, &mut client, &[reply]);
-    assert_eq!(received(&mut w, &all), 1);
-    let facts = read_facts(&mut w, None);
-    let recorded = records(&facts);
-    assert_eq!(recorded.len(), 1);
-    assert_eq!(recorded[0].kind, InputKind::Bytes);
-    assert_eq!(
-        recorded[0].payload,
-        Some(HexBytes(br#""decline""#.to_vec()))
-    );
-    assert!(!recorded[0].payload_truncated);
-    assert_eq!(
-        status_updates(&facts),
-        [(
-            InputRecordState::NotWritten {
-                reason: NotWrittenReason::Unsupported {
-                    what: UnsupportedWhat::Other
-                }
+    use botster_route_codec::prelude::QueryReply;
+    let cases = [
+        (QueryReply::Decline, br#""decline""#.to_vec()),
+        (
+            QueryReply::Position { x: 3, y: 4 },
+            br#"{"position":{"x":3,"y":4}}"#.to_vec(),
+        ),
+        (
+            QueryReply::Encoded {
+                bytes_base64: "G1tP".into(),
             },
-            Some(0)
-        )]
-    );
+            b"\x1b[O".to_vec(),
+        ),
+    ];
+    for (reply, payload) in cases {
+        let (mut w, mut client, _) = attached(limits());
+        let reply = ToWorker::Input(Wire::ReplyTerminalQuery {
+            op: Some(Op(2)),
+            query_id: "7".into(),
+            reply,
+        });
+        let all = send(&mut w, &mut client, &[reply]);
+        assert_eq!(received(&mut w, &all), 1);
+        let facts = read_facts(&mut w, None);
+        let recorded = records(&facts);
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].kind, InputKind::Bytes);
+        assert_eq!(recorded[0].payload, Some(HexBytes(payload)));
+        assert!(!recorded[0].payload_truncated);
+        assert_eq!(
+            status_updates(&facts),
+            [(
+                InputRecordState::NotWritten {
+                    reason: NotWrittenReason::Unsupported {
+                        what: UnsupportedWhat::Other
+                    }
+                },
+                Some(0)
+            )]
+        );
+    }
+}
+
+/// R-105 Q4: a resize is not a client input (IN-10, ST-7): it advances no `rev`, reports no `ClientInput`, creates no
+/// record and does not reset `age_ms`.
+#[test]
+fn a_resize_leaves_the_rev_the_records_and_the_age_unchanged() {
+    use super::super::read_facts::read_facts;
+    let (mut w, mut client, _) = attached(limits());
+    send(&mut w, &mut client, &[bytes_frame(1, b"x")]);
+    w.now += Duration::from_millis(40);
+    let before = read_facts(&mut w, None);
+    let resize = ToWorker::Input(Wire::Resize {
+        op: Some(Op(2)),
+        rows: 30,
+        cols: 100,
+    });
+    let all = send(&mut w, &mut client, &[resize]);
+    assert_eq!(received(&mut w, &all), 0);
+    let after = read_facts(&mut w, None);
+    assert_eq!(after.input.client, before.input.client);
+    assert_eq!(after.input.client.age_ms, 40);
+    assert_eq!(after.input.input_records, before.input.input_records);
 }

@@ -410,6 +410,14 @@ impl Worker {
         Ok(())
     }
 
+    /// The IN-2 reason of a client input that the session's end keeps from the PTY (R-103 (2), R-105 Q1): the reason of
+    /// `admission`, and `SessionEnded` when `admission` would admit it.
+    pub(super) fn session_reason(&self) -> NotWrittenReason {
+        self.admission(Source::Route)
+            .err()
+            .unwrap_or(NotWrittenReason::SessionEnded)
+    }
+
     /// The payload is being stopped: a `SIGTERM` or a `SIGKILL` went to its group (IN-2: `Stopping`).
     fn stopping(&self) -> bool {
         self.termed || self.killed

@@ -590,7 +590,7 @@ impl Worker {
         let Some(mut route) = self.routes.routes.remove(&id) else {
             return;
         };
-        self.discard_received(id, std::mem::take(&mut route.received));
+        self.discard_received(id, std::mem::take(&mut route.received), &reason);
         self.actions.push_back(Action::RouteClose { route: id });
         self.report(&WorkerMsg::RouteClosed {
             route: id,
@@ -613,7 +613,7 @@ impl Worker {
         route.closing = Some(reason);
         // A closing route applies no more input: the frames that wait are discarded (plan 23ad).
         let discarded = std::mem::take(&mut route.received);
-        self.discard_received(id, discarded);
+        self.discard_received(id, discarded, &reason);
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -791,11 +791,18 @@ impl Worker {
         })
     }
 
-    /// The records of the received inputs that a closing route discards (ST-7): nothing of them is written.
-    fn discard_received(&mut self, id: RouteId, received: VecDeque<Received>) {
+    /// The records of the received inputs that a route discards when it closes with `close` (ST-7, R-105 Q1): nothing of
+    /// them is written.
+    fn discard_received(
+        &mut self,
+        id: RouteId,
+        received: VecDeque<Received>,
+        close: &RouteCloseReason,
+    ) {
+        let session = self.session_reason();
         for input in received {
             if let Received::Input(.., record) = input {
-                self.end_client_record(id, record, receipt::discarded(), 0);
+                self.end_client_record(id, record, receipt::discarded(close, session), 0);
             }
         }
     }

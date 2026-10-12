@@ -15,8 +15,8 @@
 use super::facts::Content;
 use botster_core_contract::prelude::*;
 use botster_route_codec::prelude::{
-    HexBytes, Input, RefusalReason, ToWorker, TYPE_BYTES, TYPE_FILE_CHUNK, TYPE_INPUT,
-    TYPE_PASTE_CHUNK, TYPE_TEXT,
+    base64_decode, HexBytes, Input, RefusalReason, ToWorker, TYPE_BYTES, TYPE_FILE_CHUNK,
+    TYPE_INPUT, TYPE_PASTE_CHUNK, TYPE_TEXT,
 };
 use serde_json::Value;
 
@@ -129,12 +129,19 @@ fn semantic(kind: InputKind, body: &[u8]) -> Receipt {
     Receipt::Input(payload.map_or(Kept::NoPayload(kind), Kept::Payload))
 }
 
-/// A `reply_terminal_query` (R-103 (1)): kind `bytes`, and its payload is the reply's bytes: the JSON of its `reply` as
-/// received. The kind of a written client reply is P4a's (R-102 item 5).
+/// A `reply_terminal_query` (R-103 (1), R-105 Q2): kind `bytes`. An `encoded` reply's payload is the decoded bytes of its
+/// `bytes_base64`: they are terminal bytes. Every other reply has no terminal bytes at receipt (the encoder makes them at
+/// the write), so its payload is the JSON of its `reply` as received. The kind of a written client reply is P4a's (R-102
+/// item 5).
 fn reply(body: &[u8]) -> Receipt {
-    let reply = serde_json::from_slice::<Value>(body)
-        .ok()
-        .and_then(|body| serde_json::to_vec(body.get("reply")?).ok());
+    let reply = serde_json::from_slice::<Value>(body).ok().and_then(|body| {
+        let reply = body.get("reply")?;
+        let encoded = reply
+            .get("encoded")
+            .and_then(|encoded| encoded.get("bytes_base64")?.as_str())
+            .and_then(base64_decode);
+        encoded.or_else(|| serde_json::to_vec(reply).ok())
+    });
     match reply {
         Some(bytes) => Receipt::Input(Kept::Payload(InputPayload::Bytes {
             bytes: HexBytes(bytes),
@@ -187,8 +194,60 @@ fn unsupported(what: &str) -> UnsupportedWhat {
     }
 }
 
-/// The outcome of a received client input that waits in its route's queue when the route closes: it is discarded, and
-/// nothing of it is written (P5's mapping (4), at the steward).
-pub(super) fn discarded() -> WriteOutcome {
-    WriteOutcome::Cancelled
+/// The outcome of a received client input that waits in its route's queue when the route closes (steward ruling R-105 Q1):
+/// nothing of it is written, and no cancel was issued, so it is `not_written`, never `cancelled`. When the session's end
+/// closed the route, the reason is `session`, the IN-2 reason (`SessionEnded` or `Stopping`, as R-103 (2)). Every other
+/// close is `Refused`.
+pub(super) fn discarded(close: &RouteCloseReason, session: NotWrittenReason) -> WriteOutcome {
+    let reason = match close {
+        // `SessionLost` is the session's end too, though this worker does not close a route with it (the host reports it).
+        RouteCloseReason::SessionEnded { .. }
+        | RouteCloseReason::SessionRemoved
+        | RouteCloseReason::SessionLost => session,
+        // `Detached`, `Replaced`, `Revoked`, `PeerClosed`, `WriteFailed`, `BadFrame`, `BadPeer`, `NotConnected`,
+        // `SnapshotTooLarge`, `StallTimeout`, `HandoffFailed`, `Other`, and a later reason of the non-exhaustive enum.
+        _ => NotWrittenReason::Refused,
+    };
+    WriteOutcome::NotWritten(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R-105 Q1: a close by the session's end keeps the IN-2 reason; every other close is `Refused`.
+    #[test]
+    fn a_discarded_input_ends_with_the_reason_of_its_close() {
+        let ended = RouteCloseReason::SessionEnded {
+            exit: Exit {
+                code: Some(0),
+                signal: None,
+                cause: ExitCause::Other,
+            },
+        };
+        for close in [
+            ended,
+            RouteCloseReason::SessionRemoved,
+            RouteCloseReason::SessionLost,
+        ] {
+            for session in [NotWrittenReason::SessionEnded, NotWrittenReason::Stopping] {
+                assert_eq!(
+                    discarded(&close, session),
+                    WriteOutcome::NotWritten(session)
+                );
+            }
+        }
+        let other = [
+            RouteCloseReason::Detached,
+            RouteCloseReason::Replaced,
+            RouteCloseReason::PeerClosed,
+            RouteCloseReason::StallTimeout,
+        ];
+        for close in other {
+            assert_eq!(
+                discarded(&close, NotWrittenReason::Stopping),
+                WriteOutcome::NotWritten(NotWrittenReason::Refused)
+            );
+        }
+    }
 }
