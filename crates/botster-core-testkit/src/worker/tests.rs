@@ -36,6 +36,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         link,
         link_open: true,
         outbound: VecDeque::new(),
+        sent: FrameDecoder::new(u32::MAX),
         written: 0,
         payload: None,
         spawned: None,
