@@ -8,3 +8,6 @@ fn core_is_send_and_not_sync() {
     assert_impl_all!(Core: Send);
     assert_not_impl_any!(Core: Sync);
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

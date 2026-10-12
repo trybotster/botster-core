@@ -521,6 +521,64 @@ fn lc_6_signal_reaches_the_whole_group() {
     s.remove();
 }
 
+/// Core SZ-1, SZ-3: `Resize` sets the real PTY's size. The payload reads its size with `stty` before and after: the launch
+/// size, then the new one. The size report comes before the `Done`, and the same size again changes nothing (SZ-2).
+#[test]
+fn sz_1_resize_sets_the_real_pty_size() {
+    let root = temp_root();
+    // Every wait is bounded (#311 F146): the test reads `out` by deadlines, and `go` is a blocker whose byte waits in the
+    // FIFO, so the send never blocks, also when the payload has ended before it opens `go`.
+    let mut out = marker_fifo(root.path(), "out");
+    let mut go = Blocker::new(root.path(), "go").unwrap();
+    let script = format!(
+        "exec 3> {out}; /bin/stty size >&3; /usr/bin/head -c 1 {go} > /dev/null; /bin/stty size >&3",
+        out = quoted(&root.path().join("out")),
+        go = quoted(go.path())
+    );
+    let mut s = Session::launch(root.path(), &script);
+    assert_eq!(
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("24 80\n"),
+        "the launch size"
+    );
+    let size = Size {
+        rows: 30,
+        cols: 100,
+        cell_px: None,
+    };
+    let resize = |req| HostMsg::Op {
+        req,
+        op: Op::Resize {
+            session: SessionId("s".into()),
+            size,
+        },
+    };
+    s.link.msg(&resize(1));
+    let WorkerMsg::Observed {
+        observation: Observation::Size { size: reported, .. },
+    } = s.link.report()
+    else {
+        panic!("the size report first");
+    };
+    assert_eq!(reported, size);
+    let applied = |req| WorkerMsg::Done {
+        req,
+        result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
+    };
+    assert_eq!(s.link.report(), applied(1));
+    s.link.msg(&resize(2));
+    assert_eq!(s.link.report(), applied(2), "SZ-2: no size report");
+    // The payload waits on `go`: the test lets it read its size again only after the `Done`.
+    go.send(b"x").unwrap();
+    assert_eq!(
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("30 100\n"),
+        "the PTY has the new size"
+    );
+    assert_eq!(s.link.report(), exited(Some(0), None));
+    s.remove();
+}
+
 /// Core LC-5 and the P1 interface (F7): the worker-control signals end the payload without a host request: `SIGUSR1` is the
 /// graceful request, and `SIGUSR2` the group kill that Core sends at the end of its `stop_grace` (steward ruling R-97,
 /// follow-up: the worker keeps no grace timer). The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
@@ -1280,9 +1338,10 @@ fn marker_fifo(root: &Path, name: &str) -> Bounded<std::fs::File> {
 
 /// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
 ///
-/// The payload starts through the shared group guard ([`GuardedSession`]). It blocks on fixture children of
-/// `botster-test-process` ([`Blocker`]): one `cat` that waits for the count to read, and one that holds the payload until
-/// the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
+/// The payload starts through the shared group guard ([`GuardedSession`]). It reads the count to read with `head -n 1` from
+/// a FIFO ([`Blocker`]): `head` ends at the line, with no end of file. The test holds both ends of that FIFO until the
+/// next write is done, so the count waits in it even when `head` has not opened it yet. A `cat` of a second FIFO holds the
+/// payload until the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
 #[test]
 fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let root = temp_root();
@@ -1292,9 +1351,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let hold = Blocker::new(root.path(), "hold").unwrap();
     let received = root.path().join("received");
     let script = format!(
-        "stty raw -echo; /bin/echo ready > {}; count=$({}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
+        "stty raw -echo; /bin/echo ready > {}; count=$(/usr/bin/head -n 1 {}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
         quoted(&root.path().join("ready")),
-        release.shell(),
+        quoted(release.path()),
         quoted(&received),
         quoted(&root.path().join("done")),
         hold.shell(),
@@ -1332,8 +1391,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     );
     s.link.msg(&write(2, "b".into()));
     assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    // The test holds both ends of the FIFO until `head` has read the line (the write below is done), so the count waits in
+    // it even when `head` has not opened it yet. A release here could drop it: a FIFO with no open end keeps no bytes.
     release.send(format!("{}\n", count + 1).as_bytes()).unwrap();
-    release.release();
     let WorkerMsg::Done {
         req: 2,
         result: OpResult::Ok(OpOutput::Input(written)),
@@ -1351,6 +1411,7 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
+    release.release();
     // The payload still runs (the `cat` of `hold`): it ends first, so `remove` sees the complete result (LC-7).
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));

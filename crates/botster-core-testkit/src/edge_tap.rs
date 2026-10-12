@@ -38,6 +38,7 @@
 //!   wakes the host for it. The release gives the inner edge that interest, and Core's next flush sends the bytes.
 
 use crate::op_holds::SharedHolds;
+use crate::report_holds::SharedReportHolds;
 use crate::route_reports::{RouteReports, Seen};
 use crate::stand_in::StandIn;
 use crate::stream_holders::{socket_id, SocketId};
@@ -288,6 +289,9 @@ pub struct Tap<E> {
     /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted (Core A5-2, R-88 group E). The tap's
     /// scheduler answers `Scheduler::held` from it.
     op_holds: SharedHolds,
+    /// The worker reports that this edge holds before Core reads them (`hold_worker_report`, `scheduler_delay`). They stand
+    /// between the tap's own take-ahead and the driver; the tap's scheduler tells them each pump start.
+    report_holds: SharedReportHolds,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -306,7 +310,9 @@ impl<E: HostEdges> Tap<E> {
     /// signals the wake edge, so that the host pumps and reads it (TM-6).
     pub fn quiet(&mut self) -> bool {
         self.sort_unnamed();
-        let mut quiet = !self.holds_anything();
+        let report_holds = Arc::clone(&self.report_holds);
+        let report_holds = crate::report_holds::lock(&report_holds);
+        let mut quiet = !self.holds_anything() && !report_holds.gives();
         if quiet {
             if self.take_link() {
                 quiet = false;
@@ -317,6 +323,11 @@ impl<E: HostEdges> Tap<E> {
             }
             let mut buf = vec![0u8; READ_CHUNK];
             for (link, tap) in &mut self.links {
+                // A report hold holds a frame of the link: the bytes and the end behind it wait, so they are no report.
+                // A read here would take the end again and keep it where the driver never reads it (#315 B315-I1).
+                if report_holds.withholds(*link) {
+                    continue;
+                }
                 match self.inner.link_recv(*link, &mut buf) {
                     Ok(0) => tap.end = Some(End::Closed),
                     Ok(n) => {
@@ -460,6 +471,11 @@ impl<E: HostEdges> Tap<E> {
     /// the driver reports as admitted (`Scheduler::admitted`).
     pub fn op_holds(&self) -> SharedHolds {
         Arc::clone(&self.op_holds)
+    }
+
+    /// The report holds of this host (`hold_worker_report`, `scheduler_delay`, `held_reports`).
+    pub fn report_holds(&self) -> SharedReportHolds {
+        Arc::clone(&self.report_holds)
     }
 
     /// `scheduler_release`: the held step is runnable again, so the wake edge signals and the host pumps (TM-6).
@@ -764,8 +780,13 @@ impl<E: HostEdges> Scheduler for SchedulerTap<E> {
         lock(&self.tap).inner.scheduler().pick(point, candidates)
     }
 
+    /// The driver asks `PumpBound` once, first, in every pump: the report holds count the pump (`scheduler_delay`).
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
-        lock(&self.tap).inner.scheduler().bound(point, max)
+        let mut tap = lock(&self.tap);
+        if point == ChoicePoint::PumpBound {
+            crate::report_holds::lock(&tap.report_holds).pump_started();
+        }
+        tap.inner.scheduler().bound(point, max)
     }
 
     /// The tap's holds first (`scheduler_hold`), then the inner scheduler's own answer.
@@ -805,6 +826,7 @@ impl<E: HostEdges> EdgeTap<E> {
             reports: RouteReports::default(),
             control_full: BTreeSet::new(),
             op_holds: SharedHolds::default(),
+            report_holds: SharedReportHolds::default(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -844,7 +866,12 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError> {
-        self.tap().inner.spawn_worker(spec)
+        let mut tap = self.tap();
+        let spawned = tap.inner.spawn_worker(spec);
+        if let Ok(identity) = &spawned {
+            crate::report_holds::lock(&tap.report_holds).spawned(*identity, spec.instance.clone());
+        }
+        spawned
     }
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
@@ -857,12 +884,20 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         self.tap().inner.identity_state(identity)
     }
 
+    /// The exit of a worker whose session has a report hold waits for the hold's end (`report_holds`).
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         let mut tap = self.tap();
-        match tap.exits.pop_front() {
+        let Tap {
+            inner,
+            exits,
+            report_holds,
+            ..
+        } = &mut *tap;
+        let mut holds = crate::report_holds::lock(report_holds);
+        holds.poll_exit(|| match exits.pop_front() {
             Some(exit) => Some(exit),
-            None => tap.inner.poll_process_exit(),
-        }
+            None => inner.poll_process_exit(),
+        })
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
@@ -900,29 +935,33 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
             launches,
             heard,
             reports,
+            report_holds,
             ..
         } = &mut *tap;
         // R-66: the driver's call consumes what it received before; it receives the bytes that the call gives.
         reports.call(link);
-        let n = match links.get_mut(&link) {
-            None => inner.link_recv(link, buf)?,
-            Some(state) if !state.held.is_empty() => {
-                let n = buf.len().min(state.held.len());
-                for (slot, byte) in buf.iter_mut().zip(state.held.drain(..n)) {
-                    *slot = byte;
-                }
-                n
-            }
-            Some(state) => match state.end.take() {
-                Some(End::Closed) => 0,
-                Some(End::Failed(kind)) => return Err(kind.into()),
-                None => {
-                    let n = inner.link_recv(link, buf)?;
-                    state.observe(&buf[..n], launches, heard);
+        // The report holds stand between the tap's take-ahead and the driver: a held report and every later byte wait.
+        let n = crate::report_holds::lock(report_holds).recv(link, buf, |buf| {
+            Ok(match links.get_mut(&link) {
+                None => inner.link_recv(link, buf)?,
+                Some(state) if !state.held.is_empty() => {
+                    let n = buf.len().min(state.held.len());
+                    for (slot, byte) in buf.iter_mut().zip(state.held.drain(..n)) {
+                        *slot = byte;
+                    }
                     n
                 }
-            },
-        };
+                Some(state) => match state.end.take() {
+                    Some(End::Closed) => 0,
+                    Some(End::Failed(kind)) => return Err(kind.into()),
+                    None => {
+                        let n = inner.link_recv(link, buf)?;
+                        state.observe(&buf[..n], launches, heard);
+                        n
+                    }
+                },
+            })
+        })?;
         reports.received(link, &buf[..n]);
         Ok(n)
     }
@@ -949,6 +988,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         let mut tap = self.tap();
         tap.links.remove(&link);
         tap.reports.closed(link);
+        crate::report_holds::lock(&tap.report_holds).closed(link);
         tap.inner.link_close(link);
     }
 
