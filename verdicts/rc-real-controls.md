@@ -3106,3 +3106,58 @@ It matches package disposition `54ee5194f7dc850c065ec21539327657ebce2759` and re
 Both reviewers now record CLEAN with zero technical or procedural findings.
 FINAL-READY may follow as directed. Applicable train reviews and final train evidence remain due.
 The reviewer runs no execution job and waits for the next assigned review doorbell.
+
+
+### Train 3 — package delta reviews for Core #312 and #309
+
+Exact train head: `3435a6d2ce981ec5c06a888ba907667938f50137`.
+Train base: `080987829a2e2245a7ea97606020400392c974d6`.
+Train tree: `787fc74f540d554f8e28070456d3cc5feeaa19b2`.
+Lead assignment: `msg_plugin-w_1791818862_333b8f`.
+The train merges #310, #312, #308, then #309, with the exact member parents shown by Git.
+The reviewer reads the member composition and the overlapping host/link changes.
+No automatic Q7 carry is claimed for the list, shared helper, or overlapping changes.
+
+Core #312 delta VERDICT: NOT CLEAN (1 open composition condition).
+All five own blobs equal source CLEAN head `54805661b93f7acc7c548d0a429d429247c54255`.
+Every own content change against the train base matches the reviewed pin diff.
+All nine conformance line-set formulas pass. The real-pending list has 34 IDs and retains all nine reviewed removals.
+No own source, removal, or private-state test finding appears.
+The .44 pin and probe report arm retain their reviewed scope. P3 print-history serving work remains separate.
+The imported checkout resolver reads the lock's exact revision and fails on missing or ambiguous checkout paths.
+The shared CI bytes remain the .44 bytes. The resolver's slow comparison and the final train gate remain due.
+
+RC-PIN44-TRAIN-1 — MEDIUM, open composition condition: the recorded known-flaky retirement trigger is present.
+#308 adds an entry for in_8_mode_checked_at_write_start_by_worker with removed_by `contracts-v0.1.44 pin`.
+#312 applies that pin and the #79 structural fence fix. The train still retains the entry.
+Mutation stages therefore exclude that test despite the recorded removal trigger.
+Required disposition: retire the entry with the applied fix, or obtain an explicit lead disposition for retaining it.
+The reviewer sends QUESTION `msg_plugin-w_1791819015_632ece` and informs both integration reviewers.
+This condition is separate from the nine real-pending removals. No additional pending removal is requested.
+
+Core #309 delta VERDICT: NOT CLEAN (1 open HIGH finding).
+The frame-fit code, admission checks, new host tests, module registration, and all unchanged own blobs retain their reviewed versions.
+Four own blobs also contain accepted base changes: DESIGN.md, engine.rs, run.rs, and link msg.rs.
+The base adds operation-scheduler facts and the #305 stop-grace changes. It removes LaunchSpec.stop_grace_ms.
+The production shared Launch constructor correctly removes that field. The frame check uses the same updated constructor.
+The field removal reduces serialized Launch size and does not invalidate the conservative one-MiB receiver bound.
+The admission order, modifier fields, worst palette, and size-policy rules retain their source closures.
+
+RC-R100-TRAIN-1 — HIGH, open: the new Launch test fixture retains a removed field.
+At link msg.rs line 435, the_encoded_len_is_the_length_of_the_encoding still initializes `stop_grace_ms: 250`.
+The composed LaunchSpec at lines 28–46 has no such field. The test target cannot compile.
+Required change: remove the obsolete initializer while preserving the encoded-length behavior test.
+Provide the corrected exact train head for delta review under the train repair rules.
+The reviewer proves this by reading the two source definitions and runs no compiler.
+The combined reviewer independently reports the same defect as T3-I1 in `msg_plugin-w_1791818963_fe2a4a`.
+Both finding identities refer to one defect and need one code repair.
+
+The mutation file equals the train base. Relative to the older member bases it imports two equivalent default-method exclusions.
+Scheduler::held's false replacement equals its existing false body. Scheduler::admitted's unit replacement equals its existing no-effect body.
+Their overrides and the held true mutant remain tested. The reviewer reads both methods and accepts these narrow equivalence reasons.
+The earlier capacity exclusion moves one source line with its unchanged reason; the worker signal proof comment changes with #305.
+No exclusion covers the R-100 frame-fit functions, serializer counter, or new Launch behavior test's production subject.
+
+Both train delta verdicts remain NOT CLEAN at this head. The separate source CLEANs do not authorize this train composition.
+A corrected head, closed composition conditions, required integration reviews, final train gate, and final receipts remain due.
+The reviewer reads no running gate output and runs no test, build, gate, mutation run, measurement, or diagnostic.
