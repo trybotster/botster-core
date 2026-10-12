@@ -20,7 +20,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// A default-tier test that runs longer than this fails (BUILD.md Testing rule 4).
-const TEST_LIMIT_SECS: f64 = 2.0;
+pub(crate) const TEST_LIMIT_SECS: f64 = 2.0;
 /// The default tier as a whole must finish within this.
 const TIER_LIMIT: Duration = Duration::from_secs(60);
 /// The slow tier deadline when `--deadline` is not given.
@@ -379,29 +379,38 @@ pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
     )
 }
 
-/// Runs the held-full run of the testkit conformance binary (`cargo test -p botster-core --test conformance`, the binary of
-/// the `lists` step) under the slow tier's bounds, as [`pending_real`] does: the CI seed set, the strict and the held-full
-/// variables, and no selection variable. Each `budget` held id of `conformance/core-held.txt` runs at every seed, one trial a
-/// seed on 4 threads (lead, 2026-10-11). Returns the binary's stdout, and whether it succeeded: a held id that fails at a
-/// seed fails its trial, which names the seed.
+/// Runs the held-full run of the testkit conformance binary (`-p botster-core --test conformance`, the binary of the `lists`
+/// step) under nextest with the default tier's profile ([`default_tier_profile`]; plan 23cn, lead 2026-10-12): the CI seed
+/// set, the strict and the held-full variables, and no selection variable. Each `budget` held id of
+/// `conformance/core-held.txt` runs at every seed, one trial a seed, and each trial is a nextest test with the default
+/// tier's 2 s limit (`.config/nextest.toml`). The run has the slow tier's bounds otherwise: `deadline`, its own process
+/// group, the process tracker and the leftover check. Returns whether nextest succeeded, and the per-trial times of its
+/// JUnit file (`<binary id> <test name>` to seconds).
 ///
 /// # Errors
-/// The run could not start, passed its deadline, or left processes behind.
-pub fn held_full(root: &Path, deadline: Duration) -> Result<(bool, String)> {
+/// The run could not start, passed its deadline, left processes behind, or wrote no JUnit file.
+pub fn held_full(root: &Path, deadline: Duration) -> Result<(bool, BTreeMap<String, f64>)> {
+    caps::require()?;
+    let meta = metadata(root)?;
+    let profile = default_tier_profile();
+    let junit = junit_path(&meta.target_dir, profile);
+    // The JUnit file of an earlier run (the test-budget step writes the same file) must never count for this one.
+    remove_stale(&junit)?;
     let mut command = crate::tools::cargo(root);
     command
         .args([
-            "test",
+            "nextest",
+            "run",
             "-p",
             "botster-core",
             "--test",
             "conformance",
             "--locked",
-            "--",
-            "--format",
-            "terse",
-            "--test-threads",
-            "4",
+            "--profile",
+            profile,
+            // Every trial runs, so the report names each one over the limit.
+            "--no-fail-fast",
+            "--no-tests=fail",
         ])
         .envs(tier_env(false))
         .env(pending::STRICT_ENV, "1")
@@ -409,25 +418,50 @@ pub fn held_full(root: &Path, deadline: Duration) -> Result<(bool, String)> {
     for var in crate::ci::SELECTION_VARS {
         command.env_remove(var);
     }
-    bounded_conformance(
-        root,
+    let pidfile = meta
+        .target_dir
+        .join("nextest")
+        .join("slow")
+        .join("held-full-pids");
+    let success = bounded_success(
         command,
         deadline,
-        "held-full-pids",
-        "start the testkit conformance binary",
-    )
+        &pidfile,
+        "start cargo nextest for the held-full run",
+    )?;
+    let xml = std::fs::read_to_string(&junit).with_context(|| {
+        format!(
+            "the held-full run wrote no JUnit file at {}",
+            junit.display()
+        )
+    })?;
+    Ok((success, parse_junit(&xml)))
 }
 
-/// The number of seeds of the CI seed set that the held-full run must report.
-pub fn ci_seed_count() -> Option<usize> {
-    seed_count(DEFAULT_SEEDS)
+/// The nextest profile of the default tier: `ci` under CI (no retries), else `default`. Both have the 2 s per-test limit.
+pub fn default_tier_profile() -> &'static str {
+    profile_under(std::env::var_os("CI"))
 }
 
-/// The number of seeds of a range `<from>-<to>`; `None` for any other text.
-fn seed_count(range: &str) -> Option<usize> {
+/// The default tier's profile for the value of `CI`: `ci` when it is set and not empty, else `default`.
+fn profile_under(ci: Option<std::ffi::OsString>) -> &'static str {
+    if ci.is_some_and(|v| !v.is_empty()) {
+        "ci"
+    } else {
+        "default"
+    }
+}
+
+/// The seeds of the CI seed set: the held-full run must have a trial of each `budget` held id at each of them.
+pub fn ci_seeds() -> Option<Vec<u64>> {
+    seeds_in(DEFAULT_SEEDS)
+}
+
+/// The seeds of a range `<from>-<to>`, both ends included; `None` for any other text.
+fn seeds_in(range: &str) -> Option<Vec<u64>> {
     let (from, to) = range.split_once('-')?;
-    let (from, to): (usize, usize) = (from.parse().ok()?, to.parse().ok()?);
-    to.checked_sub(from).map(|n| n + 1)
+    let (from, to): (u64, u64) = (from.parse().ok()?, to.parse().ok()?);
+    (from <= to).then(|| (from..=to).collect())
 }
 
 /// Runs a conformance binary's `command` (a capped `tools::cargo` command) with [`bounded_report`], with the pid file `pids`
@@ -603,10 +637,8 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
 
     let profile = if options.slow {
         "slow"
-    } else if std::env::var_os("CI").is_some_and(|v| !v.is_empty()) {
-        "ci"
     } else {
-        "default"
+        default_tier_profile()
     };
     let mut nextest_args: Vec<String> = vec![
         "--profile".into(),
@@ -792,14 +824,26 @@ mod tests {
         rows.iter().map(|(k, v)| (k.to_string(), *v)).collect()
     }
 
-    /// The held-full run must report the 32 seeds of the CI set; a range counts both ends, and other text has no count.
+    /// The default tier's profile is `ci` under CI and `default` elsewhere; both have the 2 s per-test limit, which the
+    /// held-full run uses too (plan 23cn).
+    #[test]
+    fn the_default_tier_profile_is_ci_under_ci_and_default_elsewhere() {
+        let ci = std::env::var_os("CI").is_some_and(|v| !v.is_empty());
+        assert_eq!(default_tier_profile(), if ci { "ci" } else { "default" });
+        assert_eq!(profile_under(None), "default");
+        assert_eq!(profile_under(Some("".into())), "default");
+        assert_eq!(profile_under(Some("true".into())), "ci");
+    }
+
+    /// The held-full run must have a trial at each of the 32 seeds of the CI set; a range has both ends, and other text has
+    /// no seeds.
     #[test]
     fn the_ci_seed_set_has_32_seeds() {
-        assert_eq!(ci_seed_count(), Some(32));
-        assert_eq!(seed_count("3-5"), Some(3));
-        assert_eq!(seed_count("4-4"), Some(1));
+        assert_eq!(ci_seeds(), Some((0..32).collect()));
+        assert_eq!(seeds_in("3-5"), Some(vec![3, 4, 5]));
+        assert_eq!(seeds_in("4-4"), Some(vec![4]));
         for text in ["5-3", "0", "a-3", "0-b", ""] {
-            assert_eq!(seed_count(text), None, "{text}");
+            assert_eq!(seeds_in(text), None, "{text}");
         }
     }
 
