@@ -156,3 +156,191 @@ The READY gate stays scoped to 0da. The db unit test and any further source corr
 Continue independent review while the owner corrects this remaining path. No integration CLEAN is granted.
 
 VERDICT: NOT CLEAN (1 open; complete review remains in progress).
+
+## Inspection 3 — VERDICT: NOT CLEAN (5 open; source and evidence audit)
+
+Head: `db97736b173d32ab78377a8f5ec2c6d083636bb8`.
+Tree: `4d51aaac22b84007f83a614e62178e325e5afae2`.
+Source base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Gate comparison base: `007efbde6a59af403d0937c38361c137a8961a48`.
+The reviewer reads the complete package inspection at `54f6a3a50d40132f60f047f289a1a2faaca2caa0`.
+That inspection is NOT CLEAN with two findings. It explicitly leaves the complete package review in progress.
+Package receipts: `msg_plugin-w_1791840325_caa5a5`, `msg_plugin-w_1791840368_7fa4b8`, and `msg_plugin-w_1791840486_9a7a6b`.
+This record does not accept a later correction that the owner has not supplied as READY.
+
+### R320-SI-1 — LOW, closed; R320-SI-2 — MEDIUM, open
+
+Inspection 2's documentation closure remains applicable. Its R-116 overflow-gap finding remains open on this head.
+The owner reports an unpushed gap correction and a route retirement correction in `msg_plugin-w_1791840442_f5175f`.
+That status report supplies no corrected READY or complete delta review. It therefore closes neither finding here.
+
+### R320-SI-3 / RF-PC-3 — MEDIUM, open: completion recreates a retired route key
+
+Contract basis: section 6.2 retirement, EV-5, and `conf::ev_5_route_closed_retires_route_keyed_events` at contracts .44.
+The reviewer independently reads worker `end_route`, `finish_active`, and `end_client_record`.
+The reviewer also reads host `close_route`, the new `ClientInputEnded` observation arm, and queue `post_keyed` and `retire_route`.
+
+An active client transaction can remain after its route closes.
+Worker `end_route` removes the route and reports `RouteClosed`; it does not end that active transaction.
+Host `close_route` posts the mandatory close, removes the route, and retires its keyed events.
+A later PTY completion calls `end_client_record`. That function appends the facts status update and reports `ClientInputEnded`.
+The new host arm posts `Activity{Client(route)}` without checking whether the route still exists.
+`post_keyed` has no retirement guard. The late observation therefore creates the route key after its retirement.
+The existing host completion test uses nonexistent `RouteId(4)`. It does not establish a live route condition.
+
+Required change: preserve the facts status update, but post completion Activity only for a live route of the same session.
+Supply equivalent coverage for a live route and for completion after `RouteClosed`.
+The reviewer runs no reproduction. This finding follows from the inspected production paths.
+Independent notices: package `msg_plugin-w_1791840467_de126b`; owner `msg_plugin-w_1791840467_e64e23`.
+
+### R320-SI-4 / RF-PC-4 — MEDIUM, open: new byte decoders lack their harnesses
+
+Plan section 8 step 9 requires a bolero harness for every byte decoder that Core adds.
+Each harness runs as a property test on stable and as a 60-second fuzzer when its crate changes at landing.
+The requirement includes byte decoders outside the control link. The route codec's own harnesses do not cover Core's new mapping.
+
+Worker `receipt.rs` decodes raw frame JSON in `of_raw`, `semantic`, and `reply` into facts payloads and input classifications.
+Host `session::next_ordinal` decodes registry bytes through UTF-8 and decimal parsing into the next cursor ordinal.
+Neither crate has a bolero harness for these new paths.
+The existing `HARNESSES` table registers only the two link harnesses and the two guardian harnesses.
+The reviewer reads both link harnesses. Neither calls the receipt mapping or the ordinal decoder.
+The original gate fuzzes only `link_decoder` and `msg_decoder`, so it does not execute these new decoding paths.
+
+Required change: add decoder properties that execute these paths and register them in the existing fuzz selection.
+Keep capped cases and the existing pinned seed on stable. Retain 60-second landing execution for each required harness.
+This is completion of the existing fuzz requirement. It does not require a new xtask check or check family.
+Independent notices: package `msg_plugin-w_1791840467_de126b`; owner `msg_plugin-w_1791840467_e64e23`.
+
+### R320-SI-5 / RF-PC-5 — MEDIUM, open: a valid facts response can exceed its link frame
+
+Host `link_frame_bound` uses only `max_paste_bytes` and `max_snapshot_bytes`: six times the larger value, plus 1 MiB.
+It caps that result at `u32::MAX / 2`.
+Worker launch takes that same bound. Worker `read_facts` returns the records and the full retained client tail in one result.
+The tail uses `HexBytes`, whose serializer emits two hex characters for each byte, plus its JSON wrapper.
+Worker `send_report` encodes `Done(Facts)` and sends it through `send_frame`.
+`send_frame` emits no action when `encode_frame` rejects the payload size. It reports no error to the host.
+
+Static accepted configuration: keep the default limits except `max_snapshot_bytes = 1024` and `input_tail_bytes = 4 * MiB`.
+The unchanged `max_paste_bytes` is 1 MiB. The derived link bound is therefore 7 MiB.
+Both changed limits satisfy the pinned .44 validation rules; the remaining default cross-limit relationships remain valid.
+After successful client writes fill the 4 MiB tail, its hex content alone needs 8 MiB.
+Thus `Done(Facts)` exceeds the 7 MiB link bound before its records, model data, or wrapper are counted.
+The worker emits no Done frame. The host's admitted read has no completion from this path.
+This proof does not depend on an oversized protected record or on R-116.
+
+Required change: provide a contract-correct transport path for the complete facts result.
+Account for retained records, R-116 source overflow, the tail, model data, and the Done wrapper.
+An increased derived bound must also address facts that exceed the fixed link cap.
+Do not add an unapproved configuration refusal or truncate contract-required facts to hide the response size.
+Supply behavior coverage that proves a valid large result reaches completion.
+No reproduction or measurement runs. The proof uses inspected source, accepted limits, and the required hex representation.
+Independent notices: package `msg_plugin-w_1791840556_453cd2`; owner `msg_plugin-w_1791840556_dbbb72`.
+The package reviewer's separate small-paste example needs related history-page and query-reply limit adjustments.
+The reviewer sends that qualification in `msg_plugin-w_1791840586_e35164` and uses the valid tail example above.
+
+### R320-SI-6 — MEDIUM, open: host writes can remove the current client record
+
+Lead decision: `msg_plugin-w_1791840620_22f04f`, from package question R320-Q3.
+The reviewer reads complete R-117 at contracts `8a2e6ae6c5f61aa8b717691be9b20772c9542700`.
+The reviewer also reads the frozen ST-7 clause and the current Facts state and retention code.
+The reviewer accepts the ruling as a reading of ST-7's explicit current-client-rev retention requirement.
+No amendment, new pin, control, or conformance id is required by this ruling.
+
+R-117 protects two sets: the newest unified-log record and the record that set the current client revision.
+Each protected record keeps its status update. Before the first client input, the second set is empty.
+When both sets name one record, two entries are protected. Otherwise at most four entries are protected.
+Retention drops only unprotected entries, oldest first. The frozen 9B minimums stay.
+The protected set stays even when it exceeds the byte or count bound, and overflow reports gap.
+
+The current Facts state keeps only the unified newest record identifier.
+Every receipt replaces that identifier. Retain protects only entries whose record matches it.
+After a client input, later host writes can therefore remove the record that set the still-current client revision.
+Its status update can also be removed. ReadFacts still returns that client revision without its retained record.
+
+Required change: protect both R-117 sets and their updates, including the pending form of each protected record.
+Report gap for protected byte or count overflow, independently of prior drops or the requested cursor.
+Add the required unit test: one client input, then host writes past input_events_kept.
+ReadFacts must keep the client record and update, the newest host record and update, and gap true.
+R-117 extends the protected-set scope of R320-SI-2 and the response-size scope of R320-SI-5.
+This finding follows from inspected source. The reviewer runs no reproduction.
+Notices: package `msg_plugin-w_1791840746_6ac5ac`; owner `msg_plugin-w_1791840746_77a135`.
+
+### Completed source and test reads
+
+The reviewer completes all 38 initial changed paths, including the worker input and route deltas and their tests.
+The reviewer also reads the complete supplied documentation corrections and the db R-116 test delta.
+ReadFacts takes model and input facts at one worker ordering point and returns through the existing Done path.
+Client tail bytes enter only after successful physical PTY writes. Host writes and shadow replies do not enter the client tail.
+Receipt, active completion, queued discard, cancellation, and adoption-fence paths append their records or status updates.
+The reviewer checks the semantic receipt mappings against R-101, R-102, R-103, and R-105.
+The R-100 launch preflight uses the largest cursor ordinal; the actual launch uses its durable reserved ordinal.
+The ordinal row uses the shared Storage edge. A failed or uncertain write does not launch a worker.
+
+The reviewer reads the three-way resolution of merge `7f762e510f4c5e8b92370c92343fa122de646fc4` in input.rs and route.rs.
+That resolution keeps wire-cost accounting, key-text bounds, route size policy, and the new receipt record.
+Later `route_active` restoration preserves DP-6 activity for decoded frames that are not client inputs.
+The route NotReported path keeps the existing omission of a wire frame and appends its facts status update.
+These checks do not grant acceptance of a future import from the current v1 tip.
+
+### Conformance and gate evidence audit
+
+The reviewer compares the conformance sets against the source base and checks the earlier import with three-way id formulas.
+All import formulas preserve the ids removed by either parent. Row-only pending formulas also pass.
+The ledger stays at 691. Core pending decreases from 387 to 369: exactly 18 ST-7 ids leave it.
+Real pending increases from 38 to 39: only `conf::st_7_events_bounded_by_records_and_bytes` enters it.
+The proof file keeps seven rows for four ids. Held, minimum, real-only, deferred, and withdrawn sets do not change.
+The gate's deferred/withdrawn runtime counts are 2/18; they are not the counts of all textual status references.
+All 18 removed ids have normal default PASS results. All 17 required real forms have normal slow PASS results.
+The byte-cost id stays real pending because `input_records_cost` has no supplied real form.
+`st_7_facts_after_link_loss` stays core pending because `process_end_worker` is unsupported.
+The reviewer reads the .44 exceptions file and finds no ST-7 exception. No minimum id changes.
+
+The original READY gate remains scoped to `0da795878bd82cca266be57f558a70f3ee953ab5`.
+Log: `gates/botster-core-stage1-p5-read-facts-0da79587-pool-20261012-135212-1646.log`.
+SHA-256: `feee573c268ce087164b5fa7e3693b825e1ea05995181c0707b95260e44e4c83`.
+The reviewer audits the complete raw outcome and citation sets through bounded aggregate parsing.
+All 196 mutation outcomes are unique: 159 caught, 37 unviable, zero missed, and zero timeout.
+All 159 caught identities match 159 unique citations. Every cited test has a normal default PASS; 48 distinct tests catch them.
+Stage 2 explicitly skips because stage 1 has no miss. No stage-2 execution is inferred.
+Default has 2147 unique PASS results and 393 skips. Slow has 694 unique PASS results and 2063 skips.
+Both complete normal PASS ordinal sets agree with their reported totals. No runtime failure or termination result appears.
+Strict reports 299 passed, zero failed, and 393 ignored. Held-full reports 96 ignored trials at 32 seeds for three budget ids.
+The two actual fuzz runs finish: link_decoder at 6383953 runs/61 seconds; msg_decoder at 3407587 runs/61 seconds.
+The configured duration is 60 seconds each. Those results retain the missing-path limitation in R320-SI-4.
+The terminal record has ten PASS steps, CI 531.6 seconds, and job/wrapper exits zero after 545 seconds.
+
+### Supporting evidence and its limits
+
+The reviewer reads the local check producer and audits every retained command boundary and result at 0da.
+`checks-0da79587.log` SHA-256: `89e55f3b54df2f4a336e93f85cb851f3a38eb16d5fad23b30fc8dfc7a4698769`.
+The log records clean, fmt, clippy, selected unit tests, strict seeds 0-31, and lists, each with exit zero.
+The local strict result is 299/0/393 ignored. Mac timing and strict results remain supplementary under pair-common.
+`taint-0da79587.log` SHA-256: `9f1babd38436770baabede9557787a8b47763ed9155b8e10b725c1ff887cb6cb`.
+It reports the complete taint job PASS. The pool gate supplies the corresponding acceptance scope.
+
+The reviewer reads all three 60-line .44 real probe logs and their producer.
+Each log runs at f9a536ea, reports 18 PASS and two unsupported controls, and restores the two pending files.
+The failures are `process_end_worker` and `input_records_cost`, which remain pending in their applicable tiers.
+The producer does not retain numeric prebuild, test, or restore exits and supplies no clean or writer-history proof.
+These historical local results therefore remain supplementary. The READY pool supplies the 17 required real PASS results.
+Probe SHA-256 values: `79a1151df5a472c3127eeb40bb53b918e18ea159b27155f99bae8ee338f22a17`,
+`07d58d58e59575a7930f6194a45a4801f34e1d39177eadbf27dd256b6dcf272a`,
+and `70fff872387b27d9028133405831f08d31dae4221865aaa57a0bb2022366cd53`.
+
+The e80 prefix reversal changes division to multiplication and fails the exact prefix assertion, with exit 101.
+Its SHA-256 is `f1636cb658861b30a2ded4b1f9beda7277602e82777d21486ba37f2a134c4599`.
+The db R-116 reversal has two protected-removal variants. Each fails the protected-pair assertion, with exit 101.
+Its SHA-256 is `3ae8e79eb36af7e069c298656b1e69180f715f93bc5ebf37e237104c27b1fe0f`.
+Neither reversal log records a numeric restoration result or a restored test run.
+The db reversal covers protection, not the missing overflow gap. It does not close R320-SI-2.
+The body-only claim that the DP-6 test is red at e80 has no identified retained log here and remains an owner report.
+
+### Next step
+
+Five MEDIUM findings remain open on this exact head. The complete matching package review remains due.
+Read the owner's corrected READY, its applicable evidence, and the complete package delta before any integration CLEAN.
+The original gate is not execution of a later correction, import, or final train.
+The reviewer changes no product code and runs no build, test, gate, mutation, fuzz, or reproduction job.
+Wait for the doorbell when no independent review work remains. Never poll.
+
+VERDICT: NOT CLEAN (5 open; complete review remains in progress).
