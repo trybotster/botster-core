@@ -359,21 +359,19 @@ fn an_ended_worker_s_exited_frame_is_read_without_an_end_of_file() {
 }
 
 /// R-78 item 4, steward follow-up: a running worker ended with nothing written, and its link gives no end of file. The
-/// first read would block. The pump of the exit report reports more work (TM-6), the next pump closes the link, and the
-/// session is lost `WorkerGone`.
+/// first read would block. The pump of the exit report marks the link for its drain before it reads the links, so that
+/// pump's read closes the link and its work loop loses the session `WorkerGone`: nothing waits for a later pump.
 #[test]
 fn an_ended_worker_with_nothing_written_is_gone_at_once() {
     let mut rig = Rig::new(limits(|_| {}));
     run_session(&mut rig, "s1", LinkId(1));
     rig.drain_events();
     worker_exits(&rig, 0);
-    assert!(rig.pump().more, "the drain is runnable work");
     rig.pump();
     assert!(
         link(&rig).links[&LinkId(1)].closed_by_host,
         "the drain does not wait"
     );
-    rig.settle();
     assert_eq!(
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Lost(LostReason::WorkerGone)

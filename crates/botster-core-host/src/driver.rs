@@ -719,11 +719,13 @@ impl<E: HostEdges> HostDriver<E> {
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                     // The worker process ended, so nothing more comes: the drain ends here, and a partial frame is a
-                    // truncated link (R-78 item 4, steward follow-up: never wait for the end of file).
+                    // truncated link (R-78 item 4, steward follow-up: never wait for the end of file). Closing it posts
+                    // events, so a pump with no budget left keeps the end for the next pump (9B, TM-6: `end_link`).
                     if self.links.get(&link).is_some_and(|s| s.peer_ended) {
-                        self.close_link_because(
+                        self.end_link(
                             link,
-                            &"the worker process ended: its link is drained",
+                            "the worker process ended: its link is drained".to_string(),
+                            budget,
                         );
                     }
                     return;
@@ -881,6 +883,9 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             budget.account(&mut self.engine);
         }
         self.take_exits(&mut budget);
+        // An exit's actions run before the links are read: a link of an ended worker is marked for its drain
+        // (`LinkPeerEnded`, R-78 item 4), so this pump's read ends the drain and the work loop below classifies the session.
+        self.perform_counted(&mut budget);
         // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
