@@ -1919,3 +1919,9 @@ The clean marker is 15:31:06 UTC. Filtered-pipeline and numeric-clean-exit limit
 The reviewer has not read the running gate. Its completed record, corrected current-head body, and base-merge-check record remain due.
 The live body still describes 50a50cff. PC receives the request for corrected current-head evidence and body labels.
 No formal delta CLEAN is issued. No later train head or gate is accepted. No reviewer job runs. Wait for the doorbell. Never poll.
+
+The #307 import inspection is pushed at d6f664f7a43af0f1f590e0281e9a69179d498c48. PC and Sol received it.
+Sol receipt msg_plugin-w_1791820008_02acf3 supplies matching source inspection 5f0cf6c7999afd7a8af4957ffe1cd36704a1abff.
+The reviewer reads its composition, list, evidence, and matching-receipt sections and verifies publication.
+Both inspections find no new source finding on 2ed85f93, imported base 08098782, tree b117637b.
+Both formal verdicts still need the completed gate, corrected body, and retained base-merge-check record. No running output is read.
