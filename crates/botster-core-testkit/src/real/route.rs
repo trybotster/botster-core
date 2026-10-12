@@ -1349,6 +1349,20 @@ mod slow_tests {
         assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 2}));
     }
 
+    /// Bytes that wait in the client (the stream is full) are not taken: the count is of the bytes that the stream accepted,
+    /// less the worker end's unread bytes. A small frame, then one larger than both socket buffers: the worker reads nothing,
+    /// and no frame is taken.
+    #[test]
+    fn bytes_that_wait_in_the_client_are_not_taken() {
+        let (mut route, mut worker) = tapped_pair();
+        route.write(&frame(b"ab"));
+        route.write(&frame(&vec![b'x'; 4 << 20]));
+        assert!(!route.unsent.is_empty(), "the stream holds less than 4 MiB");
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 0}));
+        take(&mut worker, 6);
+        assert_eq!(frames_taken(&mut route).unwrap(), json!({"frames": 1}));
+    }
+
     /// The kernel query agrees with the reader's own count of its unread bytes (`FIONREAD` on the worker's end), and it
     /// counts nothing that the worker's end wrote.
     #[test]
