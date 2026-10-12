@@ -19,7 +19,6 @@ use botster_core_host::driver::HostWake;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
 #[derive(Debug)]
@@ -353,6 +352,7 @@ mod tests {
     use super::*;
     use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
+    use std::time::Instant;
 
     /// R-87, R-88: `record_of` gives the record that the handle's refusal layer keeps, so the `parked_work` and `op_posted`
     /// controls read what
