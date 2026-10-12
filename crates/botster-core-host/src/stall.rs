@@ -45,6 +45,9 @@ pub(crate) struct RouteClock {
     stalled: Option<(u64, Instant)>,
     /// The due step that was sent and is not answered.
     asked: Option<Due>,
+    /// The due step ran in a pump with budget and found no mandatory room: it is parked until a poll frees room (E3-1 item
+    /// 4). A due step with no budget is carried first; only a step that ran can be parked (E3-1 items 2 and 4).
+    parked: bool,
 }
 
 impl RouteClock {
@@ -55,6 +58,7 @@ impl RouteClock {
             waiting: None,
             stalled: None,
             asked: None,
+            parked: false,
         }
     }
 
@@ -70,6 +74,11 @@ impl RouteClock {
         Some((since.checked_add(self.stall_deadline)?, Due::Stall(mark)))
     }
 
+    /// True when the due step ran and found no mandatory room (E3-1 item 4).
+    pub(crate) fn parked(&self) -> bool {
+        self.parked
+    }
+
     /// True while a due step of this route holds a mandatory slot for its answer.
     pub(crate) fn holds_slot(&self) -> bool {
         self.asked.is_some()
@@ -78,11 +87,17 @@ impl RouteClock {
 
 impl HostEngine {
     /// Runs the due step of `route` (R-90): it sends the due message with the host's mark, and holds one mandatory slot for
-    /// the worker's answer. The caller runs it only with mandatory room (`deadlines` leaves a step out otherwise).
+    /// the worker's answer. With no mandatory room the step is parked: it is not due again until a poll frees room (E3-1 item
+    /// 4; `deadlines`).
     pub(crate) fn run_route_due(&mut self, route: RouteId) {
-        let Some(entry) = self.routes.get(&route) else {
+        let room = self.has_room();
+        let Some(entry) = self.routes.get_mut(&route) else {
             return;
         };
+        entry.clock.parked = !room;
+        if !room {
+            return;
+        }
         let Some((_, due)) = entry.clock.deadline() else {
             return;
         };
