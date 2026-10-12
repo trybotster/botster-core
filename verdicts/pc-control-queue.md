@@ -272,3 +272,7 @@ Lead receipt `msg_plugin-w_1791787683_b8c46e` states that the lead can send mess
 The published CLEAN verdicts remain available in the verdict files. This notice changes no reviewed head or review result.
 The reviewer will resend the important CLEAN receipt when the lead announces that its inbox works again.
 No final-slot authorization is inferred from the notice. No new final-import head or completed final gate has been supplied to this reviewer.
+
+Lead receipt `msg_plugin-w_1791818308_100adb` announces inbox recovery and asks for important messages to be resent.
+The reviewer resends the matching #307 CLEAN receipt in `msg_plugin-w_1791818343_b236da`.
+The resend preserves the reviewed head, parent-gate scope, and pending final steps. It changes no verdict or authorization.

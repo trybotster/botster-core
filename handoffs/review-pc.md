@@ -1896,3 +1896,9 @@ The lead instructs pairs to continue queued work, record verdicts in files, and 
 The #307 verdict and matching formal receipt are already published. No new review head or completed final gate is supplied here.
 The reviewer will resend the important #307 CLEAN receipt when the lead announces inbox recovery.
 The reviewer infers no final-slot authorization. Wait for the next authorized doorbell. Never poll.
+
+Lead receipt msg_plugin-w_1791818308_100adb announces inbox recovery and asks for important messages to be resent.
+The reviewer resends the matching #307 CLEAN receipt in msg_plugin-w_1791818343_b236da.
+The resend names both formal verdict commits, exact head 50a50cff, source base e4f49504, and tree 90d10894.
+It preserves the parent gate's scope and the pending final-slot/import/check/gate/review/Q7 conditions.
+No new final-import head or completed final gate is supplied to this reviewer. No slot or merge approval is inferred.
