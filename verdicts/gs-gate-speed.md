@@ -4114,3 +4114,19 @@ Sol records the owner's withdrawal of the unretained initial clippy and isolated
 The reversal script invokes restoration, but its logs retain no numeric restoration exit or restored-suite PASS. The earlier clean statement is an owner report.
 
 This receipt records the initial inspection. It does not complete a matching CLEAN round. I ran no execution job.
+
+### Sol-B final train 5 receipt
+
+I read the complete final applicable sections at `50ea5016da38fe69eb32f689580dddfd1b3f676e`: #306 Round 8 and combined train 5 Round 2.
+
+Both sections accept the same exact train head, tree, base, and completed gate as this package receipt. Sol-B reads both final package records and bodies.
+
+Sol-B verifies all 46 new tests in their assigned tiers. All 23 default binaries and 25 ordinary slow binaries have normal root-test PASS results.
+
+The coverage check accepts 1,098 slow-only tests. All 161 raw catches match citations and normal PASS results. Stage 2 catches the fourteen exact stage 1 misses.
+
+The accepted name-rule and stale-library limits remain. EV-2 supplies no catch credit. Sol-B reports zero member or combined findings.
+
+The final matching #306 package and integration receipts are complete. The lead's ancestry, equal-tree merge, and remote publication checks remain due.
+
+This receipt accepts no later head or specific retry. I ran no execution job.
