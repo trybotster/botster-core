@@ -188,3 +188,82 @@ That gate and its mutation result must cover the later fixes. The 6c231801 gate 
 Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open source/body findings) at 2e03346020a63cdc9c069a638170e95cb1416177 against base 5e953398925351c12e463a7b0a946b79d9841edc; final-slot acceptance remains due
+
+## Round 4 — final-slot source import
+
+Exact head: `1ed69c709da7f75a7f90895ae36675f3e8702d84`.
+Reviewed base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+Tree: `8d370b057c8b25dcb05a8d31621b6db46e3066fc`.
+Sol verifies both merge parents: previously reviewed 2e033460 and imported v1 1b984f06.
+P5 supplies the SLOT delta in `msg_plugin-w_1791767479_6dc6ea`.
+The earlier complete source review covers the unchanged own implementation and tests.
+
+### Canonical result and independent source comparison
+
+Sol reads the complete retained canonical report and its source-comparison supplement.
+Path: `~/botster-sessions/shared/core-stage1/evidence/p5-r87/base-merge-check-292.txt`.
+SHA-256: `00a9e3818f9cd4380f28c650aa9a074fc341cc02659e52763240c942c0e97ad8`.
+Ancestry and condition 1 PASS. Conditions 2 and 3 FAIL because real.rs changes in both branches.
+Both pending-file condition-4 checks PASS. The report correctly requires both reviewers' explicit delta reviews.
+Sol runs no executable base check and does not change this retained FAIL into PASS.
+
+Sol independently compares every complete own patch before and after the import.
+All nine patches match byte for byte after removal of only blob-index and hunk-location metadata.
+This includes the entire real.rs patch, not only its added lines.
+Every imported non-own blob matches the imported base.
+All nine conformance status files match the imported base byte for byte, including both pending files and the held file.
+Thus this import changes no identifier, class, owner, pending status, or named real proof through #292's own diff.
+The ledger retains 691 identifiers; pending and real-pending retain 412 and 44 respectively.
+The previously repaired AdoptRow mapping and its complete regression remain unchanged.
+
+### real.rs composition
+
+Sol reads the complete real.rs import delta and the current open, wrapper, control, and diagnostic-recording context.
+The imported route controls, start and handoff holds, oracle controls, and wake test retain their base implementation.
+The own parked_work control uses a distinct dispatch name and still validates the session through its recorded row.
+Its answer comes from the per-handle ParkedWork record, without calling the Core or making progress.
+The tapped open path still creates the same driver, capture layer, and crash slot.
+It then wraps that slot with RefusalLayer and shares a fresh ParkedWork record with the harness.
+The imported wake descriptor remains on Handle. The wrapper still delegates wake_handle and next_deadline to its inner Core.
+The layer records diagnostics after each applicable Core call and returns that call's original result.
+The imported route controls use the same weak tap and separate request path. They do not replace the parked-work record.
+The plain harness still serves no parked_work control.
+No source defect arises from this composition. Sol establishes zero new source findings on this head.
+
+### Local static evidence
+
+Log: `~/botster-sessions/shared/core-stage1/evidence/p5-r87/r292-slot-checks.log`.
+SHA-256: `d94a86856c15e3eda3e67d63df745f9c6e4fdb16f3da991aed543e6b90687243`.
+Sol first reads the completed static prefix and later reads the completed unit-test section after P5 reports its completion.
+Sol reads no running unit result or final-gate output.
+The log records exact head and parents, clean worktree, and cargo clean removing 2139 files and 839.4 MiB.
+It records zero target entries after the clean and names the sole SLOT worktree writer through the run.
+Fmt and lists report success. Taint PASS takes 22.6 seconds. Clippy reports zero errors.
+The completed unit summaries include 299 host tests and 421 testkit tests, with zero failures.
+The record ends with a timestamp and clean worktree status.
+These results supply their stated local scope. They do not replace the completed exact-head final gate.
+
+### R292-SI-4 LOW closes: current body scope
+
+The original slot-body snapshot still names no SLOT import and says that Core pins .39.
+Its SHA-256 is `01e48a55251600625701c80963676f3a28ec90627bef074769250e86335c5285`.
+Sol sends the correction as R292-SI-4 LOW. The package reviewer independently reports matching R292-D1.
+P5 corrects it in `msg_plugin-w_1791767592_e5ed6b`.
+Sol reads the complete reported body delta and confirms exact GitHub head 1ed69c70 and base 1b984f06.
+Current body SHA-256: `a5d3abb56ffe51d6f68f010e2bfbe24a007ce1aad0d770fdce816e750ddd8eef`.
+The body adds both reviewed and current identities, the overlap, each canonical condition, source preservation, and local clean scope.
+It limits the old gate and local records to their exact earlier heads and marks the final gate RUNNING.
+It states the current .41 pin and retains .39 only for the earlier source scope. R292-SI-4 closes.
+
+Sol independently verifies that both target .41 transcripts contain no parked_work fence.
+Sol reads their complete .41-to-.42 fence deltas at tag target ec7075a4a3fee067323f24f02576777ccd1abea7.
+Both .42 transcripts add the required parked_work waiting fence; am_4 adds its separate op_posted waiting fence.
+This narrow comparison supports the body's tag distinction. It accepts no .42 Core pin, transcript run, or pending removal.
+This PR changes no contract pin or pending list. The later op_posted Core implementation remains separate.
+The earlier Mac, mutation, reversal, and group-A records retain all previously recorded source and cache limits.
+
+The matching complete package delta verdict and completed exact-final-head gate remain due.
+The final body, both final evidence receipts, and lead's Q7 check before merge also remain due.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open source delta or body findings; package delta and final evidence remain due) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
