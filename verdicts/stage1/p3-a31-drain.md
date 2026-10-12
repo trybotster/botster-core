@@ -147,3 +147,10 @@ This verdict accepts no future head, train, pin, pending removal, A24 rule, or F
 I ran no build, test, measurement, gate, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW)
+
+
+### Matching package acknowledgment
+
+Package message `msg_plugin-w_1791832513_c72949` confirms that the reviewer read complete integration Round 3 at `adda76b49f727bb88db1e59949968586b57e1edb`.
+The package handoff records both CLEAN reviews at c707c4d6 and the F150–F154 closures under the authorized settlement.
+No new package round follows. Final import and train evidence remain due. Mac IN-6 classification and F28 remain separate.
