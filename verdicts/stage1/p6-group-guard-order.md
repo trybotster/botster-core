@@ -73,3 +73,17 @@ The PR diff remains byte-identical: 13,525 bytes, SHA-256 `7d706be6d1560e1c07605
 Round 2 CLEAN carries forward to this exact head. The final gate is running. Its result remains due. Sol-B ran no local build, test, or gate.
 
 VERDICT: CLEAN (0 open; final gate pending)
+
+## Final gate acceptance
+
+Exact head: `07f5db488e71f5da46d845ee9663a5a7e6863ec5`. Gate base: `f7eeced64e652700f2f78fc063e4896832134233`.
+
+Final log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-group-guard-order-07f5db48-pool-20261011-180130-28242.log`. The header names this exact head and base. The lists step uses this base as its merge base.
+
+All ten steps PASS. The default tier passes 1,843 tests. The slow tier passes 606 tests, including `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`. The log contains no FLAKY result. The mutation step lists no mutant and starts no run. This supplies no additional mutation proof.
+
+The pool job and gate wrapper exit 0 after 249 seconds on msa1. Sol-B read the completed results and the complete final PR body. GitHub names the same exact head. The body records the imported base, canonical check, final gate, original evidence, earlier failures, repairs, and reviewer receipts.
+
+Package source CLEAN is `4dfc8076a51d4ebcac6a0e932f2c2a4e59008569`, round 3. Sol-B read that verdict. The original Mac and reversal evidence retains its recorded scope. No integration finding remains. The exact-head final gate requirement is satisfied. Sol-B ran no local build, test, or gate.
+
+VERDICT: CLEAN (0 open)
