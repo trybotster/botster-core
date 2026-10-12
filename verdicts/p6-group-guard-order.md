@@ -114,3 +114,36 @@ This verdict accepts no later head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-11: source review after the base import
+
+Exact head: `07f5db488e71f5da46d845ee9663a5a7e6863ec5`.
+Imported and check base: `f7eeced64e652700f2f78fc063e4896832134233`.
+Tree: `472925ad9b1684553cc87ef0a0e65b4792010e95`.
+Merge parents: `1a9ba675cd6f51afd88e657649d22ec525d32f44` and the exact imported base above.
+
+Canonical check log: `~/botster-sessions/gates/botster-core-stage1-p6-group-guard-order-07f5db48-pool-20261011-175929-22640.log`.
+SHA256: `9a849c7ecdde43f4ad6117066d6ec105fd1d70fd023efd00b4b94d7ff8fa8b8c`.
+I read the complete retained check records and decoded command. They name the exact reviewed and imported heads.
+Both ancestry conditions pass. All four check conditions pass:
+
+- The merge-tree has no conflict.
+- The base changes 20 paths. None overlaps the PR's five paths.
+- The own diff remains byte-identical: 13525 bytes, SHA256 `7d706be6d1560e1c0760501d74bd022772a0fda93df267df622922aa9c8a3012`.
+- Both pending files retain the exact imported-base entries.
+
+The check returns PASS and exits zero. The job exits zero after 110 seconds: one queued and 109 running.
+The wrapper exits zero after 111 seconds.
+The canonical PASS permits the previous source review to carry without another delta round.
+
+I independently inspect the merge parents and Git tree entries.
+All five owned entries equal the reviewed head's entries. Every other entry equals the imported base's entry.
+Both core-pending.txt and core-real-pending.txt equal the imported base exactly. No unreviewed own source delta remains.
+The package source review therefore carries to this exact head. No package source finding remains.
+
+The initial gate, focused Mac evidence, and reversal retain their recorded original-head scope.
+This round accepts no unfinished final gate result. The completed exact-head final gate and final body remain due.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no execution job, including no executable base check.
+
+VERDICT: CLEAN
