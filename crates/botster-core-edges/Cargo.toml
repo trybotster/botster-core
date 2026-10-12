@@ -10,3 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+
+[dev-dependencies]
+# The build-root check of the unit-test binary (bug catalog B13).
+botster-test-process.workspace = true

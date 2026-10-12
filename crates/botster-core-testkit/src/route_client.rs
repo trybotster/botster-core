@@ -215,13 +215,16 @@ impl TestkitRoute {
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
-    fn flush(&mut self) {
+    /// Returns the count of bytes that the stream took: bytes that a lost stream discards are not counted.
+    fn flush(&mut self) -> usize {
+        let mut moved = 0;
         while !self.unsent.is_empty() {
             match self.end.write(&self.unsent) {
                 Ok(n) => {
                     self.unsent.drain(..n);
+                    moved += n;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return moved,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 // The stream is lost: its bytes go with it, as with a lost transport (OU-5).
                 Err(_) => {
@@ -230,6 +233,7 @@ impl TestkitRoute {
                 }
             }
         }
+        moved
     }
 
     /// The controls of the worker's end of the stream: they hold after the end moved into the worker (DP-2).
@@ -346,6 +350,15 @@ impl RouteClient for TestkitRoute {
         }
     }
 
+    /// Steward ruling R-86: the client is an independent actor. Sends the waiting bytes that the stream takes now, runs the
+    /// workers' ready route work (the in-process workers run only when the testkit runs them), and sends again into the
+    /// room that the work made. A full stream keeps the rest in order. True when a byte moved.
+    fn progress(&mut self) -> bool {
+        let moved = self.flush();
+        self.workers.run_ready();
+        moved + self.flush() > 0
+    }
+
     fn has_control(&self, op: &str) -> bool {
         ROUTE_CONTROLS.contains(&op) || SESSION_CONTROLS_ON_ROUTE.contains(&op)
     }
@@ -354,7 +367,10 @@ impl RouteClient for TestkitRoute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::Interest;
     use crate::scheduler::SchedulerHandle;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
     fn route(capacity: usize) -> (TestkitRoute, StreamEnd) {
@@ -603,5 +619,112 @@ mod tests {
         client.write(b"p");
         assert_eq!(drain(&mut worker), b"", "a failed stream takes no byte");
         assert_eq!(client.unsent(), 0, "and keeps none");
+    }
+
+    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved. Bytes that a
+    /// lost stream discards did not move.
+    #[test]
+    fn progress_is_true_only_when_a_kept_byte_moves() {
+        let drain = |worker: &mut StreamEnd| {
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8];
+            while let Ok(n) = worker.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+            }
+            got
+        };
+        let (mut client, mut worker) = route(4);
+        assert!(!client.progress(), "nothing is kept");
+        client.write(b"abcdef");
+        assert!(!client.progress(), "the stream is full: no byte moves");
+        assert_eq!(drain(&mut worker), b"abcd", "the stream took four bytes");
+        assert!(client.progress(), "the kept bytes move into the room");
+        assert_eq!(drain(&mut worker), b"ef", "and reach the worker, in order");
+        assert!(!client.progress(), "nothing is kept again");
+        // A lost stream discards the kept bytes: none moved.
+        client.write(b"ghijkl");
+        assert_eq!(drain(&mut worker), b"ghij");
+        client
+            .end
+            .end()
+            .control()
+            .fail_next_write(io::ErrorKind::BrokenPipe);
+        assert!(!client.progress(), "the discarded bytes did not move");
+        assert_eq!(drain(&mut worker), b"", "the worker gets none of them");
+        assert!(!client.progress());
+    }
+
+    /// A test-only worker: once armed, it reads every byte that its end of the route stream holds.
+    struct Reader {
+        end: StreamEnd,
+        armed: Arc<AtomicBool>,
+        got: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl crate::sim::Node for Reader {
+        fn ready(&mut self, _now: Instant) -> usize {
+            usize::from(self.armed.load(Ordering::SeqCst) && self.end.is_ready())
+        }
+
+        fn run(
+            &mut self,
+            _now: Instant,
+            _index: usize,
+            _trace: bool,
+        ) -> Option<crate::sim::Handled> {
+            let mut buf = [0u8; 8];
+            while let Ok(n @ 1..) = self.end.read(&mut buf) {
+                self.got.lock().unwrap().extend_from_slice(&buf[..n]);
+            }
+            None
+        }
+
+        fn next_deadline(&self) -> Option<Instant> {
+            None
+        }
+    }
+
+    /// R-86: `progress` also counts the bytes that move into the room that the workers' ready work made. Here the first send
+    /// and the second send each move two bytes, so only their sum reports the progress.
+    #[test]
+    fn progress_counts_the_bytes_that_move_after_the_workers_read() {
+        let (mut client, mut worker) = route(4);
+        client.write(b"abcdefgh");
+        // The seeded stream can give short reads: the test reads until it has two bytes.
+        let mut taken = Vec::new();
+        while taken.len() < 2 {
+            let mut buf = [0u8; 2];
+            let n = worker.read(&mut buf[..2 - taken.len()]).unwrap();
+            assert!(n > 0, "the stream holds abcd");
+            taken.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(
+            taken, b"ab",
+            "the stream took abcd; the test reads two bytes"
+        );
+        let armed = Arc::new(AtomicBool::new(false));
+        let got = Arc::new(Mutex::new(Vec::new()));
+        worker.end().set_interest(Interest {
+            read: true,
+            write: false,
+        });
+        client.workers.add_node(Box::new(Reader {
+            end: worker,
+            armed: Arc::clone(&armed),
+            got: Arc::clone(&got),
+        }));
+        armed.store(true, Ordering::SeqCst);
+        // The first send moves ef; the worker reads cdef; the second send moves gh.
+        assert!(client.progress(), "four kept bytes moved, in two sends");
+        assert_eq!(*got.lock().unwrap(), b"cdef");
+        assert!(!client.progress(), "nothing is kept; the worker reads gh");
+        assert_eq!(
+            *got.lock().unwrap(),
+            b"cdefgh",
+            "the worker gets every byte, in order"
+        );
     }
 }
