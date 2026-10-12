@@ -299,3 +299,40 @@ All six design findings are closed. Implementation and story completion still re
 
 VERDICT: CLEAN (design delta only; 0 open; the R-121 A26 dependency remains required before restore implementation).
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 6: final store interface alignment
+
+Reviewed PC artifact SHA256: `ead7b2a15dc6935bc7e43abf913be5ae7ed07077c5e756849ef7eec04e8ad4a0`.
+Accepted P5 artifact SHA256: `0d39345fa29f9a449f0d20131716d40e00ab017f5a4135c2877f5609a8270c6d`.
+Sol's P5 design verdict: `82d2c11797d8bf76fb827916afcb27d387c6540f`.
+PC supplies the final interface delta and scope correction in msg_plugin-w_1791849237_2fccea and msg_plugin-w_1791849295_80f146.
+Scope: the header, section 7's store interface and initial write results, and section 5's identifier heading.
+Sol-B reads the changed PC text, P5's accepted store interface, and Sol's complete applicable closure section.
+
+The protocol calls create_spawn(session_id) -> operation_id.
+P5's owner mints the operation identity and reserves record capacity before store-queue admission.
+The disk writer owns no identity decision. PC accepts no caller-known operation identity in this Stage 2 slice.
+With no record capacity or store-job capacity, admission gives busy with effect none and creates no reservation.
+Create begins only after the starting operation record is durable.
+
+The initial write results now agree on both sides.
+NotWritten removes the store reservation, returns internal with effect none, and begins no Core Create.
+Unknown or StoreGone preserves uncertainty, returns effect unknown, and starts store-fault shutdown.
+The protocol no longer claims that every failed write proves no disk effect.
+P5 owns store-thread closure and joins it before the singleton lock can be released.
+Sol's accepted lifecycle rules supply that dependency; this protocol receipt does not replace their implementation review.
+
+LOW scope correction: CLOSED.
+Sol-B reads minimum-hub-additions.md, SHA256 `d7a4b3b41860d3e6d8d1f6afed76281f7be42a6cc95ecbb7f87be4752bfe2b97`.
+The approved minimum is 127 identifiers, including the two new story-2 operation proofs.
+PC now names en_7_durable_operation_survives_restart and a_7b_every_kind_states_closed and cites that approval.
+The section 5 heading distinguishes the original 43 HC rows from those two additions.
+Caller-known en_7b identifiers remain deferred. This review adds no new identifier or check family.
+
+All earlier findings remain closed. No interface or document finding remains open on this exact artifact.
+R-121 still requires a frozen A26 pin with start_failure and the additional pre-ready adoption rule recorded in Round 5.
+The GS bootstrap, implementation review, applicable contract freezes, and execution evidence remain due.
+This receipt approves no client code, daemon code, pool gate, or completed story.
+
+VERDICT: CLEAN (design interface delta only; 0 open).
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
