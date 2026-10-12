@@ -1273,7 +1273,7 @@ fn the_control_queue_bound_is_the_admitted_traffic_and_four_cancels() {
     let message = rig.driver.control_message;
     assert!(message > 0 && message < 64, "{message}");
     let frame_bound = rig.driver.engine().link_frame_bound();
-    assert_eq!(frame_bound, 65 << 20, "4 x max_snapshot_bytes + 1 MiB");
+    assert_eq!(frame_bound, 97 << 20, "6 x max_snapshot_bytes + 1 MiB");
     assert_eq!(
         rig.driver.control_bound,
         l.input_retained_bytes as usize
