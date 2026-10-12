@@ -245,6 +245,28 @@ fn a_due_step_with_no_room_is_parked_until_a_poll_frees_room() {
     assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 3 }]);
 }
 
+/// EV-5b, TM-6 (steward ruling R-87, `parked_work`): a due stall step that is parked on room is parked work of the route's
+/// session, and work that is ready with room. A poll that frees room ends both.
+#[test]
+fn a_parked_due_step_is_parked_work_of_the_routes_session() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.engine.begin(create("x1")).unwrap();
+    w.pump();
+    w.advance(STALL);
+    w.pump();
+    assert!(dues(&w).is_empty(), "the step is parked");
+    assert!(!w.engine.ready_at(false).contains(&Work::DueStep));
+    assert!(w.engine.ready_at(true).contains(&Work::DueStep));
+    assert_eq!(w.engine.parked_on_room([]), BTreeSet::from([sid("s1")]));
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
+
 /// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
 /// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
 /// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.

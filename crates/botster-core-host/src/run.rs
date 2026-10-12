@@ -57,6 +57,12 @@ pub(crate) fn registry_failed(error: StorageError) -> CoreError {
 impl HostEngine {
     /// Every deadline that is outstanding, with its instant (TM-3).
     pub(crate) fn deadlines(&self) -> Vec<(Instant, DeadlineKind)> {
+        self.deadlines_at(self.has_room())
+    }
+
+    /// The deadlines if the mandatory queue had room or not, as `room` says: with room, a route's stall step that is parked
+    /// on room is listed too (`ready_at`, `parked_on_room`).
+    fn deadlines_at(&self, room: bool) -> Vec<(Instant, DeadlineKind)> {
         let mut out = Vec::new();
         for (id, s) in &self.sessions {
             match &s.flow {
@@ -93,7 +99,6 @@ impl HostEngine {
         // due, and its instant leaves `next_deadline()`; a poll that frees room makes it due again and signals the wake
         // (E3-1 item 4, EV-5b, EV-5d, TM-6). A step that has not run yet is due whatever the room: with no budget it is
         // carried (E3-1 items 2 and 3).
-        let room = self.has_room();
         for (id, entry) in &self.routes {
             if let Some((at, _)) = entry.clock.deadline() {
                 if room || !entry.clock.parked() {
@@ -155,15 +160,20 @@ impl HostEngine {
 
     /// The work that a `pump` could do now (plan 2.4). Index 0 is the work that the production policy runs first.
     pub fn ready(&self) -> Vec<Work> {
-        let room = self.has_room();
+        self.ready_at(self.has_room())
+    }
+
+    /// The work that a `pump` could do if the mandatory queue had room or not, as `room` says. With room, the list also
+    /// holds the work that is parked only on queue room (EV-5b, TM-6).
+    pub(crate) fn ready_at(&self, room: bool) -> Vec<Work> {
         let mut out = Vec::new();
         // A due deadline is processed in its pump, before other work (TM-3, TM-5). An effect without an event comes first
         // (E3-1 item 5); a due atomic step (a `Silent`, a route's stall step) follows as a carried step, before newer work
         // (E3-1 item 3).
-        if self.due_deadline(false).is_some() {
+        if self.due_deadlines_at(false, room).next().is_some() {
             out.push(Work::Deadline);
         }
-        if self.due_deadline(true).is_some() {
+        if self.due_deadlines_at(true, room).next().is_some() {
             out.push(Work::DueStep);
         }
         // The ops of one kind for one session reach its worker in `begin` order: the writes (AM-2), and the resizes, so that
@@ -248,8 +258,13 @@ impl HostEngine {
 
     /// The deadlines that are due now, in due order (TM-5): the atomic steps, or the effects without an event.
     fn due_deadlines(&self, atomic: bool) -> impl Iterator<Item = DeadlineKind> {
+        self.due_deadlines_at(atomic, self.has_room())
+    }
+
+    /// `due_deadlines` if the mandatory queue had room or not, as `room` says.
+    fn due_deadlines_at(&self, atomic: bool, room: bool) -> impl Iterator<Item = DeadlineKind> {
         let now = self.now;
-        self.deadlines()
+        self.deadlines_at(room)
             .into_iter()
             .filter(move |(at, kind)| now.is_some_and(|now| *at <= now) && kind.atomic() == atomic)
             .map(|(_, kind)| kind)

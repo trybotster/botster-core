@@ -33,6 +33,7 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("break_control", break_control);
     registry.register("lose_worker", lose_worker);
     registry.register("worker_alive", worker_alive);
+    registry.register("parked_work", parked_work);
     for &(name, _waits_for) in UNSUPPORTED {
         registry.register(name, unsupported);
     }
@@ -149,6 +150,23 @@ fn worker_alive(
         .worker
         .is_some_and(|worker| harness.workers().worker_alive(worker.identity()));
     Ok(json!({ "alive": alive }))
+}
+
+/// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
+/// diagnostics reported after its last call (`crate::refusal::ParkedWork`). A read that sends no signal: the fence before a
+/// poll that must free room for parked work. A session with no row is `Bad`.
+fn parked_work(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfSession { session } = parse(args)?;
+    session_row(harness, handle, &session)?;
+    let parked = harness
+        .parked_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
+        .parked(&session);
+    Ok(json!({ "parked": parked }))
 }
 
 #[cfg(test)]
