@@ -1510,3 +1510,74 @@ The red gate, controlled-proof limits, future R-80/.42 fence work, and separate 
 The lead received the completed integration CLEAN and controls the merge.
 The merge must preserve the gated tree. This receipt accepts no later source, pin, or base change.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — contracts .43 pin review
+
+VERDICT: NOT CLEAN (2 open).
+PR: `https://github.com/trybotster/botster-core/pull/299`.
+Head: `18334c6fe59d11744ba57bc1e7da63c7303300b2`.
+Gate base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Last imported base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Messages: `msg_plugin-w_1791773303_011fcf` and `msg_plugin-w_1791773325_9629ca`.
+Risk: HIGH, for the pin move, shared testkit, and CI job.
+
+RC-PIN43-1 — MED — The new progress tests assert private state.
+In `route_client.rs`, the new test asserts `client.unsent()` at lines 625, 630, and 648.
+That accessor returns the stored `unsent` vector's length at line 242.
+In `real/route.rs`, the new test reads `client.unsent.len()` at lines 545, 551, and 569.
+It also uses private `unsent.is_empty()` as the loop condition at line 570.
+The user forbids private-state assertions. BUILD.md rule 3 also forbids tests of helper internals.
+Required change: observe the public `progress()` result and exact peer-visible bytes, including the final false result.
+Use delivered bytes and a finite progress bound to end the real test; do not use the private queue as its completion condition.
+Keep false-with-no-work, false-while-full, true-after-room, and final-false behavior proofs on both tiers.
+
+RC-PIN43-2 — MED — Discarding a failed write reports byte progress.
+Both implementations compare `unsent.len()` before and after a flush: `route_client.rs:353-357` and `real/route.rs:499-501`.
+The testkit flush clears `unsent` on a terminal write error at `route_client.rs:226-229`.
+The real flush clears it on a missing end, and `after_write` clears it on a terminal error at `real/route.rs:186-188`.
+Thus a full stream with waiting client bytes can lose its peer, write no byte, discard the waiting bytes, and return true.
+The pinned .43 trait requires `True when it moved a byte`; work that moves no byte does not count.
+A shrinking queue proves no successful delivery when the flush also discards bytes.
+Required change: track successful bytes accepted by the stream, separately from bytes discarded on failure.
+Return false for a failure before any byte is accepted. Preserve true when a partial successful write precedes the failure.
+Add public behavior regressions for the failed-stream/no-byte case on both tiers.
+No runtime reproduction was run by this reviewer; the write and flush branches establish this source defect.
+
+### Other source and evidence checks
+
+The reviewer reads the complete own diff, published body, pinned R-86 trait and rulings, and the changed control definitions.
+The pin changes the seven workspace dependency tags and nine contracts lock source lines, with no other lock change.
+The pinned CI job is byte-identical to contracts-v0.1.43, SHA-256 `0bf5dbc170372d33230a112d0b1562ff17a971e5810f22c5ae46e85cf86acc11`.
+The fetch file changes only its header; the lead handoff records the per-project fetch ruling and steward agreement.
+The shared job separates download containers from offline containers and retains the token-free public fetch.
+R-86 explicitly authorizes the client-progress form. It introduces no unruled model or terminal semantics.
+The real progress test uses a UnixStream pair in the slow tier, without a child process, sleep, or disk socket.
+The reviewer checks the inherited exclusion delta since the last RC source review: held-full and bounded-conformance process glue only.
+Their comments name the tested decisions and required gate reports. No exclusion matches either new progress decision.
+The own mutation configuration is unchanged.
+
+The reviewer reads all three relevant .43 transcripts and verifies zero fence-exception entries for them.
+The parked-work ID has its R-88 precondition fence and no PTY or model read.
+The minimum wake ID has the .43 held-write fence through public `pty_queued`; no PTY or model read is asserted.
+The full-input ID keeps its program-ready fence, blocked empty read, and full-count await_pty before its exact input read.
+It stays testkit-pending with the new budget hold. The lead handoff records approval and RC's large-fill cost repair ownership.
+The gate retains the held-full proof for all three budget IDs at all 32 seeds.
+The focused pool evidence retains real wake-ID PASS with BOTSTER_SEEDS=0-31 and the local pending removal captured as an evidence snapshot.
+The seed-check job prints the seed values and retains both zero-seed and 0-31 results. It is not a merge gate.
+
+The A5-4 tables contain all 691 identifiers on both tiers.
+Their changed-row lists retain one real pending PASS-to-FAIL: the raw-data ID receives the earlier input's PTY echo.
+The .41 and .43 transcript and fence exception are unchanged for that ID. The body preserves the failure and keeps it real-pending.
+The before/after jobs use default seeds 0-7. They do not prove all-seed removal of the other real-pending IDs.
+The filtered reversal log retains four failed runs but no full assertion or build output; the exact-head mutation gate supplies the named catches.
+
+Gate: `gates/botster-core-stage1-rc-pin-42-18334c6f-pool-20261011-194125-47145.log` under `~/botster-sessions`.
+The exact head and gate base match. All ten steps pass; job and wrapper exit 0 after 357 seconds.
+Ten mutants are caught, five in stage 2, with no miss, timeout, or unviable result.
+All ten raw catch identities match ten unique citations; each catcher has a normal PASS. No FLAKY token exists.
+The two progress tests and both removed IDs have normal PASS records. Green mutation results do not close the two source findings above.
+The body retains the earlier budget failure and four missed progress mutants with their fixes.
+Both findings must close, and any changed source head needs its applicable review and gate evidence.
+The final-slot current-base import, checks, gate, and final body remain due after both source CLEANs.
+The reviewer ran no test, build, gate, or diagnostic.
