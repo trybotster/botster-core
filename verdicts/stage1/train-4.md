@@ -226,3 +226,51 @@ No re-gate, train change, list edit, matcher edit, or final acceptance follows f
 I ran no build, test, gate, mutation, reproduction, measurement, or executable base check.
 
 VERDICT: BLOCKED (REFUSE the requested one unchanged re-gate on supplied evidence; revision 23al/23bl evidence conditions remain unmet)
+
+## Re-gate withdrawn; R-107 and the new completion path
+
+Lead ruling: `msg_plugin-w_1791823545_354ad3`.
+The lead accepts the evidence refusal and withdraws the unchanged re-gate request.
+The lead states that `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8` will not be re-gated.
+Sol-C independently reports the same withdrawal in `msg_plugin-w_1791823557_e47f37`.
+The retained train gate remains RED. The withdrawn request grants no acceptance.
+
+I read complete R-107 at contracts `ed7f654f44bd3bef0f25b8d0521c63cbb7f50c4c`.
+R-107 says that bytes written to the PTY before the payload ends belong to the OU-7 exit tail.
+The worker must apply that tail to the model and queue its metadata before Exited.
+It classifies the missing tail drain as a Core defect. A31, Core #163 part B/B2, owner P3, is the structural fix.
+It retains the R-57 exception where Stop or payload exit supplies the causal ordering.
+An id that reads the title without an intervening exit still needs an await_title fence.
+
+R-107 permits temporary known-flaky entries for the three named exit shapes until A31 lands.
+Its permitted symptom is step_timeout at the step waiting for the tail's metadata, step 71 for the current EV-2 id.
+Other failure signatures are not covered. A31's PR removes the entries.
+A31 must prove title before Exited in at least twenty runs on the testkit and real Linux/macOS tiers.
+Its evidence uses the shortest accepted stop_grace, covers a tail longer than pending_output, and includes the three ids at their failing seeds.
+
+The lead assigns Sol and Sol-C the forthcoming HIGH known-flaky PR from v1.
+After that PR lands, the lead plans train 4b on the new v1 with the same frozen members and a fresh gate.
+The lead will request the base delta review. No new PR head, base, train, or gate is accepted here.
+The new known-flaky source must preserve diagnosis, exact signature, owner, removal PR, and the absence of unrelated gate changes.
+This review continues the existing delivery contract under the new ruling. It does not create another acceptance plan.
+
+### QUESTION R107-SI-1 — acknowledged output versus written PTY tail
+
+R-107's case says that the probe acknowledges after the bytes reach the PTY slave.
+The pinned .44 source and the source at ed7f654f do not establish that boundary.
+Order::output returns Queue(bytes), then Report(Ack).
+Wire::apply sends an Output chunk as (bytes, None) to the writer channel, then sends Ack on the socket.
+The separate writer thread later calls write_all and flush. Output supplies no completion sender and waits for no write completion.
+WireState's lock does not wait for that writer. Only the program print path supplies and waits for a written sender.
+Thus an Output ack proves enqueueing, not completed writing to the PTY.
+The real oracle's history records acknowledged bytes, so it cannot distinguish a queued-but-unwritten final title from a missing worker drain.
+
+The OU-7 ruling for bytes actually written before exit remains binding.
+The current timeout log does not establish that the final title had reached the PTY before Stop.
+The lead must resolve this acknowledgement discrepancy with the steward or supply evidence of the actual write boundary.
+The resolution must establish which cause the new known-flaky diagnosis and A31 removal proof cover.
+This question identifies a source fact; it does not diagnose a second observed failure or change a transcript.
+The old source CLEAN stays valid. Future known-flaky and train-4b reviews remain unstarted pending exact-head READY.
+I ran no execution job.
+
+STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
