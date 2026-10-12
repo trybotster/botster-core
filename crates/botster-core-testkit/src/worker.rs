@@ -1700,6 +1700,7 @@ impl CoreApi for TestkitCore {
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
         let events = self.driver.poll_events(max);
         for event in &events {
+            self.captures.observed(event);
             if let Event::RouteClosed { route, reason, .. } = event {
                 self.route_ends.closed(*route, *reason);
             }

@@ -739,7 +739,8 @@ impl Worker {
     }
 
     /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3),
-    /// `CaptureSnapshot` (ST-6) and `Resize` (SZ-1). The setters and the facts come next, and the worker answers them `Internal` until then.
+    /// `CaptureSnapshot` (ST-6), `Resize` (SZ-1) and `SetSizePolicy` (DP-6). The other setters and the facts come next, and the
+    /// worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
             Op::WriteInput { payload, guard, .. } => {
@@ -755,6 +756,15 @@ impl Worker {
                 self.on_resize(req, size);
                 return;
             }
+            // DP-6: `Latest` is the only policy of 0.1, and the one that this worker applies. The host admits another policy
+            // only with the feature `size_policy_other`, which this worker does not offer.
+            Op::SetSizePolicy { policy, .. } => match policy {
+                SizePolicy::Latest => OpResult::Ok(OpOutput::Unit),
+                _ => OpResult::Err(CoreError::new(
+                    ErrorCode::Unsupported { what: None },
+                    "this worker applies only the Latest size policy",
+                )),
+            },
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -804,27 +814,53 @@ impl Worker {
                 return;
             }
         }
-        if self.size != Some(size) {
-            let resized = self.model.as_mut().map(|model| model.term.resize(&size));
-            if let Some(Err(e)) = resized {
-                let result = OpResult::Err(CoreError::new(
-                    ErrorCode::Internal,
-                    format!("the model did not take the size: {e:?}"),
-                ));
-                self.report(&WorkerMsg::Done { req, result });
-                return;
-            }
-            self.size = Some(size);
-            self.actions.push_back(Action::ResizePty(size));
-            // ST-1: the size is a read-visible change.
-            self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
-            let model_rev = self.model_rev;
-            self.report(&WorkerMsg::Observed {
-                observation: Observation::Size { size, model_rev },
-            });
-        }
-        let result = OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size }));
+        let result = match self.set_size(size) {
+            Ok(()) => OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
+            Err(detail) => OpResult::Err(CoreError::new(ErrorCode::Internal, detail)),
+        };
         self.report(&WorkerMsg::Done { req, result });
+    }
+
+    /// The session size, from a host `Resize` (SZ-1) or the size policy (DP-6): a new size resizes the model and the PTY
+    /// once, reports the size, and goes to the routes in `modes` (DP-5, DP-6). The current size changes nothing (SZ-2). A
+    /// size that the model does not take changes nothing either.
+    fn set_size(&mut self, size: Size) -> Result<(), String> {
+        if self.size == Some(size) {
+            return Ok(());
+        }
+        let resized = self.model.as_mut().map(|model| model.term.resize(&size));
+        if let Some(Err(e)) = resized {
+            return Err(format!("the model did not take the size: {e:?}"));
+        }
+        self.size = Some(size);
+        self.actions.push_back(Action::ResizePty(size));
+        // ST-1: the size is a read-visible change.
+        self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
+        let model_rev = self.model_rev;
+        self.report(&WorkerMsg::Observed {
+            observation: Observation::Size { size, model_rev },
+        });
+        self.routes_size(size);
+        Ok(())
+    }
+
+    /// DP-6 `Latest`: the size that the routes give, when it changed or a route reported a size ([`route::Routes::policy`]),
+    /// becomes the session size. The size of a host `Resize` stays until then: the latest of the two wins. A route size
+    /// has no cell pixels, so the session keeps its own. With no PTY there is nothing to resize.
+    pub(super) fn size_policy(&mut self) {
+        let Some((rows, cols)) = self.routes.policy() else {
+            return;
+        };
+        if !matches!(self.payload, PayloadState::Live(_)) {
+            return;
+        }
+        let size = Size {
+            rows,
+            cols,
+            cell_px: self.size.and_then(|size| size.cell_px),
+        };
+        // No op waits for a policy size, so a size that the model does not take only leaves the session size as it is.
+        let _ = self.set_size(size);
     }
 
     /// LC-7 step 3: end the payload, reap it, send the complete result, and end. This milestone has no uploads (DP-5b, P4b),

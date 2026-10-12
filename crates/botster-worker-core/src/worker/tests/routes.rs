@@ -1161,24 +1161,20 @@ fn a_view_only_route_refuses_input_not_writable() {
     assert_eq!(refusals(&client), vec![(None, RefusalReason::NotWritable)]);
 }
 
-/// DP-5, TS-5b (PR3 F102): a frame kind that this worker does not apply yet (a file chunk; a resize, DP-6, a later PR) is
-/// refused `unsupported` with its kind and the frame's own op, and the route stays open.
+/// DP-5, TS-5b (PR3 F102): a frame kind that this worker does not apply yet (a file chunk, a file commit) is refused
+/// `unsupported` with its kind and the frame's own op, and the route stays open.
 #[test]
 fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stays_open() {
     use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT};
     let (mut w, mut client, _) = attached(limits());
     let mut all = Vec::new();
-    let resize = [
-        &[TYPE_INPUT][..],
-        br#"{"kind":"resize","op":"5","rows":25,"cols":81}"#,
-    ]
-    .concat();
+    let file_commit = [&[TYPE_INPUT][..], br#"{"kind":"file_commit","op":"5"}"#].concat();
     for bytes in [
         client_frame(&ToWorker::FileChunk {
             op: Op(3),
             bytes: b"f".to_vec().into(),
         }),
-        stream_wrap(&resize),
+        stream_wrap(&file_commit),
     ] {
         let actions = w.feed(Input::RouteRead {
             route: RouteId(1),
@@ -2592,4 +2588,219 @@ fn a_route_key_text_over_max_key_text_bytes_is_refused_too_large() {
         [at_bound, b"z".to_vec()].concat(),
         "only the key at the bound and the later input"
     );
+}
+
+/// A route `resize` frame (DP-6), with no op.
+fn resize_frame(rows: u32, cols: u32) -> Vec<u8> {
+    input_frame(&format!(
+        r#"{{"kind":"resize","rows":{rows},"cols":{cols}}}"#
+    ))
+}
+
+fn cells(rows: u32, cols: u32) -> Size {
+    Size {
+        rows,
+        cols,
+        cell_px: None,
+    }
+}
+
+/// The `(rows, cols)` of each `modes` frame that the client read.
+fn modes_sizes(client: &Client) -> Vec<(u32, u32)> {
+    client
+        .frames
+        .iter()
+        .filter_map(|f| match f {
+            ToClient::Modes(m) => Some((m.rows, m.cols)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The sizes that the worker reported to the host.
+fn size_reports(w: &mut World, actions: &[Action]) -> Vec<Size> {
+    w.reports(actions)
+        .into_iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Observed {
+                observation: Observation::Size { size, .. },
+            } => Some(size),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A running worker with routes 1 and 2 attached and their baselines taken.
+fn two_routes() -> (World, Client, Client) {
+    let (mut w, one, _) = attached(limits());
+    let mut two = Client::default();
+    let b = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
+    two.take_all(&mut w, RouteId(2), b);
+    (w, one, two)
+}
+
+/// Feeds `bytes` on `route`, and answers the writes of both routes.
+fn read_on(
+    w: &mut World,
+    one: &mut Client,
+    two: &mut Client,
+    route: RouteId,
+    bytes: Vec<u8>,
+) -> Vec<Action> {
+    let actions = w.feed(Input::RouteRead { route, bytes });
+    let actions = one.take_all(w, RouteId(1), actions);
+    two.take_all(w, RouteId(2), actions)
+}
+
+/// DP-5, DP-6: a route's `resize` has no answer. The worker resizes the model and the PTY once, reports the size to the host
+/// (`SizeChanged`), and the size arrives in `modes` with the model's modes. The same size again changes nothing.
+#[test]
+fn a_route_resize_resizes_the_pty_once_and_the_size_arrives_in_modes() {
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert_eq!(size_reports(&mut w, &all), [cells(30, 100)]);
+    assert_eq!(modes_sizes(&client), [(30, 100)]);
+    assert!(refusals(&client).is_empty(), "{:?}", client.frames);
+    assert!(
+        !client
+            .frames
+            .iter()
+            .any(|f| matches!(f, ToClient::InputDone(_))),
+        "a resize has no answer"
+    );
+    assert!(pty_writes(&all).is_empty());
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert!(resizes(&all).is_empty(), "{all:?}");
+    assert_eq!(modes_sizes(&client), [(30, 100)]);
+}
+
+/// DP-6 `Latest`: the size is the last one of the route whose input the worker received last, of any kind. A route that
+/// reported no size is skipped. A close falls back to the next most recently active route; with none, the size stays.
+#[test]
+fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
+    let (mut w, mut one, mut two) = two_routes();
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(1),
+        resize_frame(30, 100),
+    );
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    // Route 2 reported no size, so its input does not change the size.
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(2),
+        client_frame(&bytes_frame(0, b"x")),
+    );
+    assert!(resizes(&all).is_empty(), "{all:?}");
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(2),
+        resize_frame(40, 120),
+    );
+    assert_eq!(resizes(&all), [cells(40, 120)]);
+    // Route 1's input makes it the most active again: one resize to its last size.
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(1),
+        client_frame(&bytes_frame(0, b"y")),
+    );
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert_eq!(size_reports(&mut w, &all), [cells(30, 100)]);
+    // Each route got every size, in order.
+    assert_eq!(modes_sizes(&one), [(30, 100), (40, 120), (30, 100)]);
+    assert_eq!(modes_sizes(&two), [(30, 100), (40, 120), (30, 100)]);
+    // Route 1 closes: route 2's last size applies.
+    let actions = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Detached,
+    });
+    let actions = one.take_all(&mut w, RouteId(1), actions);
+    let all = two.take_all(&mut w, RouteId(2), actions);
+    assert_eq!(resizes(&all), [cells(40, 120)]);
+    assert_eq!(modes_sizes(&two).last(), Some(&(40, 120)));
+    assert_eq!(
+        modes_sizes(&one),
+        [(30, 100), (40, 120), (30, 100)],
+        "a closing route gets no modes"
+    );
+    // Route 2 closes: no route is left, and the size stays.
+    let actions = w.send(&HostMsg::Detach {
+        route: RouteId(2),
+        reason: DetachReason::Detached,
+    });
+    let all = two.take_all(&mut w, RouteId(2), actions);
+    assert!(resizes(&all).is_empty(), "{all:?}");
+    assert!(size_reports(&mut w, &all).is_empty());
+}
+
+/// DP-6, SZ-1: the latest of a host `Resize` and a policy change wins. A host `Resize` stays while the policy's size does
+/// not change; a route's new report is a policy change, even of the same size as before.
+#[test]
+fn a_host_resize_stays_until_the_policy_changes() {
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    client.take_all(&mut w, RouteId(1), actions);
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(20, 70),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(resizes(&all), [cells(20, 70)]);
+    assert_eq!(modes_sizes(&client), [(30, 100), (20, 70)]);
+    // More input of the most active route is no change of the policy's size.
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(0, b"x")),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert!(resizes(&all).is_empty(), "{all:?}");
+    // A new report of the same size is newer than the host's `Resize`.
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+}
+
+/// DP-5: `modes` coalesces to one latest unstarted frame per route. A route that writes nothing holds one `modes` frame, of
+/// the last size, whatever the number of changes.
+#[test]
+fn modes_coalesce_to_one_latest_unstarted_frame_per_route() {
+    let (mut w, mut one, _) = attached(limits());
+    let mut two = Client::default();
+    // Route 2's first write is out and not answered: its queue does not move.
+    let bound = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
+    let mut held = bound;
+    for (rows, cols) in [(30, 100), (40, 120), (25, 90)] {
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: resize_frame(rows, cols),
+        });
+        let actions = one.take_all(&mut w, RouteId(1), actions);
+        held.extend(actions);
+    }
+    assert_eq!(modes_sizes(&one), [(30, 100), (40, 120), (25, 90)]);
+    two.take_all(&mut w, RouteId(2), held);
+    assert_eq!(modes_sizes(&two), [(25, 90)]);
 }
