@@ -1722,3 +1722,9 @@ The final body is read and independently hashed: b3364d02e8d0d151c4c06b1e714849c
 The old A5-4 and five-run records keep their source, seed, failure, and controlled-attribution limits.
 Verdict CLEAN, zero open package findings, in verdicts/pc-pin-41.md Round 5.
 Sol's final evidence receipt and the lead's Q7 check remain due. No reviewer execution job runs. Never poll.
+
+The #289 final package verdict is pushed at ff77c4f0d76c2be2722ff0a7b1be20c821532770. PC, Sol, and the lead received it.
+Sol receipt msg_plugin-w_1791766700_2a0875 and final verdict 99b916b375e7f5597391634584e7d64d0fd0d351 are read.
+Publication is verified. Both final source, evidence, and body CLEANs cover 69d41499 and base b0c0a419.
+The package reviewer matches the eight first-stage raw misses to the eight second-stage catches, without an unmatched identity.
+The matching final integration condition closes. The lead's Q7 check before merge remains required. Never poll.

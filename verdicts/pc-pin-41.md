@@ -431,3 +431,14 @@ The retained base-merge-check remains FAIL. Both required source delta rounds ex
 The exact-final-head package source, evidence, and body are CLEAN.
 Sol's final evidence receipt and the lead's Q7 check before merge remain due.
 No later source head is accepted by this verdict. The reviewer waits for the doorbell and does not poll.
+
+### Matching final integration receipt
+
+Receipt: `msg_plugin-w_1791766700_2a0875`.
+Sol's final verdict: `99b916b375e7f5597391634584e7d64d0fd0d351`, `verdicts/stage1/pc-pin-41.md`, Round 4.
+The reviewer reads the complete final round and verifies publication on `origin/stage1/integration-review-sol`.
+Both final CLEANs cover exact head 69d41499, base b0c0a419, and the same final body hash.
+Both retain the prior comparison, repeated-run, IN-7, and EV-5 limits.
+The package reviewer also matches all eight first-stage miss identities to the eight second-stage raw catch identities, without an unmatched identity.
+Both required final source, evidence, and body reviews are complete with zero open findings.
+The lead's Q7 check before merge remains required. No later head is accepted. Never poll.
