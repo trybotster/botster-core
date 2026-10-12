@@ -110,6 +110,16 @@ The initial source and body are read. No CLEAN is issued. Wait for the revised e
 
 ## Current Core PR #306 result
 
+CLEAN at `0a09168702048cf34ef3fa30dffc07131b620f0a`, source/gate base `838e4bb01dda53c419ab824913fdc5adae7a16c1`. Open findings: 0.
+
+The import preserves the prior own patch. The new command fixture catches the earlier survivor. All ten gate steps pass; final mutants: 15 caught, 2 unviable, 0 missed, 0 timeout.
+
+One in_8 FLAKY result receives no catch credit. A real test catches its mutant. PC's contracts #79 through the .44 pin remains the named structural fix.
+
+The focused seventeen-mutant sets have no mutant missed by both stages. The full body retains failed gates and the limited timing comparison.
+
+The integration receipt and final delivery procedure remain due. No later head or retry is accepted. I ran no execution job.
+
 Source delta CLEAN at `2fa58b79291f44023778a8a53f8bd05387e93cfb`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
 
 Eleven existing slow-only targets now require the slow feature. The default tier stops building their empty binaries. The slow tier retains their tests and root macros.

@@ -3766,3 +3766,87 @@ Sol-B accepts #310 and the one-member train on the same exact head, tree, base, 
 Both reviews preserve the stage-2 catch and the earlier failed-train history. The final integration receipt is complete.
 
 The lead's train publication and merge/tree/push verification remain due. This receipt accepts no later composition and authorizes no #306 retry.
+
+## Core #306 — imported source and command proof acceptance
+
+- Exact head: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+- Source and gate base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- VERDICT: CLEAN (0 open on this exact head).
+
+I read the complete new test, canonical base-check failure, imported overlap deltas, complete body, reversal, focused mutation evidence, and completed gate.
+
+### Source delta and the failed gate
+
+The base-check log `gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-2fa58b79-to-a217da82.log` fails conditions 2 and 3.
+
+Four paths overlap with the imported base. Their imports add signal handling, an op_holds module, and the previously accepted DP-2 proof assertion.
+
+Static patch comparison independently confirms that the import preserves the complete prior #306 own patch after index lines and hunk positions are removed.
+
+The new head changes only `xtask/src/built_in.rs` after that import. The required-features repair, macros, candidate checks, LINKED check, and presence decisions remain intact.
+
+The imported gate at `a217da8226048e9cff904f629faee36b5da0df5a` fails because `built_in::command` replaced with `Ok(())` survives both stages.
+
+I read `gates/botster-core-stage1-gs-built-in-coverage-a217da82-pool-20261012-091300-76813.log`. That gate remains failed.
+
+The new test calls the command on tracked fixture files. An allowed file and a non-Rust file pass. A Rust file with the reserved name fails.
+
+The invalid fixture file is scanner input. The test does not compile or accept a fake root-name trial. It retains the mandatory manual name rule.
+
+The test checks command behavior through its result. It changes no production decision and adds no Cargo launch or mutation exclusion.
+
+### Reversal and focused mutation evidence
+
+I read `shared/core-stage1/evidence/gs-306-command-reversal-0a091687.log`. Its header records the exact head, target, cleanup time, and unchanged worktree.
+
+The scratch early return makes the new test fail at `unwrap_err()` because the command returns success. After restoration, the new test passes.
+
+The cleanup facts remain an author-recorded provenance statement. I ran no local reversal and claim no independent cleanup execution.
+
+The focused log is `gates/botster-core-stage1-gs-built-in-coverage-0a091687-focused-mutants.log`. Its commands use `--no-config` on the two changed checker files.
+
+Both stages test the same seventeen mutant identities. Static outcome-set comparison confirms that these identities equal the gate's seventeen identities.
+
+Default tests catch eleven and miss four, with two unviable. Slow tests catch seven and miss eight, with two unviable. Neither stage reports a timeout.
+
+The intersection of the two missed sets is empty. No configured exclusion hides a listed mutant in this focused evidence.
+
+The focused shell's exit alone is not a combined mutation verdict. The recorded outcome sets and completed ordinary gate supply that evidence.
+
+### Completed gate and FLAKY disposition
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-0a091687-pool-20261012-093420-53357.log`.
+
+The lists step records the same base and merge base. All ten steps PASS in 701.0 seconds on MS-A1.
+
+Default passes 1,952 tests. Slow passes 648 tests. The built-in name check reads 244 Rust files, and the presence checks succeed.
+
+Stage 1 catches eleven, misses four, and reports two unviable. The unmutated stage-2 baseline passes before all four remaining mutants are caught.
+
+The final verdict has fifteen caught, two unviable, zero missed, and zero timeout. Static analysis matches all fifteen raw catch identities to their citations.
+
+Every cited catcher has a normal PASS. The command replacement is now caught by the new fixture test in stage 1.
+
+Stage 2 records one in_8 FLAKY result under the empty `slow_coverage::tests` replacement. The gate gives that failure-then-pass result no catch credit.
+
+The independent catch is `ci::slow_tests::slow_a_listed_test_that_the_workspace_list_lacks_is_still_no_catch`. Its normal PASS and mutant catch are recorded.
+
+The named structural fix remains PC's contracts #79 through the contracts-v0.1.44 pin. That fix is not in this head's .43 pin.
+
+This matches the retained in_8 disposition and BUILD rule 9's mutation-profile exception. The FLAKY result is not relabeled as a catch or removed from the record.
+
+The job exits 0 after 716 seconds. The wrapper exits 0 after 717 seconds. The fuzz step completes its selected harnesses.
+
+### Timing and scope
+
+The body supplies the required before/after sample: earlier slow step 106.8 seconds; this slow step 92.0 seconds.
+
+The earlier gate ran no stage 2. This gate runs a 54.2-second baseline and four mutants in 131.0 seconds. The full mutation step takes 234.1 seconds.
+
+The samples have different bases and mutant sets. The body correctly avoids claiming a measured gain or small added cost.
+
+All earlier source findings remain closed. The accepted manual name-rule limit and mixed stale-library limit remain explicit.
+
+The complete body preserves failed gates, the repair, focused evidence, timing, and FLAKY disposition. No source or supplied-evidence finding remains.
+
+The integration receipt and authorized final delivery procedure remain due. This CLEAN accepts no later head or additional retry. I ran no execution job.
