@@ -3,7 +3,9 @@
 //! by its flake. The slow step and the stage-2 baseline still run it: the list hides no failure of an unmutated run.
 //!
 //! Each entry names the test (`binary`, the nextest binary id, and `test`, its exact name), the `diagnosis`, the recorded
-//! failure `signature`, the `owner` of the fix, and the pull request that removes the entry (`removed_by`, `#<number>`).
+//! failure `signature`, the `owner` of the fix, and what removes the entry (`removed_by`): a Core pull request
+//! `#<number>`, or the pin of a contracts tag that carries the fix, `contracts-v<major>.<minor>.<patch> pin` (Core lead,
+//! 2026-10-12: the in_8 fix is contracts #79, which the contracts-v0.1.44 pin brings).
 //! The `lists` step refuses an entry with a missing, empty or unknown field, a duplicate, and a name with a character
 //! outside `[A-Za-z0-9_:/-]`, which a filterset needs no escape for. The Stage 1 exit needs the list empty (plan 23ap, done
 //! item 7).
@@ -152,6 +154,21 @@ fn signature(value: Option<&toml::Value>, at: &str) -> Result<Signature, String>
     })
 }
 
+/// Whether `removed_by` names what removes an entry: `#<number>`, or `contracts-v<major>.<minor>.<patch> pin`.
+fn removal(removed_by: &str) -> bool {
+    let digits = |text: &str| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit());
+    if let Some(number) = removed_by.strip_prefix('#') {
+        return digits(number);
+    }
+    removed_by
+        .strip_prefix("contracts-v")
+        .and_then(|rest| rest.strip_suffix(" pin"))
+        .is_some_and(|version| {
+            let parts: Vec<&str> = version.split('.').collect();
+            parts.len() == 3 && parts.iter().all(|part| digits(part))
+        })
+}
+
 /// A name that a filterset `=` matcher takes as it is: not empty, only `[A-Za-z0-9_:/-]`.
 fn plain_name(name: &str) -> bool {
     !name.is_empty()
@@ -208,10 +225,10 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
             }
         }
         let removed_by = field("removed_by")?;
-        let number = removed_by.strip_prefix('#').unwrap_or_default();
-        if number.is_empty() || !number.chars().all(|c| c.is_ascii_digit()) {
+        if !removal(&removed_by) {
             return Err(format!(
-                "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>`"
+                "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>` or a pin \
+                 `contracts-v<major>.<minor>.<patch> pin`"
             ));
         }
         let signature = signature(entry.get("signature"), &at)?;
@@ -347,6 +364,11 @@ removed_by = "#243"
             }])
         );
         assert_eq!(parse("# none\n"), Ok(vec![]));
+        let pinned = ENTRY.replace("\"#243\"", "\"contracts-v0.1.44 pin\"");
+        assert_eq!(
+            parse(&pinned).unwrap()[0].removed_by,
+            "contracts-v0.1.44 pin"
+        );
         // A seed number and a text.
         let one = ENTRY.replace(
             "seed = \"any\" }",
@@ -444,6 +466,18 @@ removed_by = "#243"
             ),
             (format!("{ENTRY}\n[other]\n"), "unknown key `other`"),
             (ENTRY.replace("\"#243\"", "\"243\""), "`removed_by` \"243\""),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts .44 pin\""),
+                "`removed_by` \"contracts .44 pin\"",
+            ),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts-v0.1 pin\""),
+                "`removed_by` \"contracts-v0.1 pin\"",
+            ),
+            (
+                ENTRY.replace("\"#243\"", "\"contracts-v0.1.44\""),
+                "`removed_by` \"contracts-v0.1.44\"",
+            ),
             (ENTRY.replace("\"#243\"", "\"#\""), "`removed_by` \"#\""),
             (
                 ENTRY.replace("\"#243\"", "\"#24a\""),
@@ -545,16 +579,24 @@ removed_by = "#243"
     /// The repository's list parses, and it is empty: #243 removed the cause of the ev_5 flake and its entry (the Stage 1
     /// exit needs the list empty).
     #[test]
-    fn the_repository_list_parses_and_is_empty() {
+    fn the_repository_list_parses_and_holds_the_listed_tests() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
         let entries = parse(&std::fs::read_to_string(root.join(FILE)).unwrap()).unwrap();
-        let names: Vec<(&str, &str)> = entries
+        let names: Vec<(&str, &str, &str)> = entries
             .iter()
-            .map(|e| (e.binary.as_str(), e.test.as_str()))
+            .map(|e| (e.binary.as_str(), e.test.as_str(), e.removed_by.as_str()))
             .collect();
-        assert_eq!(names, Vec::<(&str, &str)>::new());
+        // The in_8 real-tier race (Core lead, 2026-10-12); the contracts-v0.1.44 pin removes it.
+        assert_eq!(
+            names,
+            [(
+                "botster-core::slow_conformance",
+                "conf::in_8_mode_checked_at_write_start_by_worker",
+                "contracts-v0.1.44 pin"
+            )]
+        );
     }
 }
 
