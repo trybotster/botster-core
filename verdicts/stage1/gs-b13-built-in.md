@@ -193,3 +193,23 @@ Package disposition receipt: `b09a6c627b50076348a09565ce6a338905db44e4`, `verdic
 The lead's SPLIT decision transfers the coverage guarantee to a new design-first item. Sol-B must verify removal of the visitor on the submitted split head before transferring B13-I2. The exact split head and its evidence remain due. Sol-B ran no execution job.
 
 VERDICT: NOT CLEAN (1 open; split head pending)
+
+## Round 3 — lead-approved split
+
+Exact head: `652d0034a0a1da4145723b1b421c9b2c28de0239`. Imported base: `3aacc58d086e55a6b186165ccf9001e2618e2869`. Gate comparison base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+
+Sol-B verified the split. It deletes `xtask/src/built_in.rs` and removes the command, help text, dispatch test entry, and taint call. The tier helper is private again. `xtask/src/ci.rs` and `xtask/src/mutants_cited.rs` equal the imported base.
+
+B13-I2 transfers out of this PR under the lead's SPLIT decision, `msg_plugin-w_1791767795_78130a`. The coverage guarantee becomes a new item that requires a structural design note first. This review does not accept the removed visitor's defects or approve that future design.
+
+The retained B13 implementation is unchanged from the reviewed repair. The suite changes only its coverage comment. Current crate root checks, the linked-library checks, candidate validation, and the per-root worker/anchor build directory remain. B13-I1, B13-I3, and B13-I4 remain closed. All conformance files retain the imported base. The earlier overlapping testkit delta review remains applicable.
+
+Package CLEAN: `e71ed6cb96c1f8c3eb5d6d4188a33512f6f3483a`, `verdicts/gs-gate-speed.md`. Sol-B read that exact-head verdict and the complete revised PR body. Both state the retained scope and the transferred coverage item. The body preserves the earlier red results and the owned in_8 disposition.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-652d0034-pool-20261011-192108-45058.log`. All ten steps PASS. Default: 1,826 passed. Slow: 597 passed. Mutants: 15 total, 13 caught, 0 missed, 0 timeout, 2 unviable. Stage 2 runs no mutant. The log contains no FLAKY result. The job exits 0 after 452 seconds; the wrapper exits 0 after 453 seconds.
+
+The lists step records merge base `3aacc58d`, distinct from the comparison base `b3cdfffb`. The final-slot current-base import, required check and applicable delta review, and exact-head final gate remain due. The original bootstrap and Mac evidence retain their recorded scope.
+
+No integration finding remains in the retained scope. Sol-B ran no local build, test, gate, mutation job, or reversal.
+
+VERDICT: CLEAN (0 open)
