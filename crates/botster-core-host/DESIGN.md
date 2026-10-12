@@ -502,8 +502,10 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   behind its `RouteAdopted`. An adopted `Exited` session has no stop flow: the delivered close of a draining route
   (`RouteClosed{SessionEnded}`, steward ruling R-99) posts at once with the session's exit (`route_ended_with_session`).
   Three paths close a route directly, not from the parked queue: a stop flow's `Finish`, a removal's `CloseRoutes`, and
-  `DetachLocal`. While a registered route's `RouteAdopted` has not posted, `ready_at` offers none of them for that
-  session or route (0181, #313), so a close never names a route that the caller was not shown.
+  `DetachLocal`. While a registered route's `RouteAdopted` has not posted, `ready_at` offers no flow step of that session
+  that posts an event (`flow_needs_room`: a state, a `Finish` close, a `CloseRoutes` close), and no `DetachLocal` of that
+  route (0181, #313). So a close never names a route that the caller was not shown, and the session's later events keep
+  the worker's order (EV-6). A step with no event (`RowWrite`, `SendStop`, `SendRemove`) still runs (EV-5(c)).
 - **A new step is not parked.** A report that replaces the armed step (a new waiting mark, the end of waiting, a stall or
   a resume) clears the parked flag: only a step that ran can be parked (0181's ST298-R3). Test:
   `new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked`.

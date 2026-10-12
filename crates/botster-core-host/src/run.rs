@@ -238,11 +238,13 @@ impl HostEngine {
             if s.ticket.is_some() || self.flow_waiting(s) {
                 continue;
             }
-            // DP-8 phase 3: a flow of an adopted session runs after each registered route's `RouteAdopted` posted
-            // (`Work::Parked`). A stop or a removal closes the session's routes directly, and a close never comes first.
-            if s.adopted_routes
-                .as_ref()
-                .is_some_and(|r| !r.unposted.is_empty())
+            // DP-8 phase 3: a flow step that posts an event waits until each registered route's `RouteAdopted` posted
+            // (`Work::Parked`): the worker reported the routes first (EV-6), and a stop's `Finish` or a removal's
+            // `CloseRoutes` closes a route directly, so a close never comes first. A step with no event runs (EV-5(c)).
+            if self.flow_needs_room(s)
+                && s.adopted_routes
+                    .as_ref()
+                    .is_some_and(|r| !r.unposted.is_empty())
             {
                 continue;
             }

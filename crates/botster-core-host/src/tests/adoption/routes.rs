@@ -425,3 +425,53 @@ fn a_local_detach_before_the_route_adopted_post_closes_the_route_after_it() {
         "{events:?}"
     );
 }
+
+/// EV-5(c), DP-8 phase 3 (0181, #313): a `Stop`'s effects with no event run while a `RouteAdopted` waits for a poll. Only
+/// the steps that close a route wait for that post.
+#[test]
+fn a_stop_reaches_the_worker_while_a_route_adopted_waits_for_a_poll() {
+    let mut w = adopting_routes(running_payload(), vec![live(1, true, None)], 1);
+    until_state_posted(&mut w);
+    assert!(w.engine.sessions[&sid("s")]
+        .adopted_routes
+        .as_ref()
+        .is_some_and(|r| !r.unposted.is_empty()));
+    w.engine
+        .begin(Op::Stop { id: sid("s") })
+        .expect("Stop is admitted");
+    for _ in 0..5 {
+        w.pump();
+    }
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
+        "the stop is sent with no poll"
+    );
+}
+
+/// DP-8 phase 3, EV-6: a removal closes the session's routes directly. A route of an adopted `Exited` session (it drains,
+/// R-99) closes after its `RouteAdopted`.
+#[test]
+fn a_removal_before_the_route_adopted_post_closes_the_route_after_it() {
+    let mut w = adopting_routes(
+        AdoptedPayload::Exited {
+            code: Some(0),
+            signal: None,
+        },
+        vec![live(1, true, None)],
+        1,
+    );
+    until_state_posted(&mut w);
+    let route = route_ids(&w)[0].1;
+    w.engine
+        .begin(Op::Remove { id: sid("s") })
+        .expect("Remove is admitted");
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        events.extend(poll_then_pump(&mut w));
+    }
+    assert_eq!(
+        route_order(&events, route),
+        ["adopted", "closed"],
+        "{events:?}"
+    );
+}
