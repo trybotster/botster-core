@@ -125,6 +125,9 @@ pub enum Input {
     PtyWritten(Result<usize, i32>),
     /// The PTY takes input again after a write that it did not take.
     PtyWritable,
+    /// The answer to [`Action::ResizePty`]: the PTY took the size, or the OS error of the resize (`TIOCSWINSZ`). With no
+    /// PTY left (the leader is reaped), the answer is an error.
+    PtyResized(Result<(), i32>),
     /// The answer to [`Action::DrainPty`]: the drain read what the PTY held when it was asked, or a read found no byte
     /// (it would block) or the end of the output first.
     PtyDrained,
@@ -177,8 +180,9 @@ pub enum Action {
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
     /// Set the size of the payload's PTY (SZ-1): its rows and columns, and its pixel size when the size has `cell_px`. It is
-    /// emitted only while the leader is unreaped, once per change of the size (SZ-2), and before the `SizeChanged` report
-    /// (SZ-3). It has no answer, as `SignalPayload` has none.
+    /// emitted only while the leader is unreaped, once per change of the size (SZ-2), and one is out at a time. The answer
+    /// is [`Input::PtyResized`]: the model takes the size and the `SizeChanged` report comes only after the PTY took it
+    /// (SZ-3).
     ResizePty(Size),
     /// Reap the payload's leader: its group kill is complete, so its id may be reused from now on.
     ReapPayload,
@@ -281,6 +285,10 @@ pub struct Worker {
     launch_size: Option<Size>,
     /// The size that the PTY and the model have now (SZ-2: the last one applied): the launch size, then each change.
     size: Option<Size>,
+    /// The PTY resize that is out: its answer comes before the next one is asked.
+    pty_resize: Option<PtyResize>,
+    /// The resizes that wait for the one that is out, in the order that they came (SZ-1: the latest wins).
+    resizes: VecDeque<NextResize>,
     /// The session's read-visible revision (Core ST-1): an opaque token that each model step of the output advances.
     model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
@@ -318,6 +326,28 @@ pub struct Worker {
     actions: VecDeque<Action>,
 }
 
+/// A PTY resize that is out ([`Action::ResizePty`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PtyResize {
+    size: Size,
+    /// The host `Resize` that asked it. `None` for the size policy (DP-6), and once an adoption retired the request
+    /// (AM-3): the size still applies, and no `Done` is sent.
+    req: Option<u64>,
+    /// The PTY goes back to the session size, because the model did not take the size that the PTY took. Nothing waits
+    /// for its answer.
+    undo: bool,
+}
+
+/// A resize that waits for the PTY resize that is out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NextResize {
+    /// A host `Resize` (SZ-1).
+    Host(u64, Size),
+    /// The size policy runs (DP-6). It reads the routes when its turn comes, so it is in the queue once, at its latest
+    /// place.
+    Policy,
+}
+
 /// What came for the payload while its spawn was out.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Early {
@@ -351,6 +381,8 @@ impl Worker {
             stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
             size: None,
+            pty_resize: None,
+            resizes: VecDeque::new(),
             model_rev: ModelRev(0),
             grace: None,
             removing: false,
@@ -797,47 +829,118 @@ impl Worker {
         self.report(&WorkerMsg::Done { req, result });
     }
 
-    /// `Resize` (SZ-1, SZ-2): a new size resizes the model and the PTY once, and the `SizeChanged` report (an `Observed`
-    /// size) comes after the PTY resize and before the `Done`, so the host has the size when the operation completes. The
+    /// `Resize` (SZ-1, SZ-2, SZ-3): a new size resizes the PTY once; only after the PTY took it does the model take it, and
+    /// the `SizeChanged` report (an `Observed` size) comes before the `Done`, so the host has the size when the operation
+    /// completes. A size that the PTY or the model does not take changes nothing and completes `Internal` (#311 F148). The
     /// current size completes `Applied` with no change and no report. A resize that comes while the spawn is out applies
     /// after `Launched` (no report comes before it); with no PTY (the spawn failed, or the leader is reaped) it is
     /// `SessionEnded`, as for a signal.
     fn on_resize(&mut self, req: u64, size: Size) {
-        match self.payload {
-            PayloadState::Live(_) => {}
-            PayloadState::Spawning => {
-                self.early.resizes.push((req, size));
-                return;
-            }
-            PayloadState::None | PayloadState::Failed | PayloadState::Reaped => {
-                let result = OpResult::Err(CoreError::new(
-                    ErrorCode::SessionEnded,
-                    "the payload has no PTY",
-                ));
-                self.report(&WorkerMsg::Done { req, result });
-                return;
-            }
+        if self.payload == PayloadState::Spawning {
+            self.early.resizes.push((req, size));
+            return;
         }
-        let result = match self.set_size(size) {
-            Ok(()) => OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
-            Err(detail) => OpResult::Err(CoreError::new(ErrorCode::Internal, detail)),
-        };
-        self.report(&WorkerMsg::Done { req, result });
+        self.resizes.push_back(NextResize::Host(req, size));
+        self.next_resize();
     }
 
-    /// The session size, from a host `Resize` (SZ-1) or the size policy (DP-6): a new size resizes the model and the PTY
-    /// once, reports the size, and goes to the routes in `modes` (DP-5, DP-6). The current size changes nothing (SZ-2). A
-    /// size that the model does not take changes nothing either.
-    fn set_size(&mut self, size: Size) -> Result<(), String> {
-        if self.size == Some(size) {
-            return Ok(());
+    /// DP-6 `Latest`: the size that the routes give, when it changed or a route reported a size ([`route::Routes::policy`]),
+    /// becomes the session size. The size of a host `Resize` stays until then: the latest of the two wins. A route size
+    /// has no cell pixels, so the session keeps its own. With no PTY there is nothing to resize.
+    pub(super) fn size_policy(&mut self) {
+        self.resizes.retain(|next| *next != NextResize::Policy);
+        self.resizes.push_back(NextResize::Policy);
+        self.next_resize();
+    }
+
+    /// The resizes that wait run in their order while no PTY resize is out.
+    fn next_resize(&mut self) {
+        while self.pty_resize.is_none() {
+            let Some(next) = self.resizes.pop_front() else {
+                return;
+            };
+            match next {
+                NextResize::Host(req, size) => {
+                    if !matches!(self.payload, PayloadState::Live(_)) {
+                        let result = OpResult::Err(CoreError::new(
+                            ErrorCode::SessionEnded,
+                            "the payload has no PTY",
+                        ));
+                        self.report(&WorkerMsg::Done { req, result });
+                    } else if self.size == Some(size) {
+                        let result =
+                            OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size }));
+                        self.report(&WorkerMsg::Done { req, result });
+                    } else {
+                        self.resize_pty(size, Some(req), false);
+                    }
+                }
+                NextResize::Policy => {
+                    let Some((rows, cols)) = self.routes.policy() else {
+                        continue;
+                    };
+                    let size = Size {
+                        rows,
+                        cols,
+                        cell_px: self.size.and_then(|size| size.cell_px),
+                    };
+                    if matches!(self.payload, PayloadState::Live(_)) && self.size != Some(size) {
+                        self.resize_pty(size, None, false);
+                    }
+                }
+            }
         }
+    }
+
+    fn resize_pty(&mut self, size: Size, req: Option<u64>, undo: bool) {
+        self.pty_resize = Some(PtyResize { size, req, undo });
+        self.actions.push_back(Action::ResizePty(size));
+    }
+
+    /// The answer to the PTY resize. The model takes the size that the PTY took; if it does not, the PTY goes back to the
+    /// session size. A policy size that the PTY or the model does not take leaves the session size as it is: no op waits
+    /// for it.
+    fn on_pty_resized(&mut self, result: Result<(), i32>) {
+        let Some(out) = self.pty_resize.take() else {
+            return;
+        };
+        if !out.undo {
+            let applied = match result {
+                _ if !matches!(self.payload, PayloadState::Live(_)) => {
+                    Err((ErrorCode::SessionEnded, "the payload has no PTY".to_owned()))
+                }
+                Err(errno) => Err((
+                    ErrorCode::Internal,
+                    format!("the PTY did not take the size: errno {errno}"),
+                )),
+                Ok(()) => self.set_size(out.size).map_err(|detail| {
+                    if let Some(old) = self.size {
+                        self.resize_pty(old, None, true);
+                    }
+                    (ErrorCode::Internal, detail)
+                }),
+            };
+            if let Some(req) = out.req {
+                let result = match applied {
+                    Ok(()) => {
+                        OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: out.size }))
+                    }
+                    Err((code, detail)) => OpResult::Err(CoreError::new(code, detail)),
+                };
+                self.report(&WorkerMsg::Done { req, result });
+            }
+        }
+        self.next_resize();
+    }
+
+    /// The session size that the PTY took: the model takes it, the size is reported, and it goes to the routes in `modes`
+    /// (DP-5, DP-6). A size that the model does not take changes nothing.
+    fn set_size(&mut self, size: Size) -> Result<(), String> {
         let resized = self.model.as_mut().map(|model| model.term.resize(&size));
         if let Some(Err(e)) = resized {
             return Err(format!("the model did not take the size: {e:?}"));
         }
         self.size = Some(size);
-        self.actions.push_back(Action::ResizePty(size));
         // ST-1: the size is a read-visible change.
         self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
         let model_rev = self.model_rev;
@@ -846,25 +949,6 @@ impl Worker {
         });
         self.routes_size(size);
         Ok(())
-    }
-
-    /// DP-6 `Latest`: the size that the routes give, when it changed or a route reported a size ([`route::Routes::policy`]),
-    /// becomes the session size. The size of a host `Resize` stays until then: the latest of the two wins. A route size
-    /// has no cell pixels, so the session keeps its own. With no PTY there is nothing to resize.
-    pub(super) fn size_policy(&mut self) {
-        let Some((rows, cols)) = self.routes.policy() else {
-            return;
-        };
-        if !matches!(self.payload, PayloadState::Live(_)) {
-            return;
-        }
-        let size = Size {
-            rows,
-            cols,
-            cell_px: self.size.and_then(|size| size.cell_px),
-        };
-        // No op waits for a policy size, so a size that the model does not take only leaves the session size as it is.
-        let _ = self.set_size(size);
     }
 
     /// LC-7 step 3: end the payload, reap it, send the complete result, and end. This milestone has no uploads (DP-5b, P4b),
@@ -1111,6 +1195,13 @@ impl Worker {
         // DESIGN.md 3.4, AM-3: the old host's requests are retired. A `Resize` that it asked while the spawn was out is
         // neither applied nor answered on the new link, whose request numbers are the new host's.
         self.early.resizes.clear();
+        // The same for a `Resize` that waits for a PTY resize. The one that is out still applies when the PTY took it, and
+        // reports its size on the new link, but no `Done` answers it.
+        self.resizes
+            .retain(|next| !matches!(next, NextResize::Host(..)));
+        if let Some(out) = self.pty_resize.as_mut() {
+            out.req = None;
+        }
         self.send_hello();
         let report = self.adoption_report();
         self.report(&report);
@@ -1211,6 +1302,7 @@ impl Machine for Worker {
             Input::PtyOutput(bytes) => self.on_output(&bytes),
             Input::PtyWritten(result) => self.on_pty_written(result),
             Input::PtyWritable => self.on_pty_writable(),
+            Input::PtyResized(result) => self.on_pty_resized(result),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),

@@ -2783,6 +2783,69 @@ fn a_host_resize_stays_until_the_policy_changes() {
     assert_eq!(resizes(&all), [cells(30, 100)]);
 }
 
+/// DP-6, SZ-3 (#311 F148): a route size that the PTY does not take changes nothing: no size report, no `modes`, and the
+/// session keeps its size. The route's next report of the same size asks the PTY again.
+#[test]
+fn a_route_size_that_the_pty_does_not_take_changes_nothing() {
+    let (mut w, mut client, _) = attached(limits());
+    w.pty_resized = Some(Err(5));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert!(size_reports(&mut w, &all).is_empty(), "{all:?}");
+    assert!(modes_sizes(&client).is_empty(), "{:?}", client.frames);
+    w.pty_resized = Some(Ok(()));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert_eq!(size_reports(&mut w, &all), [cells(30, 100)]);
+    assert_eq!(modes_sizes(&client), [(30, 100)]);
+}
+
+/// DP-6, SZ-1: while a PTY resize is out, a host `Resize` and a policy change wait in the order that they came, so the
+/// latest of the two is the size at the end, whichever of them is out first.
+#[test]
+fn the_latest_of_a_host_resize_and_a_route_size_wins_while_one_is_out() {
+    for host_first in [true, false] {
+        let (mut w, mut client, _) = attached(limits());
+        w.pty_resized = None;
+        let host = |w: &mut World| {
+            w.send(&HostMsg::Op {
+                req: 3,
+                op: resize_op(20, 70),
+            })
+        };
+        let route = |w: &mut World| {
+            w.feed(Input::RouteRead {
+                route: RouteId(1),
+                bytes: resize_frame(30, 100),
+            })
+        };
+        let (first, second, last) = if host_first {
+            (host(&mut w), route(&mut w), cells(30, 100))
+        } else {
+            (route(&mut w), host(&mut w), cells(20, 70))
+        };
+        let mut all = client.take_all(&mut w, RouteId(1), first);
+        all.extend(client.take_all(&mut w, RouteId(1), second));
+        assert_eq!(resizes(&all).len(), 1, "one is out: {all:?}");
+        let actions = w.feed(Input::PtyResized(Ok(())));
+        let all = client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(resizes(&all), [last], "the other one follows");
+        let actions = w.feed(Input::PtyResized(Ok(())));
+        let all = client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(size_reports(&mut w, &all), [last]);
+        assert_eq!(modes_sizes(&client).last(), Some(&(last.rows, last.cols)));
+        assert_eq!(modes_sizes(&client).len(), 2, "{:?}", client.frames);
+    }
+}
+
 /// DP-5: `modes` coalesces to one latest unstarted frame per route. A route that writes nothing holds one `modes` frame, of
 /// the last size, whatever the number of changes.
 #[test]

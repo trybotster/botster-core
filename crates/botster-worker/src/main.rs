@@ -365,7 +365,7 @@ impl Driver {
                 }
             }
             Action::ResizePty(size) => {
-                if let Some(payload) = self.payload.as_ref() {
+                let resized = self.payload.as_ref().map(|payload| {
                     let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
                     let (xpixel, ypixel) = size.cell_px.map_or((0, 0), |px| {
                         (
@@ -373,9 +373,11 @@ impl Driver {
                             clamp(size.rows.saturating_mul(px.height)),
                         )
                     });
-                    // `ResizePty` has no answer, as `SignalPayload` has none: the host's size is the asked size (SZ-3).
-                    let _ = payload.resize(clamp(size.rows), clamp(size.cols), xpixel, ypixel);
-                }
+                    payload.resize(clamp(size.rows), clamp(size.cols), xpixel, ypixel)
+                });
+                // SZ-3 (#311 F148): the machine applies the size only when the PTY took it.
+                self.inputs
+                    .push_back(Input::PtyResized(io_decisions::pty_resized(resized)));
             }
             Action::ReapPayload => {
                 if let Some(payload) = self.payload.take() {

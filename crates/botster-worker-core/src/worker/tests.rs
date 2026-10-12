@@ -58,6 +58,8 @@ struct World {
     instant_link: bool,
     /// The bytes of every `LinkSend` that the test has collected.
     sent: u64,
+    /// The PTY answers each `ResizePty` at once with this result; `None`: the test answers it.
+    pty_resized: Option<Result<(), i32>>,
 }
 
 /// The real instant that a test gives its injected clock as the start. It is the one call of the crate's tests that reads the
@@ -80,16 +82,25 @@ impl World {
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
             instant_link: true,
             sent: 0,
+            pty_resized: Some(Ok(())),
         }
     }
 
     fn feed(&mut self, input: Input) -> Vec<Action> {
-        self.worker.handle(self.now, input);
-        let mut actions = self.collect();
-        if self.instant_link {
-            self.worker
-                .handle(self.now, Input::LinkWritten { total: self.sent });
-            actions.extend(self.collect());
+        let mut actions = Vec::new();
+        let mut next = Some(input);
+        while let Some(input) = next.take() {
+            self.worker.handle(self.now, input);
+            let batch = self.collect();
+            if batch.iter().any(|a| matches!(a, Action::ResizePty(_))) {
+                next = self.pty_resized.map(Input::PtyResized);
+            }
+            actions.extend(batch);
+            if self.instant_link {
+                self.worker
+                    .handle(self.now, Input::LinkWritten { total: self.sent });
+                actions.extend(self.collect());
+            }
         }
         actions
     }
@@ -835,7 +846,7 @@ fn an_adoption_retires_the_old_hosts_resize_queued_during_the_spawn() {
             req: 3,
             op: resize_op(40, 120),
         });
-        actions.extend(w.feed(Input::Spawned(spawned.clone())));
+        actions.extend(w.feed(Input::Spawned(spawned)));
         let new = Size {
             rows: 40,
             cols: 120,
@@ -925,6 +936,260 @@ fn a_resize_without_a_pty_is_session_ended() {
         };
         assert_eq!(error.code, ErrorCode::SessionEnded);
     }
+}
+
+/// The errno of a PTY resize that fails in these tests (`EIO` on Linux and macOS); the worker only carries it.
+const RESIZE_ERRNO: i32 = 5;
+
+fn sized(rows: u32, cols: u32) -> Size {
+    Size {
+        rows,
+        cols,
+        cell_px: None,
+    }
+}
+
+fn mode_rev(w: &mut World, req: u64) -> ModelRev {
+    match op(w, req, Op::ReadModeFlags { session: sid() }) {
+        OpResult::Ok(OpOutput::Modes(modes)) => modes.model_rev,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The cursor after a CUP far past every edge: the model clamps it, so it shows the size that the model has.
+fn model_size(w: &mut World, req: u64) -> (u32, u32) {
+    w.feed(Input::PtyOutput(b"\x1b[999;999H".to_vec()));
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(w, req, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    (cursor.row + 1, cursor.col + 1)
+}
+
+fn internal(req: u64, reports: &[WorkerMsg]) {
+    let [WorkerMsg::Done {
+        req: done,
+        result: OpResult::Err(error),
+    }] = reports
+    else {
+        panic!("{reports:?}");
+    };
+    assert_eq!((*done, &error.code), (req, &ErrorCode::Internal));
+}
+
+/// SZ-1, SZ-3 (#311 F148): a PTY resize that fails changes nothing. No size is reported, the model keeps its size and
+/// `model_rev`, and the `Resize` completes `Internal`, never `Applied`. The same size is asked of the PTY again later,
+/// because the session size did not change.
+#[test]
+fn a_pty_resize_that_fails_changes_nothing_and_completes_internal() {
+    let mut w = World::running();
+    w.pty_resized = Some(Err(RESIZE_ERRNO));
+    let before = mode_rev(&mut w, 1);
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert_eq!(resizes(&actions), [sized(30, 100)]);
+    internal(3, &w.reports(&actions));
+    assert_eq!(mode_rev(&mut w, 4), before);
+    assert_eq!(model_size(&mut w, 5), (size().rows, size().cols));
+    w.pty_resized = Some(Ok(()));
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert_eq!(resizes(&actions), [sized(30, 100)]);
+    assert_eq!(w.reports(&actions).last(), Some(&applied(sized(30, 100))));
+}
+
+/// SZ-3 (#311 F148): the model takes the size only after the PTY took it. A read before the answer sees the old size and
+/// revision, and the size report and the `Done` come with the answer.
+#[test]
+fn the_size_applies_only_when_the_pty_answers() {
+    let mut w = World::running();
+    w.pty_resized = None;
+    let before = mode_rev(&mut w, 1);
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert_eq!(resizes(&actions), [sized(30, 100)]);
+    assert_eq!(w.reports(&actions), []);
+    assert_eq!(mode_rev(&mut w, 4), before);
+    assert_eq!(model_size(&mut w, 5), (size().rows, size().cols));
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(&reports[..], [WorkerMsg::Observed { observation: Observation::Size { size: s, .. } }, done]
+            if *s == sized(30, 100) && *done == applied(sized(30, 100))),
+        "{reports:?}"
+    );
+    assert_eq!(model_size(&mut w, 6), (30, 100));
+}
+
+/// One PTY resize is out at a time: a later `Resize` waits for the answer, then runs in its order. A second answer with
+/// nothing out changes nothing.
+#[test]
+fn a_resize_waits_for_the_pty_resize_that_is_out() {
+    let mut w = World::running();
+    w.pty_resized = None;
+    let mut actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    actions.extend(w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    }));
+    assert_eq!(resizes(&actions), [sized(30, 100)]);
+    assert_eq!(w.reports(&actions), []);
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(resizes(&actions), [sized(40, 120)]);
+    let done: Vec<u64> = w
+        .reports(&actions)
+        .iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Done { req, .. } => Some(*req),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(done, [3]);
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert!(resizes(&actions).is_empty(), "{actions:?}");
+    let reports = w.reports(&actions);
+    assert_eq!(
+        reports.last(),
+        Some(&WorkerMsg::Done {
+            req: 4,
+            result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied {
+                actual: sized(40, 120)
+            })),
+        })
+    );
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert!(actions.is_empty(), "{actions:?}");
+    assert_eq!(model_size(&mut w, 5), (40, 120));
+}
+
+/// A size that the PTY took and the model did not take (a row count past the model's range): the PTY goes back to the
+/// session size, nothing is reported, and the `Resize` completes `Internal`. The answer of the undo is no `Done`, and a
+/// later resize runs after it.
+#[test]
+fn a_size_that_the_model_does_not_take_puts_the_pty_back() {
+    let mut w = World::running();
+    w.pty_resized = None;
+    let big = sized(u32::from(u16::MAX) + 1, 100);
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: Op::Resize {
+            session: sid(),
+            size: big,
+        },
+    });
+    assert_eq!(resizes(&actions), [big]);
+    let mut actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(resizes(&actions), [size()], "the undo: {actions:?}");
+    actions.extend(w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(30, 100),
+    }));
+    assert_eq!(
+        resizes(&actions),
+        [size()],
+        "the next waits for the undo: {actions:?}"
+    );
+    internal(3, &w.reports(&actions));
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(resizes(&actions), [sized(30, 100)]);
+    assert_eq!(w.reports(&actions), []);
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(
+        w.reports(&actions).last(),
+        Some(&WorkerMsg::Done {
+            req: 4,
+            result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied {
+                actual: sized(30, 100)
+            })),
+        })
+    );
+}
+
+/// A `Resize` whose PTY resize is out when the leader is reaped completes `SessionEnded`, whatever the answer is, and
+/// one that waits for it completes `SessionEnded` too.
+#[test]
+fn a_resize_that_is_out_when_the_leader_is_reaped_is_session_ended() {
+    for answer in [Ok(()), Err(RESIZE_ERRNO)] {
+        let mut w = World::running();
+        w.pty_resized = None;
+        w.send(&HostMsg::Op {
+            req: 3,
+            op: resize_op(30, 100),
+        });
+        w.send(&HostMsg::Op {
+            req: 4,
+            op: resize_op(40, 120),
+        });
+        w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+        w.feed(Input::PtyDrained);
+        let actions = w.send(&HostMsg::Op {
+            req: 7,
+            op: Op::Signal {
+                id: sid(),
+                sig: Signal::Kill,
+            },
+        });
+        assert_eq!(reaps(&actions), 1);
+        let actions = w.feed(Input::PtyResized(answer));
+        assert!(resizes(&actions).is_empty(), "{actions:?}");
+        let done: Vec<(u64, ErrorCode)> = w
+            .reports(&actions)
+            .iter()
+            .map(|m| match m {
+                WorkerMsg::Done {
+                    req,
+                    result: OpResult::Err(error),
+                } => (*req, error.code.clone()),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            done,
+            [(3, ErrorCode::SessionEnded), (4, ErrorCode::SessionEnded)]
+        );
+    }
+}
+
+/// DESIGN.md 3.4, AM-3: an adoption retires the old host's `Resize`s. The one whose PTY resize is out still applies when
+/// the PTY took it, and its size is reported on the new link, with no `Done`; the one that waits is neither applied nor
+/// answered. The new host's request with the same number is answered once.
+#[test]
+fn an_adoption_retires_the_resizes_that_wait_for_the_pty() {
+    let mut w = World::running();
+    w.pty_resized = None;
+    w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    });
+    adopt(&mut w, EPOCH + 3);
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert!(
+        resizes(&actions).is_empty(),
+        "the waiting one is retired: {actions:?}"
+    );
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(&reports[..], [WorkerMsg::Observed { observation: Observation::Size { size: s, .. } }] if *s == sized(30, 100)),
+        "{reports:?}"
+    );
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert_eq!(w.reports(&actions), [applied(sized(30, 100))]);
 }
 
 /// An operation of a later milestone is answered, never left without a `Done`.
