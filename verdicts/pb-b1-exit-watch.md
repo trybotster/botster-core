@@ -20,9 +20,18 @@ The reviewer checked the first gate's clippy error and confirmed that this delta
 
 The first gate on `d8358ee920892da144c1f6289a735451bafda28f` failed because the test discarded a required Result.
 Log: `~/botster-sessions/gates/botster-core-stage1-pb-b1-exit-watch-d8358ee9-pool-20261012-130202-26976.log`.
-That red gate is not acceptance evidence. The corrected head's gate is running.
-READY, the corrected gate log, mutation results, and the required integration review remain pending.
-This is a source verdict. The reviewer built nothing locally and ran no tests.
+That red gate is not acceptance evidence.
+The implementer supplied READY #327 at the reviewed head. The PR body contains the required prior-art note and states HIGH.
+The reviewer checked the corrected Linux pool gate on `msa1`. All ten steps report PASS, and the gate exits 0.
+The gate names base `3e655eff46d36f8c337339a1a17d401c8c662594` and the reviewed head.
+The gate runs all nine new sys, machine, testkit, and zero-start-time tests successfully.
+Mutation results: 21 total, 18 caught, zero missed, zero timeouts, and three unviable.
+The slow mutation stage catches the one mutant missed by the default stage.
+The fuzz step has no changed crate with a decoder harness. It is not SKIPPED.
+Log: `~/botster-sessions/gates/botster-core-stage1-pb-b1-exit-watch-0e25e27d-pool-20261012-130618-58413.log`.
+Log SHA256: `0de859daa3399bde2db85985186568a5df9694cb91947c0460f2667fb715d15f`.
+The CLEAN verdict remains unchanged. The required integration review and the lead's merge train remain pending.
+The reviewer built nothing locally and ran no tests.
 
 ## Historical verdict: round 1
 

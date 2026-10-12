@@ -17,7 +17,10 @@ The implementer sent FINAL-READY to the lead. The reviewer waits for B1's design
 
 B1 round 2 at `0e25e27da6606a27cf2ff94df5d139c80f27b4d5` is CLEAN for source.
 PB1-1 is closed by the design's prior-art note. The delta repairs the slow test's discarded Result.
-The first B1 gate failed clippy. The corrected gate is running; READY and integration review remain pending.
+The first B1 gate failed clippy. READY #327 now supplies a green corrected gate on the reviewed head.
+All ten steps pass. Mutation results: 18 caught, zero missed, zero timeouts, three unviable.
+The PR body has the required prior-art note. The verdict records the gate log and its SHA256.
+Integration review remains pending. The implementer asked the lead to name its reviewer.
 The reviewer built nothing locally.
 
 ## Review authority
