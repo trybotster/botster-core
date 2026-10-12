@@ -38,7 +38,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | `HostDriver::open` reads the ids of the registry's rows; `Create` refuses them with `IdInUse` until `AdoptAll` turns them into sessions. | ID-1: an id is unique among registry rows; LC-3; AD-2: a `Lost` row keeps the id in use until `Remove`. A read failure makes `open` fail `RegistryFailed`. |
 | `Adopt` and the service rows are refused with `Unsupported` or `UnknownService`. `AttachWebRtc` is not an operation (Core A17-1). | They belong to P5 and P7. |
 | A stop sends its request and starts its grace before the state event is posted. `Remove` closes each bound route (with its `RouteClosed`) first; steps 2 to 5 wait for that, then run under pressure and only `Released` waits for room. | EV-5c, and steward ruling R-15: LC-7's order holds under a full queue. |
-| The worker reports the payload's identity at launch, and a stop without a link sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker, at the stop and at `stop_grace`. After the stop the session is `Lost(WorkerUnreachable)`. | LC-5 and LC-6: the payload group ends, and the worker keeps its final model. The worker is the parent of the payload and ends its group. The host never signals a bare payload group (AD-6) and never kills the worker on this path. Core cannot learn the exit of a payload whose worker it cannot reach. |
+| The worker reports the payload's identity at launch, and a stop without a link sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker at the stop, and `GroupSignal::KillPayload` (`SIGUSR2`) at the due `pump` of `stop_grace`. After the stop the session is `Lost(WorkerUnreachable)`. | LC-5 and LC-6: the payload group ends, and the worker keeps its final model. The worker is the parent of the payload and ends its group. The host never signals a bare payload group (AD-6) and never kills the worker on this path. Core cannot learn the exit of a payload whose worker it cannot reach. |
 | `Signal` is a request to the worker and completes on its confirmation. | A2-1: `Ok` is "after the signal was sent"; a link that fails before the confirmation gives `WorkerLinkFailed`. |
 | `Remove` waits for the worker process to end before it deletes the row and frees the id. A worker that cannot be asked, and a worker that does not end within `stop_grace` after its teardown, has its identity checked (`Action::ProbeIdentity`, AD-6): a matching worker is killed and checked again each `stop_grace`; an absent one, or a pid that another process has now, is gone. | LC-7 step 3 before steps 4 and 5; A6-3: a stray worker is ended; AD-6: a process that does not match is never signalled. A worker that this handle did not spawn has no exit watch, so the check is how the host learns of its end. |
 | Ops of an instance that is gone complete `SessionEnded` (a write: `NotWritten(SessionEnded)`); the ops admitted after a failed `Create` complete with its `RegistryFailed`. | AM-3: no op stays attached to a session that is gone; ID-1: no op reaches a later instance. |
@@ -405,8 +405,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 ## Round 2 decisions
 
 - **StopAll row (R-16).** The Stopping row of a `StopAll` target is best effort. When the write fails, the stop goes on and `StopAll` completes (LC-12). A plain `Stop` keeps `RegistryFailed`.
-- **No payload-group signal (AD-6, lead ruling on F7).** The host signals only processes that it identifies by pid and start time: the worker. It never signals a bare payload group, because the group id can be reused by an unrelated group after the original group ends. With a broken link (LC-5), the host sends `EndPayload` to the verified worker (see Worker-control signal below). `Launched` still carries the payload identity, and the row records it.
-- **Interface note for P3 (worker side).** On `EndPayload` (`SIGUSR1`) the worker ends its payload group and keeps the final model. The worker is the parent of the payload. It keeps the payload leader unreaped (`waitid` with `WNOWAIT`) until the group kill completes, so the group id cannot be reused (POSIX). The worker asks the payload to stop, and kills its group after `stop_grace`.
+- **No payload-group signal (AD-6, lead ruling on F7).** The host signals only processes that it identifies by pid and start time: the worker. It never signals a bare payload group, because the group id can be reused by an unrelated group after the original group ends. With a broken link (LC-5), the host sends `EndPayload`, then `KillPayload`, to the verified worker (see Worker-control signal below). `Launched` still carries the payload identity, and the row records it.
+- **Interface note for P3 (worker side).** On `EndPayload` (`SIGUSR1`) the worker asks its payload to stop; on `KillPayload` (`SIGUSR2`) it kills the payload's group. It keeps the final model either way. The worker is the parent of the payload. It keeps the payload leader unreaped (`waitid` with `WNOWAIT`) until the group kill completes, so the group id cannot be reused (POSIX). The worker keeps no grace timer: `stop_grace` is Core's deadline (steward ruling R-97, follow-up).
 - **Ops that end with their instance (AM-3, IN-7).** Writes that were sent and not acknowledged complete `Unknown`. Writes never sent complete `NotWritten(SessionEnded)`. Resize, size policy and signal complete `SessionEnded`. Detach completes `Ok`. Start, Remove, metadata and notification policy complete with the failed Create, or `RegistryFailed`. Other ops complete `WorkerLinkFailed`.
 - **Remove grace.** A kill is not an observed exit. At each `stop_grace` the host checks the worker's identity: it kills a matching worker again, and takes an absent one as gone.
 - **Pump bounds.** Held frames, process exits and completions count against `pump_events`. A read takes at most what is left of `pump_bytes`.
@@ -417,5 +417,66 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **Deadlines (erratum 3, E3-1).** `Work::Deadline` is the earliest due effect without an event (capture expiry, the kills, the startup and remove grace). It runs whatever the budget. `Work::Silent` is the earliest due `Silent`, a step atomic with its event. It needs budget, and the driver carries it with `more` otherwise. `ready()` lists `Deadline`, then `Silent`, then other work. A step parked on mandatory room is absent from `ready()`, so it never blocks a runnable step. At the bound the driver lets only `Work::Deadline` run.
 - **Write bound.** `begin` computes a write's size once (`payload_size`): the payload bytes, or for `Key`, `Mouse` and `Focus` the worst case over every mode from libghostty's encoders, once for each repeat or notch (5.1A). The pending op keeps it as `held_bytes`. `PayloadTooLarge`, the lane bound (IN-5) and `Unknown` (IN-7) all use that one value.
 - **SetNotificationPolicy retirement.** The registry path (`RegistryFailed`) is only for an op admitted in `Created` (`created_path`). Other states end `WorkerLinkFailed`.
-- **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone, at the stop and at `stop_grace`. The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
+- **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone at the stop, and `GroupSignal::KillPayload` (`SIGUSR2`) at the due `pump` of `stop_grace` (steward ruling R-97, follow-up, contracts `12ebec28`). The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
 - **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+
+## The control queue (IN-6, steward ruling R-91; PC, 2026-10-11)
+
+- **What it is.** The control queue of a session is Core's outbound control stream to the session's worker: the bytes that
+  the driver queued on the worker's link and the link has not taken yet (`LinkState.out`). Core owns it, so a sync `cancel`
+  decides from Core's own state, and Core (not the worker) posts `SessionWritable`. The link message
+  `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
+- **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
+  the link's frame bound `F` (`HostEngine::link_frame_bound`:
+  `min(4 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
+  `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
+  - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame
+    bound. It is a true upper bound, not an estimate: `encode_frame` refuses a larger payload, so no host message is
+    queued larger. Each message kind has a test (`tests/driver/control_term.rs`). The kinds whose fields `CoreLimits`
+    bounds (`Stop`, `Kill`, `Remove`, `Cancel`, `Detach`, and the forwarded ops with no input payload) are far below it at
+    their worst case under the limits.
+  - Four kinds carry strings that no `CoreLimits` value bounds, so the frame bound is the only bound for them (steward
+    ruling R-100: no new `CoreLimits` field in v1, backlog B-2): `Launch` (argv, env, cwd, notification patterns),
+    `SetNotificationPolicy` (patterns), `CaptureSnapshot` (owner) and `AttachRoute` (`file_directory`, `route_features`,
+    `terminal_formats`). Their tests show that a frame over the bound is refused.
+  - With the default limits, `F` is 65 MiB and the bound is about 18 GiB. That is a threshold only: Core allocates nothing
+    for it. So Core's own count refuses `Full` only when a link stops draining for a very long time, and in practice the
+    link edge's room (`HostEdges::link_room`) is the limit that binds.
+- **The admission limits bound the stream (R-91 Q1 (b)).** Only `cancel` refuses `Full`. Every other host-to-worker message
+  keeps its own admission:
+  - IN-5 bounds the input payload of a session (`input_retained_bytes`, `input_ops_per_session`);
+  - AM-3 bounds the pending ops (`pending_ops`).
+  - Every other message (`Launch`, `AttachRoute`, `Detach`, `Stop`, `Kill`, `Remove`) is at most the link's largest
+    frame, and the session's flow and its routes (`routes_per_session`) bound how many there are.
+  So `out` cannot grow without a bound.
+- **The room.** `room = min(bound − unsent bytes, HostEdges::link_room(link))`. The production edge sets no bound of its own
+  (`usize::MAX`). The testkit's `control_queue` sets the edge's room to 0 on both tiers, at the injected edge only (BUILD.md
+  testing rule 8).
+- **The refusal.** `cancel` checks the room after `UnknownOp`, `TooLate`, `NotCancellable` and `AlreadyAdmitted`, and before
+  its sent or not-sent branch (R-91 Q2, FakeCore's order). With less room than `c`, it returns `Refused(Full)`. Nothing
+  changes: the op stays cancellable, no slot is taken, and no event is posted (AM-4). The worker's handle gets a
+  `refused_full` mark. The mark lives with the worker's link, so a new instance starts without it.
+- **A failed write side (R-78 item 4).** A send error clears the link's unsent bytes, and the write side takes nothing more.
+  Those dropped bytes are not a drain: the failure retires the `refused_full` mark, so no `SessionWritable` follows and the
+  room is no work. A `cancel` on a failed write side is not refused `Full`, because no room would come back to wake it; a
+  sent op completes through the link's end (IN-7).
+- **The wake.** In every pump, after the driver flushes a link, a link with room for `c` clears the mark of its session and
+  posts `SessionWritable{id, instance}` (class K, keyed per instance, so it is coalesced, SV-3). The event counts against
+  the pump's event bound (9B). With no budget left, it waits for the next pump, and the pump reports `more`. A link with room
+  and no refused cancel is no work and never makes `more` true (TM-6: `HostEngine::waits_for_room`). The testkit's
+  `control_queue off` signals the host's wake, so the next pump finds the room.
+- **Tests.** The driver unit tests use a real bounded stream: the mock link takes nothing (`WouldBlock`), then drains.
+  - The test sets the bound to one control message, so one unsent frame fills it. This proves Core's own count and the
+    wake.
+  - Other tests cover: no wake without a refusal; two refusals and one wake; the edge's room; and the production bound
+    formula; and a failed write side (no wake, no `more`, the read side kept; and no `Full`).
+  - `tests/driver/control_term.rs`: one test for each host message kind against the term.
+- **Prior art (BUILD.md rule 0; old Core `72b2e335`).**
+  - The old daemon's `cancel` (the old daemon crate's `src/daemon.rs:1993`) returns `bool`. It has no control queue,
+    no `Full` refusal and no wake.
+  - The old worker bounded its outbound stream to the host by class (`Egress::has_room`, the old session-worker binary's
+    source, lines 243 and 343). That is the same shape (a byte-bounded stream with a room check) in the other direction. It
+    is kept as a lesson. No code is copied.
+  - Its tests set "full" through a test-only argument of the production binary (`test_egress_full_signal`, line 304).
+    That is rejected: here the `link_room` edge is the only test seam.

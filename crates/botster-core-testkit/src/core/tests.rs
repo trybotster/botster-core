@@ -10,7 +10,7 @@ fn edges(seed: u64) -> SimEdges {
         faults: Arc::default(),
         entropy: SeededEntropy::with_seed(seed),
         wake: Arc::new(SimHostWake::new(scheduler.clone())),
-        scheduler: HandleScheduler(scheduler),
+        scheduler: HandleScheduler(scheduler, Default::default()),
         spawner: None,
         pending: VecDeque::new(),
         links: BTreeMap::new(),
@@ -321,6 +321,87 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
     assert_eq!(edges.connect_worker(&spec.instance), None);
     edges.remove_endpoint(&spec.instance);
     assert_eq!(lock(&log).unlinks, vec![spec.instance.clone()]);
+}
+
+/// LC-4, A2-1 (`hold_start`, steward ruling R-71): the link of a held start is kept from the accept, and the links that are
+/// not held are accepted in their usual order. After the release, the next accept takes the held link, with the bytes that
+/// the worker wrote during the hold, in order. A spawn after the release is not held.
+#[test]
+fn a_held_start_keeps_its_link_from_the_accept_until_the_release() {
+    let log = Arc::new(Mutex::new(ProcessLog::default()));
+    let mut edges = edges(3).with_spawner(Box::new(RecordedSpawner(Arc::clone(&log))));
+    let spec = |instance: &str| WorkerSpawn {
+        startup: CoreLimits::default().startup,
+        program: "worker".into(),
+        instance: InstanceId(instance.into()),
+        token: [3; 32],
+        host_epoch: 1,
+    };
+    let faults = edges.faults();
+    let held = InstanceId("1-2".into());
+    lock(&faults).start_holds.insert(held.clone(), None);
+    for instance in ["1-1", "1-2", "1-3"] {
+        edges.spawn_worker(&spec(instance)).unwrap();
+    }
+    assert_eq!(
+        lock(&faults).start_holds.get(&held),
+        Some(&Some(HeldLink {
+            link: LinkId(2),
+            worker: Some(ProcessIdentity {
+                pid: 2,
+                start_time: 1
+            })
+        }))
+    );
+    // The held worker writes its hello during the hold.
+    assert_eq!(lock(&log).peers[1].send(b"hel").unwrap(), 3);
+    assert_eq!(lock(&log).peers[1].send(b"lo").unwrap(), 2);
+    let links: Vec<_> = std::iter::from_fn(|| edges.accept_link()).collect();
+    assert_eq!(links, vec![LinkId(1), LinkId(3)], "the held link waits");
+    edges.spawn_worker(&spec("1-4")).unwrap();
+    assert_eq!(
+        edges.accept_link(),
+        Some(LinkId(4)),
+        "a later link is not held"
+    );
+    assert_eq!(edges.accept_link(), None);
+    assert!(lock(&faults).start_holds.remove(&held).is_some());
+    assert_eq!(edges.accept_link(), Some(LinkId(2)), "released");
+    let mut bytes = [0u8; 8];
+    let mut read = Vec::new();
+    while let Ok(n @ 1..) = edges.link_recv(LinkId(2), &mut bytes) {
+        read.extend_from_slice(&bytes[..n]);
+    }
+    assert_eq!(read, b"hello", "every byte of the hold, in order");
+    assert_eq!(edges.accept_link(), None);
+    edges.spawn_worker(&spec("1-2")).unwrap();
+    assert_eq!(edges.accept_link(), Some(LinkId(5)), "the hold ended");
+}
+
+/// `hold_start` on the first link: the later links that are not held are accepted in their order, and the held link comes
+/// after the release.
+#[test]
+fn a_held_first_link_lets_the_later_links_pass() {
+    let log = Arc::new(Mutex::new(ProcessLog::default()));
+    let mut edges = edges(3).with_spawner(Box::new(RecordedSpawner(Arc::clone(&log))));
+    let faults = edges.faults();
+    let held = InstanceId("1-1".into());
+    lock(&faults).start_holds.insert(held.clone(), None);
+    for instance in ["1-1", "1-2", "1-3"] {
+        let spec = WorkerSpawn {
+            startup: CoreLimits::default().startup,
+            program: "worker".into(),
+            instance: InstanceId(instance.into()),
+            token: [3; 32],
+            host_epoch: 1,
+        };
+        edges.spawn_worker(&spec).unwrap();
+    }
+    let links: Vec<_> = std::iter::from_fn(|| edges.accept_link()).collect();
+    assert_eq!(links, vec![LinkId(2), LinkId(3)]);
+    lock(&faults).start_holds.remove(&held);
+    assert_eq!(edges.accept_link(), Some(LinkId(1)));
+    assert_eq!(edges.accept_link(), None);
 }
 
 /// LC-2, LC-12, and DP-8: dropping the host releases the directory, retains rows, and advances the epoch.

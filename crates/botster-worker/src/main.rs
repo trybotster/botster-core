@@ -1,8 +1,8 @@
 //! `botster-worker`: the thin binary of the session worker (plan 2.2, role `session`).
 //!
 //! It wires the real edges to the `Worker` machine of `botster-worker-core` and holds no worker logic (plan 2.1: one machine,
-//! two drivers). One `mio` loop serves the control socket, the PTY master, the worker-control signal (`SIGUSR1`, LC-5) and the
-//! wake of the payload's exit watch. `SIGTERM` ends the worker after its payload (`Input::Terminate`).
+//! two drivers). One `mio` loop serves the control socket, the PTY master, the worker-control signals (`SIGUSR1`, `SIGUSR2`,
+//! LC-5) and the wake of the payload's exit watch. `SIGTERM` ends the worker after its payload (`Input::Terminate`).
 //!
 //! **Bounded turns (plan 2.4, 2.5).** `mio` reports readiness by edge, so the driver keeps a readiness flag per descriptor
 //! and clears it only when a read or write finds `WouldBlock`. Each turn reads at most one chunk from each descriptor, control
@@ -36,7 +36,7 @@ use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
-use signal_hook::consts::{SIGTERM, SIGUSR1};
+use signal_hook::consts::{SIGTERM, SIGUSR1, SIGUSR2};
 use signal_hook_mio::v1_0::Signals;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
@@ -164,7 +164,7 @@ impl Driver {
         let mut control = UnixStream::from_std(std_control);
         poll.registry()
             .register(&mut control, CONTROL, Interest::READABLE)?;
-        let mut signals = Signals::new([SIGUSR1, SIGTERM])?;
+        let mut signals = Signals::new([SIGUSR1, SIGUSR2, SIGTERM])?;
         poll.registry()
             .register(&mut signals, SIGNALS, Interest::READABLE)?;
         let waker = Arc::new(Waker::new(poll.registry(), EXIT)?);
@@ -275,10 +275,11 @@ impl Driver {
                     }
                     SIGNALS => {
                         for signal in self.signals.pending() {
-                            self.inputs.push_back(if signal == SIGTERM {
-                                Input::Terminate
-                            } else {
-                                Input::EndPayload
+                            self.inputs.push_back(match signal {
+                                SIGTERM => Input::Terminate,
+                                // The kill at the end of Core's `stop_grace` (LC-5; steward ruling R-97, follow-up).
+                                SIGUSR2 => Input::KillPayload,
+                                _ => Input::EndPayload,
                             });
                         }
                     }

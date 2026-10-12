@@ -1374,15 +1374,17 @@ mod tests {
     }
 
     /// The pinned job-common.sh is the contracts' shared gate job at the tag that Cargo.lock pins, and Core's checked-in
-    /// copy is byte-equal to it. The checkout comes from `cargo metadata` (Cargo.lock and the Cargo home), not from git,
-    /// so the test also runs in a cargo-mutants copy, which has no `.git`.
+    /// copy is byte-equal to it. The checkout comes from Cargo.lock and the Cargo home (`fsutil::contracts_checkout`), not
+    /// from git, so the test also runs in a cargo-mutants copy, which has no `.git`. It starts no cargo: `cargo metadata`
+    /// can wait on the shared Cargo home lock past the 2 s limit (Core lead, 2026-10-12, #306 re-gate). The slow tier
+    /// checks that `cargo metadata` names the same checkout.
     #[test]
     fn the_pinned_job_common_is_the_checked_in_copy() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let meta = crate::fsutil::metadata(root).unwrap();
+        let checkout = crate::fsutil::contracts_checkout(root).unwrap();
         let copy = std::fs::read_to_string(root.join(JOB_COMMON_COPY)).unwrap();
         assert!(!copy.is_empty(), "an empty copy would hide an empty read");
-        assert_eq!(pinned_job_common(&meta.contracts_root).unwrap(), copy);
+        assert_eq!(pinned_job_common(&checkout).unwrap(), copy);
     }
 
     // The base files at the merge base (lists merge-base design note, 2026-10-11): the rules count only the changes of
@@ -1597,6 +1599,24 @@ mod tests {
             problems_at(root, &tip, &defers, &cargo),
             Vec::<String>::new(),
             "the base tip counts the base's pin move as the branch's"
+        );
+    }
+}
+
+/// The checks that start cargo (slow tier: a cargo call can wait on the shared Cargo home lock).
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use std::path::Path;
+
+    /// The checkout that the default tier reads from Cargo.lock and the Cargo home is the one that `cargo metadata` names.
+    #[test]
+    fn the_lock_and_cargo_metadata_name_the_same_contracts_checkout() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let from_lock = crate::fsutil::contracts_checkout(root).unwrap();
+        let from_cargo = crate::fsutil::metadata(root).unwrap().contracts_root;
+        assert_eq!(
+            std::fs::canonicalize(from_lock).unwrap(),
+            std::fs::canonicalize(from_cargo).unwrap()
         );
     }
 }
