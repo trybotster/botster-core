@@ -526,16 +526,21 @@ fn lc_6_signal_reaches_the_whole_group() {
 #[test]
 fn sz_1_resize_sets_the_real_pty_size() {
     let root = temp_root();
-    let out = fifo(root.path(), "out");
-    let go = fifo(root.path(), "go");
+    // Every wait is bounded (#311 F146): the test reads `out` by deadlines, and `go` is a blocker whose byte waits in the
+    // FIFO, so the send never blocks, also when the payload has ended before it opens `go`.
+    let mut out = marker_fifo(root.path(), "out");
+    let mut go = Blocker::new(root.path(), "go").unwrap();
     let script = format!(
-        "exec 3> {out}; /bin/stty size >&3; /bin/cat {go} > /dev/null; /bin/stty size >&3",
-        out = out.display(),
-        go = go.display()
+        "exec 3> {out}; /bin/stty size >&3; /usr/bin/head -c 1 {go} > /dev/null; /bin/stty size >&3",
+        out = quoted(&root.path().join("out")),
+        go = quoted(go.path())
     );
     let mut s = Session::launch(root.path(), &script, 5000);
-    let (reader, line) = first_line(&out);
-    assert_eq!(line, "24 80\n", "the launch size");
+    assert_eq!(
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("24 80\n"),
+        "the launch size"
+    );
     let size = Size {
         rows: 30,
         cols: 100,
@@ -563,15 +568,10 @@ fn sz_1_resize_sets_the_real_pty_size() {
     assert_eq!(s.link.report(), applied(1));
     s.link.msg(&resize(2));
     assert_eq!(s.link.report(), applied(2), "SZ-2: no size report");
-    // The payload waits on the FIFO: the test lets it read its size again only after the `Done`.
-    std::fs::write(&go, b"go\n").unwrap();
-    // The payload wrote nothing after its first line until `go`, so the buffer holds no byte that `into_inner` drops.
-    assert!(reader.buffer().is_empty());
+    // The payload waits on `go`: the test lets it read its size again only after the `Done`.
+    go.send(b"x").unwrap();
     assert_eq!(
-        Bounded::new(reader.into_inner())
-            .line(Deadline::cleanup())
-            .unwrap()
-            .as_deref(),
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("30 100\n"),
         "the PTY has the new size"
     );
