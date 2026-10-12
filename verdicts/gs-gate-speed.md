@@ -3898,7 +3898,7 @@ The base's known-flaky list contains the separate ev_2 entry. Its five-field par
 
 The base's host, cancellation, queue-control, and signal changes remain outside #306's own patch. Their tests keep their existing crate binary roots.
 
-#315 changes one mutation exclusion's line coordinate from 34 to 35 for the same exact READ_CHUNK mutation. It adds no checker-function exclusion.
+#315 changes one mutation exclusion's line coordinate from 34 to 35 for the same exact LINK_CAPACITY mutation. It adds no checker-function exclusion.
 
 The train changes no conformance list or CI profile relative to current v1. The source delta preserves #306's accepted manual name rule and mixed stale-library limit.
 
