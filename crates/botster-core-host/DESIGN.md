@@ -431,10 +431,20 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   A3-1). `attach` checks the route's `AttachRoute` after the applied limits and before `RouteLimit`. The `Launch` comes
   from one constructor, `launch_spec_for`, for the send and for the check.
 - **Worst case (lead ruling).** The check measures the message with the worst case of each value that is assigned after
-  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A call that passes
-  never fails at the send. The cost is a refusal of a message that is up to about 40 bytes under the bound, which is
-  deterministic. Assigning the request number at `begin` would change the op-number order, so it is not done.
-- **Fast path.** Each field has an upper bound of its JSON length without encoding (a string byte six, a hex byte two).
+  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
+  the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
+  `Created` session can store them after the check of `Start` (RC-R100-3). A call that passes never fails at the send. The
+  cost is a refusal of a message that is a little under the bound, which is deterministic. Assigning the request number at
+  `begin` would change the op-number order, so it is not done.
+- **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
+  `DEFAULT_MAX_PAYLOAD` (1 MiB), and learns `link_frame_bound` from the `Launch` itself. So a `Launch` is checked at
+  `DEFAULT_MAX_PAYLOAD`, and every other message at `link_frame_bound`. A bound sent before the `Launch` would change worker
+  protocol 1 (R-98), so it is not done.
+- **Fields.** The fields are the host-supplied values that no `CoreLimits` value bounds: strings, string lists and maps, hex
+  bytes, and the modifier lists of a key or a mouse input (`payload.mods`, RC-R100-1). A palette has exactly 256 entries
+  (`profile_valid`), and labels do not travel in the `Launch`.
+- **Fast path.** Each field has an upper bound of its JSON length without encoding (a string byte six, a hex byte two, a
+  modifier twelve with its separator).
   When those bounds and `FIXED_PART` (64 KiB, every other part of a message; a test measures the largest ones) fit, the
   message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, with no allocation.
 - **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
