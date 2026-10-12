@@ -450,7 +450,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   `refused_full` mark. The mark lives with the worker's link, so a new instance starts without it.
 - **The wake.** In every pump, after the driver flushes a link, a link with room for `c` clears the mark of its session and
   posts `SessionWritable{id, instance}` (class K, keyed per instance, so it is coalesced, SV-3). The event counts against
-  the pump's event bound (9B). With no budget left, it waits for the next pump, and the pump reports `more`. The testkit's
+  the pump's event bound (9B). With no budget left, it waits for the next pump, and the pump reports `more`. A link with room
+  and no refused cancel is no work and never makes `more` true (TM-6: `HostEngine::waits_for_room`). The testkit's
   `control_queue off` signals the host's wake, so the next pump finds the room.
 - **Tests.** The driver unit tests use a real bounded stream: the mock link takes nothing (`WouldBlock`), then drains.
   - The test sets the bound to one control message, so one unsent frame fills it. This proves Core's own count and the
