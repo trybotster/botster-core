@@ -2195,3 +2195,40 @@ Open package source findings: 0, including both MED findings.
 The new gate is running. Final source CLEAN awaits its completed exact-head evidence and matching body update.
 The prior head's green gate proves no later correction.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — failed correction gate and body precision
+
+VERDICT: NOT CLEAN (1 open body finding; final gate disposition remains pending).
+Head: `3f1fc94d86f6a43c5c5ef310791af676fe5b4ecb`.
+Base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+RC message: `msg_plugin-w_1791773989_197c4d`.
+Log: `gates/botster-core-stage1-rc-pin-42-3f1fc94d-pool-20261011-195433-4196.log` under `~/botster-sessions`.
+The reviewer reads the exact header, failing baseline record, stage results, step summary, and final exit.
+Eight steps pass. Mutants fails in its unmutated stage-2 baseline; fuzz does not run.
+Stage 1 reports 26 mutants: thirteen caught, thirteen missed, no timeout or unviable result.
+Stage 2 tests no mutant. No combined mutation PASS is accepted.
+The step total is 256.9 seconds; the wrapper exits 1 after 265 seconds on msa1.
+
+The failed test is `real::resume::slow_tests::the_real_form_compares_both_captures_with_the_raw_output` at resume.rs line 278.
+It receives `Err(UnsupportedFor("events_pending"))` instead of `Ok({"equal": true})`.
+The same test passes in the earlier slow step.
+The reviewer reads the complete affected test prefix, its title/capture helpers, and capture_now's event-refusal branch.
+The own delta changes no resume, capture-layer, worker, model, or program-control code.
+This direct harness test calls no route progress method. These facts establish static non-interference with the proposed late-event mechanism.
+They do not prove which late event caused this failure or a matching plain-v1 reproduction.
+RC proposes the 23al/23bl path through the lead. The reviewer accepts no missing trace or reproduction and no future re-gate.
+
+RC-PIN43-3 — LOW — The body overstates the retained pending set.
+Integration message `msg_plugin-w_1791774035_5cc0fd` identifies the same condition.
+The seed-0 file contains 37 IDs and includes `tm_6_begin_and_attach_signal_wake`.
+The body says this PR does not touch all 37, although it removes that wake ID through separate 0-31 real-tier evidence.
+The A5-4 paragraph also says all six real-pending IDs that become PASS stay pending, although the wake ID is separately removed.
+Required change: state that 36 seed-0 passes remain pending and the wake ID is the separately proved removal.
+Keep the A5-4 seed-0-7 result distinct from the later 0-31 removal evidence.
+No code change or extra execution is requested for this body correction.
+
+RC-PIN43-1 and RC-PIN43-2 remain closed in the corrected source.
+The final body must retain this completed red gate and the later accepted disposition, if any.
+Final CLEAN requires the body finding closed and valid completed exact-head evidence under the lead's retry rules.
+The reviewer ran no test, build, gate, or diagnostic.
