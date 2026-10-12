@@ -24,6 +24,11 @@ pub fn start_time(pid: u32) -> Option<u64> {
         use libproc::bsd_info::BSDInfo;
         use libproc::proc_pid::pidinfo;
         let info = pidinfo::<BSDInfo>(i32::try_from(pid).ok()?, 0).ok()?;
+        // A zombie has no start time that lives. macOS (checked on Darwin 27) refuses the information of a zombie (bug
+        // catalog B9), so a zombie takes the refusal above; this check is for a kernel that answers for one (as `live_of`).
+        if info.pbi_status == libc::SZOMB {
+            return None;
+        }
         Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
     }
     #[cfg(target_os = "linux")]
@@ -41,8 +46,27 @@ pub fn start_time(pid: u32) -> Option<u64> {
     }
 }
 
-/// What a pid names now, compared with an identity (AD-6).
+/// Whether `pid` has ended and is not reaped yet: a zombie (`Z`) or a dying process (`X`) in the state field of
+/// `/proc/<pid>/stat`. On macOS `start_time` is `None` for a zombie: the kernel refuses its information (bug catalog B9), or
+/// it answers with the zombie state.
+#[cfg(target_os = "linux")]
+fn ended(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            let after = stat.rsplit_once(") ")?.1.to_string();
+            after.chars().next()
+        })
+        .is_some_and(|state| state == 'Z' || state == 'X')
+}
+
+/// What a pid names now, compared with an identity (AD-6). A process that ended and is not reaped yet is `Absent` on every
+/// platform: it is gone, and it can never act on a signal (steward ruling R-78 item 3).
 pub fn identity_state(identity: ProcessIdentity) -> IdentityState {
+    #[cfg(target_os = "linux")]
+    if ended(identity.pid) {
+        return IdentityState::Absent;
+    }
     match start_time(identity.pid) {
         None => IdentityState::Absent,
         Some(t) if t == identity.start_time => IdentityState::Matches,
