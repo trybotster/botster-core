@@ -1071,9 +1071,22 @@ fn a_resize_waits_for_the_pty_resize_that_is_out() {
     assert_eq!(model_size(&mut w, 5), (40, 120));
 }
 
+/// The `Internal` error of a `Resize`, with its detail.
+fn internal_detail(req: u64, reports: &[WorkerMsg]) -> String {
+    internal(req, reports);
+    let [WorkerMsg::Done {
+        result: OpResult::Err(error),
+        ..
+    }] = reports
+    else {
+        unreachable!();
+    };
+    error.detail.clone()
+}
+
 /// A size that the PTY took and the model did not take (a row count past the model's range): the PTY goes back to the
-/// session size, nothing is reported, and the `Resize` completes `Internal`. The answer of the undo is no `Done`, and a
-/// later resize runs after it.
+/// session size and nothing is reported. The `Resize` completes `Internal` with the undo's answer, which says that the PTY
+/// went back. A later resize waits for the undo.
 #[test]
 fn a_size_that_the_model_does_not_take_puts_the_pty_back() {
     let mut w = World::running();
@@ -1098,10 +1111,11 @@ fn a_size_that_the_model_does_not_take_puts_the_pty_back() {
         [size()],
         "the next waits for the undo: {actions:?}"
     );
-    internal(3, &w.reports(&actions));
+    assert_eq!(w.reports(&actions), [], "the Done waits for the undo");
     let actions = w.feed(Input::PtyResized(Ok(())));
     assert_eq!(resizes(&actions), [sized(30, 100)]);
-    assert_eq!(w.reports(&actions), []);
+    let detail = internal_detail(3, &w.reports(&actions));
+    assert!(detail.ends_with("; the PTY went back"), "{detail}");
     let actions = w.feed(Input::PtyResized(Ok(())));
     assert_eq!(
         w.reports(&actions).last(),
@@ -1111,6 +1125,53 @@ fn a_size_that_the_model_does_not_take_puts_the_pty_back() {
                 actual: sized(30, 100)
             })),
         })
+    );
+}
+
+/// #311 F148: an undo that the PTY does not take leaves the PTY at a size that is not the session size. The `Resize`
+/// completes `Internal` and says so, and no size is the current one: a `Resize` to the session size asks the PTY and
+/// completes `Applied` only when the PTY took it. Then that size is the current one again.
+#[test]
+fn after_an_undo_that_fails_a_resize_to_the_session_size_asks_the_pty() {
+    let mut w = World::running();
+    w.pty_resized = None;
+    let big = sized(u32::from(u16::MAX) + 1, 100);
+    w.send(&HostMsg::Op {
+        req: 3,
+        op: Op::Resize {
+            session: sid(),
+            size: big,
+        },
+    });
+    w.feed(Input::PtyResized(Ok(())));
+    let actions = w.feed(Input::PtyResized(Err(RESIZE_ERRNO)));
+    assert!(resizes(&actions).is_empty(), "{actions:?}");
+    let detail = internal_detail(3, &w.reports(&actions));
+    assert!(
+        detail.ends_with(&format!("; the PTY did not go back: errno {RESIZE_ERRNO}")),
+        "{detail}"
+    );
+    let actions = w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(size().rows, size().cols),
+    });
+    assert_eq!(resizes(&actions), [size()], "not a no-op: {actions:?}");
+    assert_eq!(w.reports(&actions), [], "Applied waits for the PTY");
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(
+        w.reports(&actions).last(),
+        Some(&WorkerMsg::Done {
+            req: 4,
+            result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size() })),
+        })
+    );
+    let actions = w.send(&HostMsg::Op {
+        req: 5,
+        op: resize_op(size().rows, size().cols),
+    });
+    assert!(
+        resizes(&actions).is_empty(),
+        "the current size again: {actions:?}"
     );
 }
 

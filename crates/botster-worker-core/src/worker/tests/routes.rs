@@ -2884,6 +2884,43 @@ fn a_policy_change_keeps_the_host_resize_that_waits() {
     assert_eq!(modes_sizes(&client), [(20, 70), (40, 120), (30, 100)]);
 }
 
+/// #311 F149: input that changes no policy size does not move a waiting policy change past a later host `Resize`. With
+/// the PTY answers held: host A is out, the route reports B, host C comes, then plain bytes of the same route. The sizes
+/// apply in the order A, B, C, and C stays.
+#[test]
+fn input_that_changes_no_policy_size_keeps_the_policy_change_in_its_place() {
+    let (mut w, mut client, _) = attached(limits());
+    w.pty_resized = None;
+    let mut all = Vec::new();
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(20, 70),
+    });
+    all.extend(client.take_all(&mut w, RouteId(1), actions));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    all.extend(client.take_all(&mut w, RouteId(1), actions));
+    let actions = w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    });
+    all.extend(client.take_all(&mut w, RouteId(1), actions));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(0, b"x")),
+    });
+    all.extend(client.take_all(&mut w, RouteId(1), actions));
+    let mut sizes = resizes(&all);
+    for _ in 0..4 {
+        let actions = w.feed(Input::PtyResized(Ok(())));
+        sizes.extend(resizes(&client.take_all(&mut w, RouteId(1), actions)));
+    }
+    assert_eq!(sizes, [cells(20, 70), cells(30, 100), cells(40, 120)]);
+    assert_eq!(modes_sizes(&client).last(), Some(&(40, 120)));
+}
+
 /// DP-5: `modes` coalesces to one latest unstarted frame per route. A route that writes nothing holds one `modes` frame, of
 /// the last size, whatever the number of changes.
 #[test]
