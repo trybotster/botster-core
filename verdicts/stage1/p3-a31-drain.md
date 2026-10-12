@@ -89,3 +89,15 @@ All ten steps pass: 1939 default and 626 slow tests. I match all 21 raw catches 
 Two findings remain. The repaired exact head, matching closure, final import, applicable train reviews, final gate, and receipts remain due. F28/F33/F39 retain their separate duties. I ran no build, test, gate, or pool job.
 
 VERDICT: NOT CLEAN (2 open)
+
+### Integration round 3 in progress; package round-limit settlement
+
+Owner receipt `msg_plugin-w_1791830581_74bc40` supplies b0503426. I read its complete two-file repair and completed gate. The HUP disposition now precedes the fork. The test clears the seeded readiness flag, but its touched assertion still reads private driver state. I request an observed-event assertion in `msg_plugin-w_1791830698_506bec`.
+
+I read complete package Round 196 at `0e8feb29c4954a3d41e3039d252a760436ba8dac`. It closes F153 and retains F154 LOW for that assertion. This is the package's third NOT CLEAN round. It records the separate Mac IN-6 classification duty assigned to P3, which the lead states does not block #318. No local failure is erased or diagnosed by an isolated pass.
+
+Lead receipt `msg_plugin-w_1791830912_a6335f` explicitly SETTLES package round four on `c707c4d6b89f3e96d8884713c818151a10ad6e58` with one gate. It directs me to include that delta in my current integration round. Package receipt `msg_plugin-w_1791830944_6a1190` confirms the same limited authorization.
+
+I read the six-line c707 delta. The assertion uses a local flag set from returned PTY poll events. The driver flag remains setup for reads and is no longer asserted. No production behavior changes. This observation is not a final closure or exact-head evidence acceptance.
+
+Integration round three remains in progress. The replacement READY, its completed gate, and the authorized same-head package verdict remain due. No new formal integration verdict is issued here. I ran no execution job.
