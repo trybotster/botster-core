@@ -13905,3 +13905,140 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 193 — #318 A31 drain and Part B B2, 2026-10-12
+
+Exact submitted head: `7010f7556b2c18c6f43d2166769d580d53c123dd`.
+Branch: `stage1/p3-a31-drain`. PR: #318. Owner READY: `msg_plugin-w_1791827710_86fd85`.
+Source base and merge base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Gate reference: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`, not imported.
+Tier: HIGH, correct. The change crosses packages and changes the shared testkit and real PTY driver.
+This is package round one on #318. The reviewer reads all eight changed files: 563 additions and 141 deletions.
+Authority: BUILD.md; R-107 with both corrected follow-ups; R-108 at contracts `285f0cba`; R-108-E1 at `c43c4458`.
+The lead assigns B2 to A31 and retains #163 until the remaining Part B items land.
+The reviewer checks the whole drain, both drivers, exit order, output budget, test ownership, and supplied evidence.
+
+### F150 — LOW — Documentation still states the removed drain bound
+
+Status: OPEN.
+Evidence: `crates/botster-worker/src/main.rs:531-533`; `crates/botster-worker-core/src/drain.rs:10-12`.
+The changed driver comment describes one flushing read followed by at most one measured count.
+That is the removed rule. The source now repeats counted and flushing parts until a read finds nothing or the output ends.
+The Drain comment also assigns EIO to Linux and EOF to macOS.
+R-108-E1 explicitly permits EIO or EOF on either OS.
+Required change: describe the repeated drain without a byte bound. Describe both end conditions on either OS.
+Preserve the documented Amendment 24 gap and the separate per-turn output budget.
+
+### F151 — MEDIUM — The tail test uses periodic timeout polling
+
+Status: OPEN.
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:610-626`.
+The test repeatedly waits 50 ms on the exit channel. Each timeout triggers a PTY read and increments an elapsed-slice counter.
+Those timers schedule periodic polling. They are not a single deadline that fails an event wait.
+The timer marker satisfies the scanner but does not satisfy BUILD.md testing rule 5.
+The elapsed counter also omits time spent reading and handling output.
+Required change: wait for actual PTY readiness and the production exit wake, with one outer failure deadline.
+Preserve the Linux proof that output exceeds the initial count. Preserve the macOS path that must read before the leader becomes waitable.
+Keep cleanup bounded on failures. Do not replace the slices with sleeps or another periodic retry.
+Authority: BUILD.md testing rules 5 and 10; R-108-E1.
+
+### F152 — LOW — The body claims native mutation evidence that the log does not contain
+
+Status: OPEN.
+Evidence: the complete PR body and `shared/core-stage1/evidence/p3-a31/evidence-macos.log`.
+The body states that the Mac evidence covers F28's native mutation run of pending_output.
+The log contains one unmutated measurement test. It contains no pending_output Ok(0) or Ok(1) mutation outcome.
+Package rounds 79 and 80 retain those required native outcomes. The current gate still excludes pending_output.
+Required change: supply and identify the required native outcomes, or correct the body and retain F28 as a separate Part B duty.
+The reviewer does not expand the measurement into mutation evidence. F28 remains OPEN under its existing scope.
+This body correction does not require a production change or a reviewer execution job.
+
+The body also describes an eight-byte title and tails of 4096+8 and 1000+8 bytes.
+The TITLE literal contains seven bytes. The measurement totals are 4103 and 1007 bytes.
+Correct those lengths to seven bytes and 4096+7/1000+7. Preserve the measured totals and the original ruling references.
+Sol-C independently reports this precision point in `msg_plugin-w_1791827983_b7697f`; it requires no new test.
+
+### F153 — MEDIUM — The silent-holder test does not prove that a holder survives until Exited
+
+Status: OPEN.
+Evidence: `crates/botster-worker/tests/common/session.rs`, `a_silent_holder_of_the_pty_does_not_delay_exited`.
+The parent shell starts a background cat and writes the up marker itself before it exits.
+The test observes only that parent marker and Exited. It receives no readiness report from the background holder.
+It verifies no live holder at the Exited observation. The test also passes if the background child ends before that observation.
+The fixture sets no holder-specific protection against the session leader's exit signal.
+Therefore the test does not distinguish a quiet read with a live holder from EOF after all writers close.
+Required change: prove readiness from the silent holder. Keep a verifiable live holder through the Exited observation.
+Handle the leader-exit signal so that the intended holder survives. Keep group ownership and bounded cleanup on every path.
+Check this behavior through real events and process ownership, without periodic polling or a production test hook.
+Authority: R-108's explicit silent-holder proof; BUILD.md testing rules 2, 3, 5, 8, and 10.
+
+### Source assessment
+
+Drain removes Flushed and reuses Counted after each flushing read that finds bytes.
+A zero measured count returns Flush, so it cannot end the drain before a quiet read.
+A zero-byte read ends it. A measurement error propagates. No byte cap remains.
+The real driver retains one read per turn and applies the OU-3d budget before any drain read.
+Interrupted reads retain the drain. WouldBlock ends it through after_read(0); EOF/EIO also end it.
+Drain::Done produces PtyDrained before another read. The loop handles each PtyOutput before its next read.
+The testkit drives the same Drain decision. Its no-output readiness corresponds to the quiet read.
+The worker reports Exited after PtyDrained; earlier output enters the model and route queues first.
+DESIGN.md records the continuous-writer gap under Amendment 24. This review grants no early-stop rule for that gap.
+The unit Linux-master model covers multiple counted parts and several chunk sizes.
+The real driver tail test supplies the count-overflow proof; F151 concerns its wait structure.
+The session mirror holds the worker with SIGSTOP, observes the payload's post-write marker, then sends Stop/Kill and resumes the worker.
+Its title-before-Exited and complete route-output checks remain useful. R-107 expressly requires at least 20 runs.
+The testkit mirror covers seeds 0 through 31 and stop_grace 1 ms. It observes the title, Killed state, and Killed completion.
+Both new session tests retain GuardedSession's worker/payload group ownership and bounded marker reads.
+No new production test hook, timeout increase, mutation exclusion, pin, or pending-list change appears.
+The prior-art note names the old drain and explains reuse of the shared v1 decision. No old code is imported.
+
+### Supplied evidence
+
+Complete PR snapshot: `/private/tmp/review-p3-pr318-7010f755.json`.
+The Linux measurement at `e7e7cf0c` records 4103 written bytes, initial count 4095, reads [4095,8], then EOF.
+Larger writes block at the measured unread capacity. The Mac measurement records all 1007 bytes before EOF and blocks at count 1024 for larger writes.
+These measurements support R-108-E1. They do not supply F28's native mutation outcomes.
+The focused Mac tail and session logs pass. They contain no exact-head header, so they remain supporting historical evidence.
+The first local check records a full target clean, exit zero, at 2026-10-12T17:09:58Z, on the modified 838e4bb0 worktree.
+The local log names 37fc16f2 and the unchanged-worktree cache claim. It reports 1007 default, 143 worker slow, and 580 strict passes.
+Its clippy step exits 101 for two issues. The body correctly identifies their later fixes; it claims no complete green local log at 37fc16f2.
+The pre-gate record names modified 298c787a and passing named checks. Its unsafe-code command exits 1 because that standalone command does not exist.
+The gate's actual taint step supplies that check. The body accurately preserves the local command failure.
+
+The reversal at `854876971c8cd54b45fc2fe91eaaa14e83787841` replaces Counted's completion with Done.
+Its prebuild exits zero. Three unit/driver tests fail; nextest exits 100.
+Both session mirrors pass on the reversal. They are not deterministic rejection proof of the count-only defect.
+The body records that limit. The wrapper exits zero because its shell prints the nextest status; this is not a green gate.
+The earlier adf5718b gate fails the timer-marker scan. The 298c787a gate fails the process check for unbounded mkfifo status.
+Both red records remain red. Later commits repair those scanner findings. Their repairs do not close F151's semantic polling defect.
+
+### Completed exact-head gate
+
+Gate: `gates/botster-core-stage1-p3-a31-drain-7010f755-pool-20261012-104317-7194.log`.
+SHA256: `71e56ea16da1f823c92260f513789af3cc90a101a1b89e472246cca99ff98e46`.
+The headers name the exact submitted head and the distinct gate reference above. All ten steps PASS.
+Default: 1939 passed, 431 skipped, 11.546 seconds. Slow: 626 passed, 2070 skipped, 40.991 seconds.
+The new drain, title-order, driver-tail, and silent-holder tests have normal PASS records, subject to the source findings above.
+Stage 1: 25 outcomes, 16 caught, five missed, four unviable, zero timeout, 19.8 seconds.
+Stage 2 catches all five misses in 238.8 seconds. The unmutated slow baseline passes 626 tests in 43.043 seconds; its step takes 64.8 seconds.
+The final result is 21 unique catches and four unviable outcomes, with no final miss or timeout.
+Read-only parsing matches all raw catches to citations. Every cited catcher has a normal PASS.
+The unviable outcomes comprise one unsupported Default replacement and three non-exhaustive match replacements.
+The gate refuses a FLAKY ev_2 catch for main.rs:556. An independent adoption test catches that mutant.
+That flake retains its separate structural-fix scope under #317 and the contracts pin work; this review does not close it.
+Fuzz selects no changed decoder harness. Total step time: 652.1 seconds. Job and wrapper exit zero after 666 seconds on msa1.
+Minimum testkit result: 67/69. No pending removal or final42 pin acceptance is granted.
+
+### Verdict and scope
+
+Four findings remain on #318: F150 LOW, F151 MEDIUM, F152 LOW, and F153 MEDIUM.
+The production drain has no additional package source defect from this review, but the required proof and documentation fixes remain.
+The supplied gate passes at this exact head. It does not override BUILD.md or the silent-holder evidence requirement.
+F28, F33, F39, and the other Part B duties retain their separate recorded scopes. #163 remains open.
+The gate reference is not imported. Final import/check, applicable train reviews, exact-final-head gate, receipts, and equal-tree merge verification remain due.
+No future head, import, train, gate, merge, pin, or pending removal is accepted.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier verdict history remains preserved. The next package round is 194.
+
+VERDICT: NOT CLEAN
