@@ -1698,10 +1698,10 @@ impl Binding<SharedWorker> for WorkerEdges {
                 lock(&self.processes).end(self.id);
                 self.ended(true);
             }
-            // As the real driver's failed run: exit status 1 (`ExitCode::FAILURE`), and the end drops the payload, as the real
-            // payload's drop kills its group and reaps it.
+            // As the real driver's failed run: the worker process ends (the host reads no exit status, finding PB-W1), and the
+            // end drops the payload, as the real payload's drop kills its group and reaps it.
             Action::ExitFailure { .. } => {
-                lock(&self.processes).end(self.id, ExitStatus::Code(1));
+                lock(&self.processes).end(self.id);
                 self.ended(true);
             }
             Action::CandidateClose(id) => {
