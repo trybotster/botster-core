@@ -500,16 +500,21 @@ impl HostEngine {
                     size,
                 });
             }
+            // IN-10: the client revision moves in every case. `RouteClosed` retired the route's key (EV-5), and Core
+            // can close a route without the worker (`DetachLocal` while the link is down), so only a live route of this
+            // session raises the edge.
             Observation::ClientInput { route, input_rev } => {
                 if let Some(t) = &mut s.terminal {
                     t.input_rev.client = input_rev;
                 }
-                self.queue.post_keyed(Event::Activity {
-                    id: sid,
-                    instance,
-                    source: ActivitySource::Client(route),
-                    at: unix,
-                });
+                if s.routes.contains(&route) {
+                    self.queue.post_keyed(Event::Activity {
+                        id: sid,
+                        instance,
+                        source: ActivitySource::Client(route),
+                        at: unix,
+                    });
+                }
             }
             // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
             // A transaction can end after its route closed, and `RouteClosed` retired the route's key (EV-5): only a

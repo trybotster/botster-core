@@ -950,6 +950,8 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
+    // A client input raises its `Activity` only on a live route of the session (EV-5, #320 RF-PC-3).
+    let route = super::losses::attach(&mut w);
     w.unix = 5000;
     w.feed(Input::Clock(5000));
     w.engine.poll_events(64);
@@ -1003,17 +1005,17 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
     let events = say(
         &mut w,
         Observation::ClientInput {
-            route: RouteId(4),
+            route,
             input_rev: InputRev(8),
         },
     );
     assert!(matches!(
         &events[..],
         [Event::Activity {
-            source: ActivitySource::Client(RouteId(4)),
+            source: ActivitySource::Client(r),
             at: 5000,
             ..
-        }]
+        }] if *r == route
     ));
     assert_eq!(state(&w).input_rev.client, InputRev(8));
     for (focus, expected) in [
