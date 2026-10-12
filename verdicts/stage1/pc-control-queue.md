@@ -371,3 +371,37 @@ R307-SI-3 closes in source and body. Both MEDIUM findings also remain closed in 
 No integration finding remains in this inspection. The complete exact-head package verdict remains pending.
 This inspection still completes no formal Round 2 verdict and accepts no final import or final gate.
 I ran no execution job.
+
+## Round 2 complete — repaired source and documentation
+
+Exact head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+Source base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+Tree: `90d10894ec8b19da48921f176abae1baaba771e5`.
+The parent is the completely reviewed and gated repair head `5139373242b37638cabf1017ab471124c2330adf`.
+
+I read the complete package verdict at `7bcb22f2469978e359cccc78b6f2f8cf53e9d2ef`, including Rounds 2 and 3.
+Package receipt: `msg_plugin-w_1791784262_c0167f`.
+Its complete source, body, gate, replacement reversal, and documentation-delta audit agrees with the inspections above.
+The package reviewer accepts the same exact current head and retains the same parent-head evidence limits.
+Neither review treats the owner's unretained focused 50a50cff report as an independently audited run.
+
+R307-SI-1/CQ-PC-1 MEDIUM closes through failed-write mark retirement, no new failed-side Full, and retained Done/read behavior.
+R307-SI-2/CQ-PC-2 MEDIUM closes through the permitted header-plus-engine-frame-bound term and unchanged edge-room calculation.
+R307-SI-3/CQ-PC-3 LOW closes through the cap/saturation derivation, corrected small-test comment, and exact evidence labels.
+All source, body, and supplied repair-evidence findings close before this formal verdict.
+
+The completed 51393732 gate and replacement reversal remain accepted on that parent head.
+The complete 51393732-to-50a50cff delta changes only documentation and a Rust doc comment.
+It changes no executable expression or test assertion. That delta needs no repeated runtime proof before the final import.
+There is no exact-50a50cff gate, and this review claims none.
+The earlier RED gate and original findings remain historical. The first 973507ab reversal remains explicitly withdrawn as acceptance evidence.
+The local filtered-output limits, original real seed 0–7 scope, and platform limits remain recorded.
+All nine conformance text files retain the already reviewed own removals; this repair removes no additional id.
+
+This CLEAN covers the exact repaired source, corrected body, and supplied evidence before the final import.
+The authorized final-slot or train import, required list checks, applicable delta reviews, exact-final-head gate, final reviews, and Q7 remain due.
+R-100's oversize-at-call checks remain separate RC work under the lead's assignment.
+This verdict accepts no later head, pin, status removal, import, final gate, or merge.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open integration findings; repaired source, body, and supplied evidence before final import) at 50a50cff3fcdbbba1976c3194e0b49183726dbc8 against source base e4f495040a80b524a7ac9accba95272d5c2594fa
