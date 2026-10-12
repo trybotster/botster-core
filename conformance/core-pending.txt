@@ -334,6 +334,10 @@ conf::ou_4_partial_frame_is_completed_before_resync_or_close
 conf::ou_6_spurious_readiness_is_harmless
 conf::ou_7_progressing_slow_route_delays_exit_lossless
 conf::ou_7_stalled_route_does_not_hold_exit
+# conf::ou_7_tail_written_before_stop_reaches_the_model_before_exited: Core A23 (contracts-v0.1.48). It fails on the testkit
+# with UNSUPPORTED_CONTROL op=pty_output_written: P6's PR serves that control (with the .47 pin). After it, the id goes to
+# core-real-pending.txt until #318 (A31, the PTY tail drain) is on v1 (steward and lead, contracts-v0.1.49 notes).
+conf::ou_7_tail_written_before_stop_reaches_the_model_before_exited
 conf::ou_8_route_output_frame_kinds
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame

@@ -576,12 +576,11 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds only the diagnosed in_8 step 6 flake (KSTATE-1, steward ruling R-111; lead,
-    /// 2026-10-12), which #321 removes with the pin of PC's R-111 driver fix. #243 removed the ev_5 entry. The contracts-v0.1.44
-    /// pin (#312) brought contracts #79, the fix of the in_8 step 8 race, so it removed that entry. #316 (the contracts-v0.1.46
-    /// pin, with #89's ev_2 fence; R107-SI-2) removed the ev_2 entry. The Stage 1 exit needs the list empty.
+    /// The repository's list parses, and it is empty: #243 removed the ev_5 entry, the contracts-v0.1.44 pin (#312) the in_8
+    /// step 8 entry, #316 (the contracts-v0.1.46 pin; R107-SI-2) the ev_2 entry, and #321 (the contracts-v0.1.49 pin, with
+    /// #100's await_control re-check; R-111) the in_8 step 6 entry (the Stage 1 exit needs the list empty).
     #[test]
-    fn the_repository_list_holds_only_the_in_8_flake() {
+    fn the_repository_list_parses_and_is_empty() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
@@ -590,14 +589,7 @@ removed_by = "#243"
             .iter()
             .map(|e| (e.binary.as_str(), e.test.as_str(), e.removed_by.as_str()))
             .collect();
-        assert_eq!(
-            names,
-            [(
-                "botster-core::slow_conformance",
-                "conf::in_8_mode_checked_at_write_start_by_worker",
-                "#321"
-            )]
-        );
+        assert_eq!(names, Vec::<(&str, &str, &str)>::new());
     }
 }
 
