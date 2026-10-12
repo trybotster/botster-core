@@ -168,6 +168,32 @@ mod slow_tests {
         }
     }
 
+    /// Pumps and polls until Core is quiet, as the driver's `await_quiet`: a pass whose pump reports no `more`, and edges
+    /// with nothing that arrived or is unread (`edges_quiet`). Each event that Core posted is polled, so the next capture
+    /// meets no event that the test did not take.
+    fn quiet(harness: &mut RealCoreHarness, core: &mut dyn CoreApi) {
+        let deadline = botster_test_process::Deadline::cleanup();
+        let wake = core.wake_handle();
+        loop {
+            loop {
+                let report = core.pump(Now {
+                    monotonic: std::time::Instant::now(),
+                    unix: 1_000_000,
+                });
+                core.poll_events(usize::MAX);
+                if !report.more {
+                    break;
+                }
+            }
+            if harness.control("a", "edges_quiet", &json!({})) == Ok(json!({"quiet": true})) {
+                return;
+            }
+            assert!(!deadline.expired(), "Core never got quiet");
+            // timer: deadline — the cleanup bound ends a Core that never gets quiet
+            wake.wait(deadline.remaining());
+        }
+    }
+
     fn titled(core: &mut dyn CoreApi, session: &str, title: &str) {
         pump_until(core, |c| {
             c.terminal_state(&sid(session)).unwrap().title.as_deref() == Some(title)
@@ -273,6 +299,9 @@ mod slow_tests {
                 core.next_deadline(),
             )
         };
+        // A late event of the outputs above (an output `Activity`) would reach the second capture as `events_pending`
+        // (78922927's flake: the stage-2 baseline of gate 3f1fc94d). The test takes every event first.
+        quiet(&mut harness, core.as_mut());
         let before = public(core.as_ref());
         assert_eq!(before.0[0], json!(1), "the transcript's capture");
         assert_eq!(
