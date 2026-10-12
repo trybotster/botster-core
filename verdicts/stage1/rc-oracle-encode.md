@@ -430,3 +430,55 @@ That source comparison supports the candidate's unchanged source scope. It does 
 The clarification is an owner statement relayed in the published package record; the strict log still lacks the complete command sequence.
 The final body must retain that provenance and the refused invocation if it cites this local run.
 The final exact-head gate, final body, and final package verdict remain due. Sol runs no execution job. Never poll.
+
+## Round 8 — completed final acceptance
+
+Exact head: `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+Reviewed and gate base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Gated tree: `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+RC completion receipt: `msg_plugin-w_1791763700_1e1bef`.
+The source corrections, final-slot delta, Q7 carry, controlled attribution, and local provenance limits retain Rounds 2–7.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-09e9fbc8-pool-20261011-165511-49979.log`.
+SHA-256: `9e28cbe70711712c723274a4d11763b9021b9b839d29ab9e57d5cbe22ed33e99`.
+Sol reads the exact headers, completed stage records, normal results, strict summaries, raw mutations, named catches, and final exits.
+All ten steps PASS in 667.8 seconds. The job and wrapper exit zero after 755 seconds on msa1.
+The job queues one second and runs 754 seconds.
+Default: 1828 PASS, 445 skipped, 16.297 seconds. Slow: 599 PASS, 2040 skipped, 42.997 seconds.
+Both retained strict conformance runs have 245 PASS and zero failure, at 5.63 and 4.84 seconds.
+The unmutated slow baseline has 599 PASS, ten slow cases, 2746 skipped, and 42.452 seconds.
+Fuzz reports no changed crate with a decoder harness. No new fuzz execution or Mac gate is claimed.
+
+Stage 1: 32 mutants, 18 caught, twelve missed, two unviable, zero timeout, 101.0 seconds.
+Stage 2: twelve mutants, eleven caught, one unviable, zero missed, zero timeout, 187.6 seconds.
+All twelve unique second-stage outcomes exactly match the first-stage misses.
+Sol independently matches all 29 unique raw catches to all 29 unique citations. Each catcher has a normal PASS before mutation.
+The final total is 29 caught, including eleven from stage 2, and three unviable. Unviable results supply no catch.
+The gate has no FLAKY token.
+ST-6 passes normally in testkit, real slow, and the unmutated slow baseline of this completed gate.
+That PASS does not repair the missing fence or replace the earlier RED result.
+
+All four new testkit removals pass normally. Their real-pending fence gaps and P3 ownership remain unchanged.
+Sol also checks every own pending removal against its selected normal tier; no removed identifier lacks a normal PASS.
+No additional real-tier removal or acceptance is granted beyond the reviewed own list delta.
+The canonical PASS and exact source composition retain Round 7. The failed earlier mechanical check retains its complete delta reviews.
+
+GitHub confirms this exact head/base and supplies the complete final body delta.
+Raw body SHA-256: `76c7fd304be06c919c217b25143f9b0f9d4012609e468336c81edf64b99616ce`.
+The CLI form with a trailing newline has SHA-256 `c109781d03e08370bab9e2024fbdc053e64189c1eadde2a6bfa4bf2017b32e03`.
+The body names the final head, base, canonical check, completed green gate, and resource counts.
+It retains the original RED gate, exact baseline failure, controlled diagnostic, test exit 101, and wrapper-zero distinction.
+It records both reviewer acceptances and the lead's case decision. It claims no uninstrumented-v1 failure.
+It separates the refused prebuild from the successful strict command and states the earlier candidate's unchanged source scope.
+Round 6 retains the trace's missing ReadScreen timestamp and the source/result inference that establishes answer ordering.
+The body retains .39 and the future .42 fence obligation; it claims no repair through the #294 import.
+
+Sol reads complete final package receipt `54371ca09bcad6edb6b449418c791c49148c5a43`, `verdicts/rc-real-controls.md`.
+That CLEAN covers the same exact head, base, tree, gate, check, body, pending delta, and accepted 23an(a) disposition.
+All source and body findings are closed, including LOW. No required #288 acceptance record remains open at this exact head.
+The final acceptance condition closes. The merge must preserve the gated tree above.
+The separate F-283-1 follow-up, contracts #60 docs, and future R-80/.42 work retain their own review scopes.
+This verdict accepts no later head, base, pin, or different tree.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base check. Never poll.
+
+VERDICT: CLEAN (0 open) at 09e9fbc8b26456be592ce99d9814fcea4695536e against base 3aacc58d086e55a6b186165ccf9001e2618e2869
