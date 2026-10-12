@@ -186,8 +186,11 @@ pub fn tier_env(slow: bool) -> Vec<(&'static str, &'static str)> {
     }
 }
 
-/// The nextest filter of the slow tier.
-pub const SLOW_FILTER: &str = "binary(/^slow/) | test(/(^|::)slow_/)";
+/// The nextest filter of the slow tier. The last term selects the build-root test of every test binary
+/// (`botster_test_process::built_in::TEST_NAME`; bug catalog B13, lead 2026-10-12): the slow tier builds the libraries and
+/// binaries again with their `slow` features, and each of those artifacts runs its own check.
+pub const SLOW_FILTER: &str =
+    "binary(/^slow/) | test(/(^|::)slow_/) | test(/^this_test_binary_was_built_in_this_worktree$/)";
 
 /// The packages and filter that a tier runs.
 fn selection(options: &Options, meta: &Meta) -> Vec<String> {

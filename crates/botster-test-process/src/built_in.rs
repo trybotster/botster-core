@@ -113,6 +113,40 @@ pub fn assert_built_here(name: &str, manifest_dir: &str) {
     }
 }
 
+/// The name of the build-root test that every test binary of the workspace lists (design `design-gs-built-in-coverage.md`).
+/// Only [`built_in_test!`](crate::built_in_test) and [`built_in_trial!`](crate::built_in_trial) make it: `cargo xtask
+/// built-in` refuses the name anywhere else in the workspace's sources, and the gate checks that every binary of each
+/// tier's `cargo nextest list` has it.
+pub const TEST_NAME: &str = "this_test_binary_was_built_in_this_worktree";
+
+/// The build-root test of a test binary with the libtest harness, at the root of the crate or of the integration test file:
+/// `botster_test_process::built_in_test!();`. At the root of a library or a binary, the call has `#[cfg(test)]` above it:
+/// `botster-test-process` is a dev-dependency there, so the call cannot resolve in the build without tests. (The presence
+/// check of the gate fails a list where any `cfg` removed the test.) `env!` expands in the calling crate, so the test compares the compile-time
+/// manifest directory of the crate that builds the binary with the run-time one, and the caller passes no argument.
+#[macro_export]
+macro_rules! built_in_test {
+    () => {
+        #[cfg(test)]
+        #[test]
+        fn this_test_binary_was_built_in_this_worktree() {
+            $crate::built_in::assert_built_here(env!("CARGO_PKG_NAME"), env!("CARGO_MANIFEST_DIR"));
+        }
+    };
+}
+
+/// [`built_in_test!`](crate::built_in_test) for a binary with its own harness (`harness = false`, `libtest-mimic`): the
+/// trial of the same name, for the binary's list of trials: `botster_test_process::built_in_trial!()`.
+#[macro_export]
+macro_rules! built_in_trial {
+    () => {
+        ::libtest_mimic::Trial::test("this_test_binary_was_built_in_this_worktree", || {
+            $crate::built_in::assert_built_here(env!("CARGO_PKG_NAME"), env!("CARGO_MANIFEST_DIR"));
+            Ok(())
+        })
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
