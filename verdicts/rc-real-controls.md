@@ -3040,3 +3040,15 @@ The lead's explicit disposition is required to resolve this condition. The block
 The reviewer informs the implementer and integration reviewer and records this condition for the lead's file access.
 The #312 source reviews are unaffected. Applicable train review and final evidence requirements remain unchanged.
 The reviewer runs no execution job and waits for the decision doorbell.
+
+
+### Core #309 — published integration procedural correction
+
+Integration message: `msg_plugin-w_1791788401_d72206`.
+Integration correction: `ab3d56fcaaadc4bebe41edbc8b385c67c6990028`, in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete procedural correction.
+It retains the technical closures at `b920da760a8a643b199765d0a69f78533a9b3e45` and records R100-E2 as open.
+Its current verdict is NOT CLEAN (1 open). Round 5's CLEAN cannot supply final integration acceptance until the lead records a disposition.
+This matches package procedural receipt `90d5d4ff14d6d9972ca55a4c69ae80a4668501a0`.
+No product or gate finding is reopened. No later integration round is authorized by this receipt.
+The reviewer waits for the lead's decision and runs no execution job.
