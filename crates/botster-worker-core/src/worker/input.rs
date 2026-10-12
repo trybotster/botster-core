@@ -66,14 +66,19 @@ pub(super) struct RouteInput {
     payload: InputPayload,
     /// `paste_commit{want_result: true}`: a written paste is answered with `input_done` (Codec TS-5b).
     want_result: bool,
+    /// What the input holds of the route's input bound while it waits (DP-5, the read allowance): [`held_len`].
+    held: usize,
 }
 
-/// The caller's bytes of a payload: the unit of a route's held input (DP-5, the read allowance).
-fn payload_len(payload: &InputPayload) -> usize {
+/// What a waiting route input holds of the route's input bound (DP-5, `route_input_queue_bytes`, the read allowance): the
+/// caller's bytes of a `bytes`, `text` or paste payload, and for a semantic key, mouse or focus input (whose bytes exist
+/// only when it is encoded, IN-9) the bytes of its frame on the stream, `wire`. The undecoded frame held the same bytes in
+/// the reader, so its decode gives no room back.
+fn held_len(payload: &InputPayload, wire: usize) -> usize {
     match payload {
         InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => bytes.0.len(),
         InputPayload::Text { text } => text.len(),
-        _ => 0,
+        _ => wire,
     }
 }
 
@@ -143,7 +148,7 @@ impl InputState {
             .queue
             .iter()
             .filter_map(|p| match p {
-                Pending::Route(input) if input.route == route => Some(payload_len(&input.payload)),
+                Pending::Route(input) if input.route == route => Some(input.held),
                 _ => None,
             })
             .sum();
@@ -224,12 +229,15 @@ impl Worker {
         op: Option<Op>,
         payload: InputPayload,
         want_result: bool,
+        wire: usize,
     ) {
+        let held = held_len(&payload, wire);
         self.input.queue.push_back(Pending::Route(RouteInput {
             route,
             op,
             payload,
             want_result,
+            held,
         }));
         self.try_start();
     }
@@ -400,6 +408,7 @@ impl Worker {
             op,
             payload,
             want_result,
+            ..
         } = input;
         if self.admission(Source::Route).is_err() {
             self.refuse(route, op, RefusalReason::SessionEnded, None);
