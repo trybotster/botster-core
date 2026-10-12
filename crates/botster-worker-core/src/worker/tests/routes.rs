@@ -2462,3 +2462,134 @@ fn input_received_before_live_stays_not_ready_when_it_waits_for_room() {
             .collect::<Vec<_>>()
     );
 }
+
+/// A route key frame of `c`, with a `text` of `len` copies of it, as the stream carries it.
+fn key_frame(op: u64, c: char, len: usize) -> Vec<u8> {
+    let text = c.to_string().repeat(len);
+    input_frame(&format!(
+        r#"{{"kind":"key","op":"{op}","key":{{"char":"{c}"}},"event":"press","text":"{text}"}}"#
+    ))
+}
+
+fn key_payload(c: char, len: usize) -> InputPayload {
+    use botster_route_codec::prelude::{Key, KeyEvent};
+    InputPayload::Key(KeyInput {
+        key: Key::Char(c.to_string()),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: KeyEvent::Press,
+        text: Some(c.to_string().repeat(len)),
+        repeat: None,
+    })
+}
+
+/// Answers every PTY write in `actions` in full, until no write is out, and returns the bytes written.
+fn drain_pty(w: &mut World, mut actions: Vec<Action>) -> Vec<u8> {
+    let mut written = Vec::new();
+    loop {
+        let bytes = pty_writes(&actions);
+        if bytes.is_empty() {
+            return written;
+        }
+        written.extend_from_slice(&bytes);
+        actions = w.feed(Input::PtyWritten(Ok(bytes.len())));
+    }
+}
+
+/// DP-5 (#302 F142): a semantic key that waits at the admission point holds the bytes of its frame of the route's input
+/// bound (`route_input_queue_bytes`), as its undecoded frame did in the reader. While a write is out, the read allowance
+/// falls by each key frame, so the reads stop at the bound; it grows again when the PTY takes bytes, and every input is
+/// written once, in order.
+#[test]
+fn a_waiting_route_key_holds_its_frames_bytes_of_the_input_bound() {
+    let frame = key_frame(0, 'a', 50).len();
+    // The bound holds `n` key frames and 10 bytes; it is over the floor of one whole frame (`input_bound`).
+    let n = (limits().max_frame_bytes as usize + 4) / frame + 1;
+    let bound = n * frame + 10;
+    let mut l = limits();
+    l.route_input_queue_bytes = bound as u64;
+    let (mut w, _, all) = attached(l);
+    assert_eq!(allowance(&all, RouteId(1)), Some(bound));
+    let keys: Vec<char> = ('a'..='z').take(n + 1).collect();
+    let encodings: Vec<Vec<u8>> = keys
+        .iter()
+        .map(|&c| encoded(&w, &key_payload(c, 50)))
+        .collect();
+    // A one-byte write is out and not answered: the PTY is blocked, and the keys wait behind it.
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(0, b"q")),
+    });
+    assert_eq!(pty_writes(&actions), b"q");
+    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 1));
+    // The driver's allowance: it spends the bytes that it reads, and a new allowance replaces it. A worker that charged a
+    // decoded key nothing would send the whole rest again (`bound - 1`).
+    let mut left = bound - 1;
+    for (k, &c) in keys[..n].iter().enumerate() {
+        let bytes = key_frame(0, c, 50);
+        left -= bytes.len();
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes,
+        });
+        assert!(pty_writes(&actions).is_empty(), "key {c} waits");
+        left = allowance(&actions, RouteId(1)).unwrap_or(left);
+        assert_eq!(
+            left,
+            bound - 1 - (k + 1) * frame,
+            "key {c} holds its frame's bytes"
+        );
+    }
+    // The rest of the bound cannot take one more key frame: the reads stop at the bound.
+    assert!(bound - 1 - n * frame < frame);
+    // The PTY takes the byte: its room returns, and the first key starts. The reads stay stopped: the key holds its frame's
+    // bytes until its write ends.
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), encodings[0]);
+    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - n * frame));
+    // The first key's write ends: the room of its frame returns, and one more key frame fits again.
+    let actions = w.feed(Input::PtyWritten(Ok(encodings[0].len())));
+    assert_eq!(pty_writes(&actions), encodings[1]);
+    let room = allowance(&actions, RouteId(1)).expect("a new allowance");
+    assert_eq!(room, bound - (n - 1) * frame);
+    assert!(room >= frame);
+    let mut written = [encodings[0].clone(), encodings[1].clone()].concat();
+    let more = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: key_frame(0, keys[n], 50),
+    });
+    assert!(pty_writes(&more).is_empty());
+    let actions = w.feed(Input::PtyWritten(Ok(encodings[1].len())));
+    written.extend(drain_pty(&mut w, actions));
+    assert_eq!(written, encodings.concat(), "every key, once, in order");
+}
+
+/// A15-1 (#302 F144): a route key whose `text` is over `CoreLimits.max_key_text_bytes` UTF-8 bytes is refused `too_large`
+/// with its op, writes nothing, and leaves the route open; a `text` at the bound is written.
+#[test]
+fn a_route_key_text_over_max_key_text_bytes_is_refused_too_large() {
+    let mut w = with_limits(|l| l.max_key_text_bytes = 8);
+    let mut client = Client::with(&limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
+    client.take_all(&mut w, RouteId(1), actions);
+    let at_bound = encoded(&w, &key_payload('a', 8));
+    let all = feed_frames(
+        &mut w,
+        &mut client,
+        &[
+            key_frame(5, 'a', 9),
+            key_frame(6, 'a', 8),
+            client_frame(&bytes_frame(7, b"z")),
+        ],
+    );
+    assert_eq!(
+        refusals(&client),
+        vec![(Some(Op(5)), RefusalReason::TooLarge)]
+    );
+    assert_eq!(
+        drain_pty(&mut w, all),
+        [at_bound, b"z".to_vec()].concat(),
+        "only the key at the bound and the later input"
+    );
+}
