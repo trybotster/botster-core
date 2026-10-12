@@ -61,6 +61,11 @@ conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
+# conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one: Core A22 (contracts-v0.1.46, R-104). It fails at seed 0
+# step 25: after AdoptAll it expects RouteAdopted for each live route (DP-8 route adoption), and v1 posts none. #313 (DP-8
+# route adoption, owner ST) posts RouteAdopted; it then switches its route_tag and owner to the Option form (A22) and
+# un-pends this id with the other dp_8 ids.
+conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
 # conf::a2_1_no_deadline_code_exists: steward ruling R-97 (b): the testkit worker's own deadlines (AD-7 self-exit, worker-core
