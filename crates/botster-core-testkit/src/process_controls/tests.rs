@@ -424,3 +424,96 @@ fn worker_alive_reads_only_a_recorded_worker() {
         );
     }
 }
+
+/// Steward ruling R-106: the payload's exit watch fails (`waitid` errs with `EIO`) while a `Stop` waits. The worker kills its
+/// own payload's group, sends no `Exited` and no other end message, and exits non-zero. Core reads the link's end and the
+/// worker's exit: the session is `Lost(WorkerGone)`, the pending `Stop` completes with that end (LC-5), and the payload is
+/// gone. The payload ignores `SIGTERM`, and the clock never moves, so no `stop_grace` kill can end it first.
+#[test]
+fn a_failed_exit_watch_is_worker_gone_with_no_exit_and_the_stop_completes() {
+    let mut harness = TestkitHarness::new(0);
+    let mut core = harness.open(&spec("a")).expect("open");
+    let mut at = Instant::now();
+    for request in [
+        json!({"Create": {"session": "s1", "request": {"program": [{"ignore_sigterm": {}}, {"hold": {}}]}}}),
+        json!({"Start": {"id": "s1"}}),
+    ] {
+        let id = core.begin(op(&harness, request)).unwrap();
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, id),
+            OpResult::Ok(_)
+        ));
+    }
+    let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
+    let mut events = Vec::new();
+    // The same instant on every pump: Core's `stop_grace` never comes due.
+    let pump = |core: &mut dyn CoreApi, events: &mut Vec<Event>| {
+        let report = core.pump(Now {
+            monotonic: at,
+            unix: 1_000_000,
+        });
+        events.extend(core.poll_events(64));
+        report.more
+    };
+    for _ in 0..PUMPS {
+        if !pump(core.as_mut(), &mut events) {
+            break;
+        }
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == stop)),
+        "the payload ignores SIGTERM, so the stop waits: {events:?}"
+    );
+    let identity = crate::controls::session_row(&harness, "a", &sid("s1"))
+        .unwrap()
+        .worker
+        .expect("a worker process")
+        .identity();
+    harness.workers().fail_exit_watch(identity, 5).unwrap();
+    for _ in 0..PUMPS {
+        let more = pump(core.as_mut(), &mut events);
+        let done = events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == stop));
+        if done && !more {
+            break;
+        }
+    }
+    let stopped = events.iter().find_map(|e| match e {
+        Event::Completed { op, result } if *op == stop => Some(result),
+        _ => None,
+    });
+    assert!(
+        matches!(stopped, Some(OpResult::Ok(OpOutput::End(_)))),
+        "{stopped:?}"
+    );
+    let states: Vec<&SessionState> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::SessionState { id, state, .. } if *id == sid("s1") => Some(state),
+            _ => None,
+        })
+        .collect();
+    // `Stopping` is the stop's own state (LC-5); no `Exited` follows it.
+    assert_eq!(
+        states,
+        [
+            &SessionState::Stopping,
+            &SessionState::Lost(LostReason::WorkerGone)
+        ]
+    );
+    assert_eq!(
+        state(core.as_ref()),
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+    assert_eq!(
+        harness.control("a", "worker_alive", &json!({"session": "s1"})),
+        Ok(json!({"alive": false}))
+    );
+    assert_eq!(
+        harness.control("a", "payload_alive", &json!({"session": "s1"})),
+        Ok(json!({"alive": false}))
+    );
+}

@@ -3233,4 +3233,5 @@ fn set_size_policy_latest_completes_and_another_policy_is_unsupported() {
     }
 }
 
+mod exit_watch;
 mod routes;
