@@ -281,15 +281,23 @@ fn a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing() {
     progress(&mut w, route, 7, true);
     w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 7 });
     assert_eq!(due_at(&w, route), None, "no report before the receipt");
-    // Another session's worker: its route of the same id is not this one.
+    // Another session's worker binds its own route of the same id: that receipt is not this route's, so the stale report
+    // of s1 still arms nothing, and neither does s2's report.
     w.worker_says("s2", WorkerMsg::RouteReceived { route });
+    progress(&mut w, route, 7, true);
     progress_of(&mut w, "s2", route, 7, true);
     assert_eq!(due_at(&w, route), None, "another worker's route");
     // The receipt from the session's own worker: its later reports are this route's.
     w.worker_says("s1", WorkerMsg::RouteReceived { route });
     progress(&mut w, route, 1, true);
-    assert_eq!(due_at(&w, route), Some(w.now + STALL));
-    w.advance(STALL);
+    let armed = w.now + STALL;
+    assert_eq!(due_at(&w, route), Some(armed));
+    // A report of s2's route changes this route's clock neither by a new mark nor by an end of waiting.
+    w.advance(Duration::from_millis(500));
+    progress_of(&mut w, "s2", route, 9, true);
+    progress_of(&mut w, "s2", route, 9, false);
+    assert_eq!(due_at(&w, route), Some(armed), "another worker's report");
+    w.advance(STALL - Duration::from_millis(500));
     w.pump();
     assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 1 }]);
 }
