@@ -62,3 +62,34 @@ This receipt accepts no later head, merge, #329 accounting result, or additional
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; exact PR head and completed initial evidence)
+
+## Round 2: train 8 source delta
+
+Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Train base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Frozen member: `0572493fc9e695acd57b1916e485fdd900ba7643`.
+Lead request: `msg_plugin-w_1791837736_3600b2`.
+
+Sol-B compares the complete applied patch at merge `5f8ad97b4effb96cd54d5500c444bf1b59ec7f5c` with the reviewed member.
+All five path sets and added/deleted line sets match, excluding object indices and hunk positions.
+Final program.rs, pty_controls.rs, and real/route.rs blobs equal the frozen member.
+The route_client.rs difference changes only its test constructor from Instant::now to the accepted WorkerClock::real interface.
+Its production hex response, empty log, and unattributed segment remain exact.
+The final held file also contains #329's approved header and accounting changes; #324's metadata remains present.
+
+The .46 pin is `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1` from the train base.
+Sol-B independently compares the .44 and .46 codec byte module. They are identical.
+Both append paths, cached responses, partial acceptance, blocked queue, and release preserve their reviewed behavior.
+The worker exit-watch injection changes no input-log state.
+The held-full selection changes how the transcript runs, not the byte log or its response shape.
+Earlier local timing claims remain owner reports and supply no new .46 measurement.
+
+Sol-B reads the complete #324 package delta at `112d3985aea1eb9b25ea5e27fabbac9d82a52bfe`.
+Its exact-head source CLEAN agrees with this review. No finding remains open, including LOW.
+The lead's pre-checks remain operator reports. The completed train gate and lead merge checks remain due.
+This source delta accepts no later head, merge, retry, or completed held-full proof on the train.
+Sol-B owns the combined review and single final receipt.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #324 train 8 source delta only)

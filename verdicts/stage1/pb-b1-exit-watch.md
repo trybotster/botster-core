@@ -124,3 +124,36 @@ This receipt accepts no later head, completed merge, PB-W1 repair, or additional
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; exact PR head and completed initial evidence)
+
+## Round 2: train 8 source delta
+
+Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Train base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Frozen member: `0e25e27da6606a27cf2ff94df5d139c80f27b4d5`.
+Lead request: `msg_plugin-w_1791837736_3600b2`.
+
+The train merges #325, #327, #324, and #329 in that order.
+Sol-B independently compares the applied #327 patch with the reviewed member's own patch.
+All eleven path sets and added/deleted line sets match, excluding object indices and hunk positions.
+Ten final source blobs equal the frozen member byte for byte.
+The remaining worker/tests.rs composes #325's separate read-order test and the exit_watch module declaration.
+Neither addition changes a shared fixture. The failure tests and their exact action assertions remain intact.
+
+The sys watch, worker failure handler, real driver, and testkit failure injection and cleanup remain exact.
+The input-log cache changes no failure state or payload ownership.
+The held-full selection applies only to conformance transcripts; it does not select or suppress B1's unit tests.
+The real resume fence changes no exit-watch path.
+The .46 pin changes the train's contract inputs, but adds no new B1 message, Lost reason, errno field, or Stop result.
+R-106's kill-before-reap and stderr-only error path remain intact.
+PB-W1 remains outside this review and scheduled for B3.
+
+Sol-B reads the complete train 8 package section at `8aad5e51a43050d09d9dea7be10f6fdaa599b7cf`.
+Its exact-head source CLEAN agrees with this review. All prior closures remain applicable.
+The source review finds zero open issues, including LOW.
+The lead's ID-set, compile, and strict-conformance pre-checks remain operator reports.
+This source delta accepts no completed train gate, later head, merge, or retry.
+Sol-B owns the combined review and single final receipt after the completed exact-head gate.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #327 train 8 source delta only)

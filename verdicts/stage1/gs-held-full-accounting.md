@@ -133,3 +133,52 @@ This receipt accepts no later head, completed train, merge, or additional retry.
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; complete source only on b9763b0f, completed exact-head delivery evidence remains due)
+
+## Round 2: train 8 source delta
+
+Exact train head: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Tree: `3f6c95e20e26a54eca52908502a4bade7aec1cad`.
+Train base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Frozen member: `b9763b0f851a029a48af3a0f495388d69683f10b`.
+Lead request: `msg_plugin-w_1791837736_3600b2`.
+
+The train applies #324 first. Its four code paths are already present when #329 merges.
+The final #329 merge applies eight own paths, with no extra path.
+Seven applied added/deleted line sets match the reviewed member directly.
+The eighth, core-held.txt, matches after subtracting #324's already-applied metadata delta.
+No own edit disappears or new edit enters that comparison.
+
+The final pending implementation, suite, test-budget, held file, and mutation-configuration blobs equal the frozen member.
+The final CI source differs only through the accepted #308 step_names function and listed-test fixture signature.
+Both additions preserve signature validation and the existing gate step table.
+The held-full call, exact matrix decision, profile selection, process bounds, JUnit freshness, and regression tests remain exact.
+The final lists code retains #323's independent re-entry parser and wiring beside the accepted K output.
+No real-pending re-entry tag supplies a held-full trial or changes K.
+The complete applied xtask delta adds no check outside the approved held-full and K scope.
+
+The current base has 388 pending identifiers. Only the three approved budget identifiers leave, yielding 385.
+Real-pending remains 38, ledger 692, and minimum 69; all three sets equal the train base.
+All earlier base removals remain removed. Held identifier and class sets remain unchanged.
+K remains the minimum intersection: one budget-held identifier, dp_5_full.
+Every mutation-configuration value equals the train base. Only accepted explanatory comments change.
+The known-flaky list and parser equal the train base, retaining its IN-8 entry owned by PC and removed by #321.
+The train does not restore the retired EV-2 entry from older member evidence.
+
+Sol-B independently compares all three held transcripts between .44 and .46. Each transcript is byte-identical.
+The .46 transcript SHA256 values are:
+
+| Identifier | SHA256 |
+| --- | --- |
+| conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops | 12f43fecbe1431989ac41af2a26d5bcdc9319df27e35c6cb31eba122e7b80ad3 |
+| conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves | 72e328e82affc783d6ede25a17ecd359638863bd3eb012a839d8059328ecc934 |
+| conf::ev_8_every_query_stays_in_output | 22259b1488b1c0492bbf656986e14d959efa7f21119df231b7e1bddb7a067b8c |
+
+Fresh train evidence must still prove every trial against the imported worker clock and pin.
+Sol-B reads the complete #329 package delta at `112d3985aea1eb9b25ea5e27fabbac9d82a52bfe`.
+Its exact-head source CLEAN agrees with this review. Both earlier LOW findings remain closed.
+No source delta finding remains. The lead's pre-checks remain operator reports.
+The completed train gate, final body, combined final receipt, and lead merge checks remain due.
+This source delta accepts no later head, completed train, merge, or specific retry.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #329 train 8 source delta only)
