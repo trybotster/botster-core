@@ -9,7 +9,7 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #309 | Train-6 source delta CLEAN at `3e655eff` for frozen member `cfcc438d`. Package `6b821a16` checked. RC-R100-6 closes through the pure-decision test. | Applicable train reviews, exact-head train-6 gate, Sol's one train receipt, and merge verification. |
 | #311 | Train-6 source delta CLEAN at `3e655eff`, Round 6, for frozen member `2c5d09a0`. Package Round 195 and body/ruling receipt `39428df3` checked. Local timeouts remain unclassified. | Exact train gate, Sol's one train receipt, and merge verification. Combined source review `a3250c8c` is checked. No final gate evidence accepted. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
-| #318 | Round 7 train-10 source delta CLEAN at `644f632f`, frozen member `836d3395`. Complete package Round 206 at `3abf7590` checked. F159/F160 remain closed. Withdrawn train-9 NOT CLEAN remains historical. | Exact train-10 merging gate, one final train receipt, and merge verification. #318 is absent from train 9b. Mac IN-6 and F28 remain separate. |
+| #318 | Round 7 train-10 source delta CLEAN at `644f632f`, frozen member `836d3395`. Complete package Round 206 at `3abf7590` checked. F159/F160 remain closed. Withdrawn train-9 NOT CLEAN remains historical. | Train-10 FINAL is recorded at exact head `644f632f`. Lead equal-tree/remote merge verification remains due. #318 is absent from train 9b. Mac IN-6 and F28 remain separate. |
 | #316 | Train-7b Round 3 source CLEAN at `007efbde` for frozen member `f1ac08b9`. Package `9ac22d23` checked. All member blobs remain exact. | Train-7b FINAL `007efbde` is recorded in train-7b.md. Lead equal-tree/remote merge verification remains due. Future #313 composition remains unaccepted. |
 | #328 | Train-9b Round 2 source CLEAN at `3e4b3ab8` for frozen `6b1918c9`. Package Round 203 carries under the lead's ruling. F155/F156/F158 remain closed. | Train-9b FINAL is recorded at exact head `3e4b3ab8`. Lead equal-tree/remote merge verification remains due. Two .46 candidates remain deferred. |
 | #319 | Sol-C train-9b delta CLEAN at `3e4b3ab8` for frozen `71ec2783`. Complete package `681d098d` checked; five earlier findings remain closed. | Train-9b FINAL is recorded at exact head `3e4b3ab8`. Lead equal-tree/remote merge verification remains due. |
@@ -35,4 +35,6 @@ F159 and F160 are closed. The withdrawn train-9 findings remain in the review hi
 No #318 insertion or future train gate is accepted by the train-9b review.
 
 Train 10 combined source is CLEAN at `644f632f`, with sole frozen member #318 `836d3395`.
-Sol-C owns the ONE final train receipt after the exact merging gate. Lead equal-tree/remote verification then remains due.
+Sol-C records the ONE FINAL train-10 receipt at exact head `644f632f`.
+All ten gate steps pass; all 21 catches match. All 96 held-full trials and both decoder fuzz runs pass.
+Lead equal-tree/remote merge verification remains due.

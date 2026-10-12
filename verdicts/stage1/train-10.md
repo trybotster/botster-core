@@ -58,3 +58,58 @@ Those records match package Round 206, exact train 644f632f, base 3e4b3ab8, and 
 F159 and F160 remain closed. The acknowledgment accepts source only and adds no execution evidence.
 The package reviewer read no train-10 gate log and ran no execution job. Sol-C retains the exact gate review and ONE final receipt.
 No new package round, redundant final package receipt, or completed merge follows.
+
+
+## Round 2: FINAL whole-train receipt
+
+- Exact train head: `644f632f194f62ad7fe14e66482ee01083706e30`.
+- Tree: `31f79709fd6d686a995da9f2d0506c59a9861b47`.
+- Gate base: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+- Sole frozen member: #318 `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+- Complete source receipts: `eafb13410e277782cfa692071fdda726c0ae046b`, combined Round 1 and integration member Round 7.
+- Complete applicable package Round 206: `3abf75905e3857588bf916fb2c10b0a21c766364`.
+- Lead gate message: `msg_plugin-w_1791844044_f09379`.
+- Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-644f632f-644f632f-pool-20261012-150918-92092.log`.
+- Verified SHA256: `51103e8aaa038b3df8800bc105e24bebd4548ef51db7aa0bda1babeb58208aa2`.
+
+The detached gate header names the exact reviewed train head and base. The Git tree remains the reviewed combined tree.
+The detached name does not change its source identity. The job names target volume botster-core-target-v1-5a6df720, consistent with the lead's warm-volume trial.
+The log records its snapshot command, exact-head checkout, base reference, clean pinned submodules, and pinned dependency fetch.
+It supplies no independent history of other target writers. I accept the completed exact-head gate under the lead's stated trial scope.
+The command sets CARGO_BUILD_JOBS and NEXTEST_TEST_THREADS to four. The Linux job runs on msa1; its stated Mac-only compilation limits remain.
+
+All ten steps pass. Default records 2103 passes and 412 skips. Slow records 695 passes and 2091 skips.
+Every ordinal in both tiers appears exactly once. Stage 2's unmutated baseline records all 705 normal passes before its mutation trials.
+The strict report records 281 passes and zero failures. It runs 298 of 315 pending transcript IDs, with 17 real-only and four held.
+The minimum report counts 69 of 69, including one budget-held ID. All named real-process minimum proofs have normal PASS records.
+All 96 unique held-full trials pass: three budget IDs at every seed from zero through 31.
+Every trial is within two seconds; the largest recorded duration is 1.272 seconds.
+The ignored real report retains 37 pending IDs, of which 29 pass. Those passes supply no additional pending removal or active acceptance.
+
+The corrected tail test has normal slow and baseline PASS records. Its successful watched-exit condition remains the reviewed exact source.
+The testkit title-before-Exited test passes normally in default. Both real title tests and both silent-holder tests pass normally in slow and baseline.
+Their earlier reversal and OS-specific proof limits remain unchanged. A successful gate does not diagnose Mac IN-6 or close F28.
+
+I match all 25 unique raw mutation outcomes. Final outcomes are 21 caught and four unviable, with no miss or timeout.
+All 21 unique catches match citations and normal PASS records. Stage 1 catches 16 and leaves five misses for Stage 2.
+Stage 2 catches all five after the unmutated baseline passes. The main.rs:570:23 catch uses the new real title-before-Exited test.
+The four unviable Drain mutations require an unavailable default or leave a non-exhaustive match. They supply no catch credit.
+No FLAKY or RETRY trial appears. The only INCONCLUSIVE text describes the existing R-111 exclusion; it is not a new trial result.
+That exclusion retains its accepted scope. This receipt removes no known-flaky entry and accepts no future #321 composition.
+
+Both decoder properties pass normally in default. The fuzz step actually runs both registered testkit harnesses:
+
+- frame_ends_decoder: configured 60 seconds; 2948263 runs in 61 seconds.
+- sock_diag_decoder: configured 60 seconds; 5358900 runs in 61 seconds.
+
+Both commands complete, and fuzz passes. The accepted CI path uses the pinned nightly and fails on command failure.
+CI takes 1001.4 seconds. The pool job exits zero after 1072 seconds, with one second queued and 1071 seconds running.
+The wrapper exits zero after 1073 seconds. Historical member and train-9 gates retain their original heads and limits.
+
+All applicable source findings remain closed, including LOW. This is the ONE final whole-train receipt under BUILD Green.
+The unchanged member needs no redundant final package receipt. No #298 member, future pin, additional pending removal, or A24 implementation enters.
+The lead must verify the equal-tree fast-forward and remote push. This receipt does not claim a completed merge.
+The earlier F154 SETTLE, Mac IN-6 classification limits, F28 duty, and retained A24 gap remain preserved.
+I ran no build, test, gate, pool job, mutation, measurement, reproduction, or executable merge-check job.
+
+VERDICT: FINAL CLEAN (0 open, including LOW; complete source and exact-head train gate)
