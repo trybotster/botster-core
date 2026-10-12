@@ -114,3 +114,55 @@ The lead owns the final train procedure and merge/tree/push verification.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; #314 train 4 source delta only, final train evidence pending)
+
+## Round 3: train 4b base-change delta
+
+Exact head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Previous train: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`, based on `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+The frozen #314 member remains `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead request: `msg_plugin-w_1791825491_49fc38`. Sol owns the combined review.
+This round covers #314's requested base change only.
+
+Sol-B reads the three new merge objects and verifies the unchanged member order.
+Merge `471c0dece49519bcd4f31932eb8bef449d723233` joins the new base and #314.
+Merge `89808877dc1e5664cd4ec59877c4980bc064dbf4` adds #312 member `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+The final merge adds #307 member `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+The first merge changes only the seeded trace file. Its normalized own patch matches the accepted member exactly.
+The member, first merge, and final head contain the same trace file blob.
+The complete host tree remains identical between the two train heads.
+The public full-trace equality, non-empty trace, and seed-variation assertions remain unchanged.
+Round 2's shared-fixture review carries without a new fixture or scheduler change.
+
+Sol-B independently compares the complete train delta with the complete base delta, using full-index Git diffs.
+They are byte-identical. SHA256: `7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6`.
+Both deltas change only ci/known-flaky.toml and xtask/src/known_flaky.rs from landed #317.
+No conformance set, host source, scheduler source, mutation configuration, or contracts pin differs between the trains.
+
+Sol-B reads both changed files and the relevant exact-name filter implementation.
+The new entry names only botster-core::slow_conformance and conf::ev_2_mandatory_and_keyed_never_dropped.
+It records diagnosis R107-SI-2, owner RC, and removal PR #316.
+The unchanged filter subtracts exact binary/test pairs from mutation lists. It cannot match #314's host test.
+The xtask source changes only its repository-list test to expect that entry.
+It changes no host workload, source assertion, scheduling policy, or normal-test retry.
+Sol-B checks the 25 earlier synthetic catch citations. None names the newly excluded test.
+That mutation evidence retains its earlier exact head and three-file scope. It supplies no train 4b execution result.
+The train still contains the .44 pin. The new base and members contain no #316 pin or entry removal.
+
+The earlier train remains RED.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4-03709a0c-pool-20261012-092150-15636.log`.
+Sol-B reads its named failure and completed summaries.
+It reports ev_2 INCONCLUSIVE at seed 0, step 71, limit step_timeout. Slow fails; mutants and fuzz do not run.
+The final exit is nonzero. This source review does not relabel the failed gate or supply a new gate result.
+The lead reports an xtask check. This receipt accepts that statement only as an operator report.
+
+Sol-B reads package verdict `6ba694457afca3f1e61a7dac0aa708bb203786ce`, its complete Round 3.
+It agrees with the exact-head source checks and reports zero findings.
+No #314 source delta finding remains on this head.
+This receipt does not replace #317's independent reviews, the other member reviews, or Sol's combined review.
+The fresh exact-head train 4b gate, final member evidence bodies and receipts, and lead merge verification remain due.
+This receipt accepts no later head, pin, status removal, or additional re-gate.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #314 train 4b base delta only, final train evidence pending)
