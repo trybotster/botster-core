@@ -115,7 +115,7 @@ mod tests {
         for tail in [0, 1, READ_BUFFER, READ_BUFFER + 1, 16 * 1024, 60 * 1024 + 7] {
             for chunk in [1000, READ_BUFFER, 64 * 1024] {
                 let (mut flip, mut buffer) = (tail, 0usize);
-                let mut fill = |buffer: &mut usize, flip: &mut usize| {
+                let fill = |buffer: &mut usize, flip: &mut usize| {
                     let moved = (READ_BUFFER - *buffer).min(*flip);
                     *buffer += moved;
                     *flip -= moved;

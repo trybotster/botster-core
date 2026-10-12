@@ -1961,3 +1961,131 @@ fn a_held_route_stream_closes_after_one_write() {
     assert_eq!(read_all(&mut client), Ok(vec![]));
     edges.close_route_stream(StreamEndpoint::new(7u64), b"x");
 }
+
+/// OU-7, R-107, R-108 (Core A23 candidate 2, mirrored until its transcript): a title that the payload wrote before a `Stop`
+/// whose grace ends in a kill is in the model before `Exited`. The program ignores `SIGTERM`, writes the title and holds;
+/// the `Stop` comes as soon as the session runs, with the shortest grace (1 ms), so the kill comes as early as it can. For
+/// each seed, `TitleChanged{T}` comes before `SessionState{Exited}`, and both the state and the `Stop` end `Killed`.
+#[test]
+fn a_title_written_before_a_stop_that_kills_comes_before_exited() {
+    // OSC 0 "T", ST.
+    let script = serde_json::json!({"program": [
+        {"ignore_sigterm": {}}, {"print": {"bytes_hex": "1b5d303b541b5c"}}, {"hold": {}}
+    ]});
+    let id = SessionId("s1".into());
+    for seed in 0..32 {
+        let start = Instant::now();
+        let scheduler = SchedulerHandle::with_seed(seed);
+        let workers = crate::worker::Workers::new(scheduler.clone(), start);
+        let mut dirs = Directories::default();
+        let limits = CoreLimits {
+            stop_grace: Duration::from_millis(1),
+            ..CoreLimits::default()
+        };
+        let config = OpenConfig {
+            data_dir: "kill".into(),
+            worker_path: Some("worker".into()),
+            limits: limits.clone(),
+        };
+        let opened = dirs
+            .open(
+                "kill",
+                &config,
+                RunInputs {
+                    seed,
+                    scheduler: scheduler.clone(),
+                },
+                core_features(),
+                Some(Box::new(workers.spawner("kill"))),
+            )
+            .unwrap();
+        let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone());
+        core.begin(Op::Create {
+            session: id.clone(),
+            request: SpawnRequest {
+                argv: vec![
+                    botster_probe_script::PROBE_BINARY.into(),
+                    script.to_string(),
+                ],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+        let mut events = settle_partial(&mut core, start);
+        let started = core.begin(Op::Start { id: id.clone() }).unwrap();
+        let mut stop = None;
+        for _ in 0..65_536 {
+            core.pump(Now {
+                monotonic: start,
+                unix: 1_000_000,
+            });
+            let polled = core.poll_events(64);
+            let running = polled
+                .iter()
+                .any(|e| matches!(e, Event::Completed { op, .. } if *op == started));
+            events.extend(polled);
+            if running {
+                stop = Some(core.begin(Op::Stop { id: id.clone() }).unwrap());
+                break;
+            }
+        }
+        let stop = stop.expect("the session runs");
+        events.extend(settle_partial(&mut core, start));
+        // Past the grace the host kills the payload; the pumps go on until the `Stop` completes.
+        let stopped = |events: &[Event]| {
+            events
+                .iter()
+                .any(|e| matches!(e, Event::Completed { op, .. } if *op == stop))
+        };
+        for _ in 0..65_536 {
+            if stopped(&events) {
+                break;
+            }
+            core.pump(Now {
+                monotonic: start + limits.stop_grace,
+                unix: 1_000_000,
+            });
+            events.extend(core.poll_events(64));
+        }
+        let at = |found: &dyn Fn(&Event) -> bool| events.iter().position(found);
+        let title = at(&|e| matches!(e, Event::TitleChanged { title, .. } if title == "T"))
+            .unwrap_or_else(|| panic!("seed {seed}: no TitleChanged: {events:?}"));
+        let exited = at(&|e| {
+            matches!(
+                e,
+                Event::SessionState {
+                    state: SessionState::Exited(Exit {
+                        cause: ExitCause::Killed,
+                        ..
+                    }),
+                    ..
+                }
+            )
+        })
+        .unwrap_or_else(|| panic!("seed {seed}: no Exited Killed: {events:?}"));
+        assert!(title < exited, "seed {seed}: {events:?}");
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                Event::Completed {
+                    op,
+                    result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(Exit {
+                        cause: ExitCause::Killed,
+                        ..
+                    })))
+                } if *op == stop
+            )),
+            "seed {seed}: the Stop ends Killed: {events:?}"
+        );
+    }
+}
