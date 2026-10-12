@@ -31,7 +31,10 @@ fn edges_quiet(
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .held_workers();
     let table = harness.processes_of(handle).ok_or_else(not_open)?;
-    Ok(json!({ "quiet": harness.workers().edges_quiet_but(table, &held) }))
+    // Bytes or an exit that the report holds give the driver now are not consumed; the held ones are no report (A12-1a).
+    let (report_holds, _) = harness.report_holds_of(handle).ok_or_else(not_open)?;
+    let gives = crate::report_holds::lock(&report_holds).gives();
+    Ok(json!({ "quiet": !gives && harness.workers().edges_quiet_but(table, &held) }))
 }
 
 #[derive(Debug, Deserialize)]
