@@ -610,7 +610,15 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     problems.extend(check_minimum(&minimum, &ledger, &withdrawn));
     report(&problems)?;
     println!("lists: real-pending {}", real_pending.len());
-    println!("lists: minimum {}", minimum.len());
+    // A `budget` held id out of core-pending.txt counts by the held-full run of the slow step (plan 23cn): the milestone
+    // count names them.
+    let budget_held = pending::by_held_full(&held, &pending)
+        .filter(|h| minimum.contains(&h.id))
+        .count();
+    println!(
+        "lists: minimum {}, of which {budget_held} budget-held (they count by the held-full run, plan 23cn)",
+        minimum.len()
+    );
     let withdrawn = withdrawn.intersection(&ledger).count();
     println!(
         "lists: ok. ledger {} ids, pending {}, deferred {}, withdrawn {}, to run {}",
