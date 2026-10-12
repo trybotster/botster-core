@@ -81,3 +81,15 @@ My finding F1 is closed. CLEAN on `d4d1f213e8e04ab842bdf49841bf12bf0bda9388`.
 - **The target.** `steward/final43` is `0bdb72e7`, an ancestor of `8da7fff1`, so it fast-forwards to `8da7fff1`. Main has since moved to `192d70bc` (#99 and #101). The final43 publish merge onto main gets its own gate and my Q7 receipt, as the steward planned. A test merge of `8da7fff1` with `5ce2cff1` was clean.
 
 Receipt given for `8da7fff1ab5a31842aee24af1dd85cfd2fc638bf` as the landing head of `steward/final43`.
+
+## Q7 receipt: the final43 publish merge 61f3c12836ec45dbe5eb6ec15b712f25678902d8 (branch steward/final43-publish)
+
+- **The parents.** The first is `e02eb0c3`: main `192d70bc` with Sol's merge-review verdict `d848d178` merged in. That merge changes only `M verdicts/amendments.md`, a covered change under #101's rule. The second is `071a938e`: `steward/final43` = `8da7fff1` plus the steward's wording commit.
+- **The wording commit** `071a938e` changes only `frozen/current/MANIFEST.md`. It records the crate PR #96 at `8da7fff`, both reviews, the conflict resolution and the tag `manifest-final43`, and it describes `a24_1` and `a24_2`. I checked these facts against this verdict.
+- **The tree** `6356b668` is equal to `git merge-tree --write-tree` of the parents.
+- **The auto-merged `conformance/core-fence-exceptions.txt`.** A three-way line check against the merge base `49ff52d2` gives exactly base + main's changes (#99: four lines removed, P5's `e3_1` lines moved) + final43's changes (the tenth reason and the `a24_1` step 6 line). Nothing is missing, and nothing is extra.
+- **The patch-id.** The merge's diff from its first parent (30 paths) has the stable patch-id `d0a2edc3`. That is equal to the patch-id of final43's own diff (`071a938e` against the merge base `49ff52d2`).
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-steward-final43-publish-61f3c128-pool-20261012-135224-3645.log`, sha256 `42ab4a90149acac171b07ce53b511b9d1d26237cabfb96cc37468907877215f8`. All ten steps PASS. Mutants: 9 of 9 caught, then 3 caught and 2 unviable. Ledger 2552 ids. Exit 0 after 735 s on gaming, base main `192d70bc`.
+- **Main** is still `192d70bc`, an ancestor of `61f3c128`, so main fast-forwards to it.
+
+Q7 receipt given for `61f3c12836ec45dbe5eb6ec15b712f25678902d8`.
