@@ -462,7 +462,7 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
   the link's frame bound `F` (`HostEngine::link_frame_bound`:
-  `min(4 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  `min(6 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
   where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
   - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame
@@ -474,9 +474,9 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
     ruling R-100: no new `CoreLimits` field in v1, backlog B-2): `Launch` (argv, env, cwd, notification patterns),
     `SetNotificationPolicy` (patterns), `CaptureSnapshot` (owner) and `AttachRoute` (`file_directory`, `route_features`,
     `terminal_formats`). Their tests show that a frame over the bound is refused.
-  - With the default limits, `F` is 65 MiB and the bound is about 18 GiB. That is a threshold only: Core allocates nothing
-    for it. So Core's own count refuses `Full` only when a link stops draining for a very long time, and in practice the
-    link edge's room (`HostEdges::link_room`) is the limit that binds.
+  - With the default limits, `F` is 97 MiB and the bound is about 27 GiB (the multiple is 6 since R-100, above). That is
+    a threshold only: Core allocates nothing for it. So Core's own count refuses `Full` only when a link stops draining for
+    a very long time, and in practice the link edge's room (`HostEdges::link_room`) is the limit that binds.
 - **The admission limits bound the stream (R-91 Q1 (b)).** Only `cancel` refuses `Full`. Every other host-to-worker message
   keeps its own admission:
   - IN-5 bounds the input payload of a session (`input_retained_bytes`, `input_ops_per_session`);
