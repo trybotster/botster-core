@@ -54,3 +54,12 @@ Delta from `9cac43b1`: `929798d6` (F2, the `scheduler_delay` row) and `910d7f2e`
 The lint dates a program-printed sentinel at the session's last host input before the wait. That input need not trigger the print. With a title printed after input `31`, a newer `pty_output` without a title, and an unrelated later input `32`, a second `await_title` of the old title gets the date of input `32`. So it counts as a fence after the newer output, although no new title was printed. 016c ran the exact module, which returns `[]`. In round 1 I saw that the last input is the latest possible date, and not a safe one for this check, but I accepted it as the steward's definition. The fix must tie the sentinel to the input that triggers its print (`match_hex`) and to the output after it, and keep the ruled a5_2 green.
 
 Still to do after the fixes: the merge of main `28e05487` (shares `docs/core-testkit-controls.md` with #74) and its Q7 review, then ONE gate on the merged head.
+
+### Steward correction after round 2 (main 8ce40a0d): F3 part 2 withdrawn; the F1 form changes
+
+The steward withdrew the F1 application that `910d7f2e` follows. Core E3-1 item 1 says that the stop-grace kill posts no event, and that `Exited` follows "under the normal rules". So **F3 part 2 is withdrawn**: `scheduler_deadline` must not treat the kill's exit as the deadline's event, because that contradicts E3-1. My F1 premise stays (s101 asserted an order that nothing sourced), but the steward's new form replaces the held-report construction:
+1. a5_2's `scheduler_deadline` variations use a silence deadline: `Silent` against the other op's `Completed` in one pump.
+2. The stop-grace steps use `await_get Exited Killed`, with no order claim.
+3. The held-report construction leaves these steps.
+
+**F3 part 1 stays** wherever s22/s27 use `scheduler_delay`: the row states the pump in which Core reads the held report. 016c's lint MEDIUM stays open. I review the next head against this form.
