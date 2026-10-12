@@ -184,6 +184,31 @@ fn slow_only(default: &BTreeMap<Key, Listed>, slow: &BTreeMap<Key, Listed>) -> u
         .count()
 }
 
+/// The binaries of `tests`, a list of the tier named `tier`, that do not run the build-root test (bug catalog B13; design
+/// `design-gs-built-in-coverage.md`): each binary of the list must list `botster_test_process::built_in::TEST_NAME`, not
+/// ignored and selected by the tier's filter. The list comes from cargo and nextest, so a binary that the tier builds
+/// cannot be left out, and a `cfg` that removes the test on one OS fails that OS's list.
+fn presence(tier: &str, tests: &BTreeMap<Key, Listed>) -> Vec<String> {
+    use botster_core_testkit::built_in::TEST_NAME;
+    let binaries: BTreeSet<&String> = tests.keys().map(|(binary, _)| binary).collect();
+    let mut found = Vec::new();
+    for binary in binaries {
+        let why = match tests.get(&(binary.clone(), TEST_NAME.to_string())) {
+            None => "does not list",
+            Some(Listed { ignored: true, .. }) => "ignores",
+            Some(Listed {
+                selected: false, ..
+            }) => "does not select",
+            Some(_) => continue,
+        };
+        found.push(format!(
+            "{tier} tier: {binary} {why} the build-root test `{TEST_NAME}`: add `botster_test_process::built_in_test!();` \
+             (or `built_in_trial!()` with its own harness) (bug catalog B13)"
+        ));
+    }
+    found
+}
+
 /// The tests that `cargo nextest list <selection>` lists in `root`, built in `target`.
 fn list(root: &Path, target: &Path, selection: &[String]) -> Result<BTreeMap<Key, Listed>> {
     let mut command = Command::new("cargo");
@@ -256,6 +281,8 @@ pub fn check(
     println!("slow-coverage: {count} slow-only tests checked");
     let mut found = violations(&default, &slow, pending, &ignorable_real_only(proofs));
     found.extend(proof_violations(&slow, proofs));
+    found.extend(presence("default", &default));
+    found.extend(presence("slow", &slow));
     let keys = |tests: &BTreeMap<Key, Listed>| -> crate::known_flaky::Tests {
         tests.keys().cloned().collect()
     };
@@ -337,6 +364,48 @@ mod tests {
                 ("a", "tests::ig", true, false),
                 ("a::slow_x", "s", false, true),
             ]))
+        );
+    }
+
+    /// Red on revert of the slow filter's last term (lead, 2026-10-12): a slow-tier artifact whose build-root test the filter
+    /// does not select, or that lists no such test, fails; so does an ignored one. A list where every binary runs it passes.
+    #[test]
+    fn every_binary_of_a_tier_must_run_the_build_root_test() {
+        use botster_core_testkit::built_in::TEST_NAME;
+        let good = tests(&[
+            ("a", "plain", false, false),
+            ("a", TEST_NAME, false, true),
+            ("a::slow_x", "s", false, true),
+            ("a::slow_x", TEST_NAME, false, true),
+        ]);
+        assert_eq!(presence("slow", &good), Vec::<String>::new());
+        let nested = format!("tests::{TEST_NAME}");
+        let bad = tests(&[
+            // The binary of the library, built again with the slow features: the old filter did not select its test.
+            ("a", TEST_NAME, false, false),
+            ("a::slow_x", "s", false, true),
+            ("a::slow_y", TEST_NAME, true, true),
+            ("a::slow_z", &nested, false, true),
+        ]);
+        let found = presence("slow", &bad);
+        let starts: Vec<&str> = found
+            .iter()
+            .map(|line| line.split(" the build-root").next().unwrap())
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                "slow tier: a does not select",
+                "slow tier: a::slow_x does not list",
+                "slow tier: a::slow_y ignores",
+                // A test of that name inside a module is not the root test.
+                "slow tier: a::slow_z does not list",
+            ]
+        );
+        assert!(
+            found[0].contains("botster_test_process::built_in_test!();"),
+            "{}",
+            found[0]
         );
     }
 

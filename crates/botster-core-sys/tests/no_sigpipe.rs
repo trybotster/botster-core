@@ -31,7 +31,9 @@ fn main() {
             Ok(())
         },
     );
-    libtest_mimic::run(&args, vec![trial]).exit();
+    // The build-root trial (bug catalog B13). Nextest runs each trial in a process of its own, so it does not touch the
+    // one-thread proof of the trial above.
+    libtest_mimic::run(&args, vec![trial, botster_test_process::built_in_trial!()]).exit();
 }
 
 fn no_sigpipe() {

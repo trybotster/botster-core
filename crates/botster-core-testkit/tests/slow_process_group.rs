@@ -204,3 +204,6 @@ fn the_leader_streams_are_taken_by_the_caller() {
     assert_eq!(said, "hello\n");
     assert!(group.take_stdin().is_none(), "taken once");
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();
