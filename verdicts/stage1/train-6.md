@@ -216,3 +216,26 @@ The reviewer changes no product code and runs no build, test, gate, mutation, re
 or executable base check.
 
 VERDICT: CLEAN (0 open; FINAL whole train)
+
+## Merge verification — complete
+
+The #325 body reports that v1 moved to train 6. The reviewer verifies that report once during the next review turn.
+`git ls-remote` gives remote v1 as `3e655eff46d36f8c337339a1a17d401c8c662594`, the exact gated train head.
+Its tree is therefore `4b7ace5012cf0543ed64dea143e5db5932c500c2`, equal to the gated tree.
+The reviewed base remains an ancestor of that head.
+
+GitHub reports all four frozen member heads as MERGED:
+
+| Member | Merge commit | Merged at UTC |
+| --- | --- | --- |
+| #303 | `3837b2c72f7eb4c961afa1cdc5ee3078f2dafe9f` | 2026-10-12 19:56:47 |
+| #309 | `d5a59447fbd942c788a08c660cfaa07bf3dfcdf4` | 2026-10-12 19:56:48 |
+| #308 | `b40b5235a00fc3be951282f181bdb2cffc12ae44` | 2026-10-12 19:56:47 |
+| #311 | `3e655eff46d36f8c337339a1a17d401c8c662594` | 2026-10-12 19:56:48 |
+
+Each GitHub head remains its frozen Round 1 identity. Each merge commit is its reviewed ordered train merge.
+The exact-head, ancestor, gated-tree, member-reachability, and remote-push checks are complete.
+The final receipt at `01ce5fb373cc9c3d510f339697eadf2fe5f57da7` remains applicable.
+No new gate, review of product source, or execution job runs for this merge verification.
+
+VERDICT: CLEAN (0 open; merge verified)
