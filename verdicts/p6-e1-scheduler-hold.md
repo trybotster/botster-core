@@ -158,3 +158,48 @@ The final import must preserve #291's drain term at the settle site only. Final 
 I changed no product code and ran no execution job. This verdict accepts no later head, pin, or status removal.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-11: public metadata proof closes condition 1
+
+Exact head: `bd74a168fc1ef7e4774f635503f3707cc0dd2ec3`.
+Source base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+Gate base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+Tree: `2f7cc7639866c488772cc1ee6d3f5f8b05d9814b`.
+I read the complete one-file delta from Round 2 and the complete live body delta.
+Only holds.rs changes. The delta adds a public scheduler-call recorder and replaces the exit-based condition-1 proof.
+The remaining tests retain their behavior assertions; their setup now uses the Probes structure.
+No production behavior, control, status file, exclusion, or pin changes in this repair.
+
+E1-P1 is CLOSED. The session's Create and Start complete before the test holds their operation IDs.
+The test admits UpdateMetadata, runs the driver, and observes the public MetadataChanged event for the session.
+The public Scheduler::held recorder observes both the update's operation ID and an empty operation list.
+The former belongs to the update's own step. The latter exercises the session's metadata step with no flow.
+The test uses the actual metadata_pending path identified in Round 2, rather than the reported-exit bypass.
+It observes the scheduler interface and public progress without reading engine.ops_of or production state.
+The new documentation states why the payload exit cannot supply this proof.
+E1-P2 remains CLOSED. The seeded comparison and its workload are unchanged; the current gate passes that test.
+Integration receipt `msg_plugin-w_1791776869_10ac6f` independently confirms the repaired condition-1 proof.
+
+Gate log: `~/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-bd74a168-pool-20261011-203726-79012.log`.
+SHA256: `29f167fe7e319e92b667a75899a9ea2bc15fb31467939b7cef44d0cc03e3ce29`.
+I read the exact-head/base header, lists records, changed-test outcomes, stage/tier summaries, mutation accounting, and final exits.
+All ten stages pass in 544.1 seconds. Default passes 1857 tests, with 435 skipped, in 14.680 seconds.
+Slow passes 608 tests, with 2044 skipped, in 45.579 seconds.
+The repaired metadata test, public forwarded-op test, and permanent seeded comparison pass.
+Stage 1 has 42 caught, 13 missed, nine unviable, and no timeout, in 154.1 seconds.
+Stage 2 tests exactly those 13 misses and catches all, in 187.6 seconds. Its unmutated baseline passes.
+All 64 raw mutation identities and outcomes remain identical to Round 2.
+All 55 raw catches match their named catches. Every named catcher passes normally.
+No FLAKY record or failed nextest result occurs. Unviable outcomes supply no catch evidence.
+The job exits zero after 554 seconds: one queued and 553 running. The wrapper exits zero after 555 seconds.
+
+The live body's condition-1 description now matches the metadata proof and explains the exit bypass.
+Its current-head gate records match the retained log. Earlier API, trace, and 32-seed evidence keep their recorded original-head scope.
+Raw body SHA256: `d3a23ac4d5be3751c8dec3b5911e5a6a9a4c271c38609d1c515976a3f50c23b8`.
+No package source or evidence finding remains for this head. The approved source and initial evidence are CLEAN.
+The gate-base environment does not establish a source import. The final import and applicable base review remain due.
+That import must preserve #291's drain term at the settle site only. The final exact-head gate and final body remain due.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
