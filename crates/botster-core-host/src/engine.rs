@@ -324,19 +324,18 @@ impl HostEngine {
             .is_some_and(|s| s.worker.link == Some(link) && s.worker.refused_full)
     }
 
+    /// The room of a link whose session waits for it (`waits_for_room`, which the driver checked): the mark clears, and the
+    /// session's `SessionWritable` is posted.
     pub(crate) fn control_room(&mut self, link: LinkId) {
-        let Some(id) = self.links.get(&link).cloned() else {
+        if !self.waits_for_room(link) {
             return;
-        };
-        let Some(s) = self.sessions.get_mut(&id) else {
-            return;
-        };
-        if s.worker.link == Some(link) && s.worker.refused_full {
-            s.worker.refused_full = false;
-            let instance = s.instance.clone();
-            self.queue
-                .post_keyed(Event::SessionWritable { id, instance });
         }
+        let id = self.links[&link].clone();
+        let s = self.sessions.get_mut(&id).expect("waits_for_room found it");
+        s.worker.refused_full = false;
+        let instance = s.instance.clone();
+        self.queue
+            .post_keyed(Event::SessionWritable { id, instance });
     }
 
     pub(crate) fn send_msg(&mut self, session: &SessionId, msg: HostMsg) -> bool {

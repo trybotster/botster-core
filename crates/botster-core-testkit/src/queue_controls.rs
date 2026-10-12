@@ -52,3 +52,6 @@ fn control_queue(
     }
     Ok(json!({}))
 }
+
+#[cfg(test)]
+mod tests;
