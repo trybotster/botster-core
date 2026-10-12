@@ -440,7 +440,12 @@ pub fn held_full(root: &Path, deadline: Duration) -> Result<(bool, BTreeMap<Stri
 
 /// The nextest profile of the default tier: `ci` under CI (no retries), else `default`. Both have the 2 s per-test limit.
 pub fn default_tier_profile() -> &'static str {
-    if std::env::var_os("CI").is_some_and(|v| !v.is_empty()) {
+    profile_under(std::env::var_os("CI"))
+}
+
+/// The default tier's profile for the value of `CI`: `ci` when it is set and not empty, else `default`.
+fn profile_under(ci: Option<std::ffi::OsString>) -> &'static str {
+    if ci.is_some_and(|v| !v.is_empty()) {
         "ci"
     } else {
         "default"
@@ -825,6 +830,9 @@ mod tests {
     fn the_default_tier_profile_is_ci_under_ci_and_default_elsewhere() {
         let ci = std::env::var_os("CI").is_some_and(|v| !v.is_empty());
         assert_eq!(default_tier_profile(), if ci { "ci" } else { "default" });
+        assert_eq!(profile_under(None), "default");
+        assert_eq!(profile_under(Some("".into())), "default");
+        assert_eq!(profile_under(Some("true".into())), "ci");
     }
 
     /// The held-full run must have a trial at each of the 32 seeds of the CI set; a range has both ends, and other text has
