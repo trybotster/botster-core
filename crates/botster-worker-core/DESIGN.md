@@ -9,8 +9,8 @@ It is stacked on P1's head `2016886` (the control-link messages of `botster-core
 - `Worker` (`src/worker.rs`) is a sans-IO machine (plan 2.1): `handle(now, Input)`, `poll_action()`, `next_deadline()`. It reads
   no clock, starts no thread and does no I/O.
 - Two drivers run the same machine (plan 2.1, A5-1):
-  - the `botster-worker` binary, role `session`: one `mio` loop over the control socket, the PTY master, `SIGUSR1`
-    (`signal-hook-mio`) and a `mio::Waker` for the exit watch; the control link is served first in each turn (plan 2.4);
+  - the `botster-worker` binary, role `session`: one `mio` loop over the control socket, the PTY master, `SIGUSR1` and
+    `SIGUSR2` (`signal-hook-mio`) and a `mio::Waker` for the exit watch; the control link is served first in each turn (plan 2.4);
   - the testkit (`botster-core-testkit/src/worker.rs`): the `Sim` steps the machine on the test thread, with the scripted
     program as the `Program` edge and an in-memory link. `TestkitCore::pump` runs the workers' ready work, then the host's pump.
 - The real `Program` edge is `botster-core-sys/src/payload.rs`.
@@ -25,7 +25,8 @@ It is stacked on P1's head `2016886` (the control-link messages of `botster-core
 | `Kill` (LC-5, at `stop_grace`) | `SIGKILL` to the payload group |
 | `Op{Signal}` (LC-6) | the signal to the group, then `Done{Ok(Unit)}`; no live group: `SessionEnded` |
 | `Remove` (LC-7 step 3) | `SIGKILL` to the group if it is unreaped, reap, `RemoveResult{Deleted}`, close, end |
-| `SIGUSR1` (`GroupSignal::EndPayload`, LC-5, P1 F7) | `SIGTERM`, then `SIGKILL` at `stop_grace` (`LaunchSpec.stop_grace_ms`); a repeat changes nothing |
+| `SIGUSR1` (`GroupSignal::EndPayload`, LC-5, P1 F7) | `SIGTERM`, and no timer; a repeat changes nothing |
+| `SIGUSR2` (`GroupSignal::KillPayload`, LC-5; steward ruling R-97, follow-up) | `SIGKILL` to the group, now; a repeat changes nothing. Core sends it at the end of its `stop_grace` |
 
 The payload's exit is `Exited{code}` or `Exited{signal}` (EV-4), sent after one drain of the PTY that follows the exit, so the
 output written before the exit is read first (the final model holds it, ST-5).
@@ -40,7 +41,7 @@ output written before the exit is read first (the final model holds it, ST-5).
 | `Launched.terminal` is a placeholder (the launch size, default flags, revisions 0) and `formats` is empty. | The terminal model is M2 (libghostty through P2). No terminal-state id leaves `core-pending.txt` in M1. |
 | A host message that the worker cannot decode is ignored; a frame above the bound closes the link. | Plan section 3: additive messages keep N−1 compatible; a bad length ends a stream. |
 | A closed link leaves the payload running, and the exit is kept unreported. | DP-8. Reconnection and the report after adoption are P5's (AD-1). |
-| `LaunchSpec.stop_grace_ms` (additive, serde default from the Core limits table) carries `CoreLimits.stop_grace`. | The worker times the grace of `EndPayload` itself; agreed with P1. |
+| The worker keeps no grace timer: `stop_grace` is the Core library's deadline, and Core sends `KillPayload` at its due `pump`. `LaunchSpec.stop_grace_ms` is removed. | Steward ruling R-97, follow-up (TM-3, E3-1 item 1): a worker timer on the worker's clock could kill before Core's due `pump`. The removal is compatible both ways (`LaunchSpec` takes unknown fields; an older worker's field has a serde default). |
 | `Remove` while the spawn is out waits for the spawn's answer, then ends the payload. | LC-7: no payload outlives its session. |
 
 Not in M1: the worker's own exit when no host attaches within `startup` (AD-7, P5's id `ad_7_crash_between_steps_...`); the
@@ -67,7 +68,7 @@ worker needs `startup` on its command line for it.
   - `pty-process` 0.5.3: opens the PTY with `rustix`, starts the payload as a session leader with the PTY as its controlling
     terminal (`setsid`, `TIOCSCTTY`), and exposes the master descriptor. It is not the PTY crate that plan 7.1 rejects: the master is ours. Its
     `pre_exec` `unsafe` is inside the library, so our crates keep `unsafe_code = "forbid"`.
-  - `signal-hook` 0.3 and `signal-hook-mio` 0.2: the `SIGUSR1` handler as a readiness source of the `mio` loop.
+  - `signal-hook` 0.3 and `signal-hook-mio` 0.2: the `SIGUSR1` and `SIGUSR2` handlers as a readiness source of the `mio` loop.
   - `mio` (already in the workspace, P1), `rustix` (`event` feature added, for the slow tests' readiness waits).
 - **Hand-rolled, with reasons:** the `Worker` machine (it is the contract); the testkit bindings (they connect the machine to
   P6's in-memory edges).

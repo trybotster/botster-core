@@ -39,19 +39,10 @@ pub struct LaunchSpec {
     /// The largest frame payload that the host accepts and sends on this link, in bytes. The worker sizes its decoder with it
     /// (plan section 3: `len` is checked against a bound before any allocation).
     pub link_frame_bound: u32,
-    /// `CoreLimits.stop_grace` in milliseconds. The worker times the kill of its payload's group with it when the host asks
-    /// without its link (`GroupSignal::EndPayload`, LC-5); on the linked path the host sends `Kill` itself. Absent: the
-    /// default of the Core limits table.
-    #[serde(default = "default_stop_grace_ms")]
-    pub stop_grace_ms: u64,
     /// The Core limits that the worker applies itself: the clipboard and notification bound (EV-3, A2-4), the input records
     /// (ST-7), the queries (EV-8) and the tap (TP-1). Absent: the defaults of the Core limits table.
     #[serde(default)]
     pub limits: CoreLimits,
-}
-
-fn default_stop_grace_ms() -> u64 {
-    u64::try_from(CoreLimits::default().stop_grace.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// A request of the host to a session worker.
@@ -63,7 +54,7 @@ pub enum HostMsg {
     Launch(Box<LaunchSpec>),
     /// The graceful request to end the payload (LC-5). The worker answers [`WorkerMsg::Exited`] when it has ended.
     Stop,
-    /// The kill of the payload's process group after `stop_grace` (LC-5).
+    /// The kill of the payload's process group, which Core sends at the end of `stop_grace` (LC-5).
     Kill,
     /// An operation that needs the worker's model or input path (the reads, `WriteInput`, the setters). `req` is the host's
     /// request number, unique on this link. The worker answers with [`WorkerMsg::Done`].
@@ -333,7 +324,6 @@ mod tests {
             notification_policy: NotificationPolicy::All,
             size_policy: SizePolicy::Latest,
             link_frame_bound: 1 << 20,
-            stop_grace_ms: 250,
             limits: CoreLimits {
                 clipboard_bytes: 77,
                 ..CoreLimits::default()
@@ -344,19 +334,35 @@ mod tests {
         assert_eq!(HostMsg::decode(&bytes), Ok(msg));
     }
 
-    /// An older host sends no `stop_grace_ms`: the worker uses the default of the Core limits table (5 s).
+    /// An absent `limits` field is the defaults of the Core limits table.
     #[test]
-    fn an_absent_stop_grace_is_the_default_of_the_limits_table() {
+    fn an_absent_limits_field_is_the_default_of_the_limits_table() {
         let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(text.as_bytes()) else {
             panic!("a launch");
         };
-        assert_eq!(spec.stop_grace_ms, 5000);
         assert_eq!(
             spec.limits,
             CoreLimits::default(),
             "an absent limits field is the table's defaults"
         );
+    }
+
+    /// The removed `stop_grace_ms` (steward ruling R-97, follow-up) changes no adoption across versions (A6-2). An older host's
+    /// launch, which carries it, still decodes: `LaunchSpec` takes unknown fields. A launch of this host has no such key, and
+    /// an older worker read it with `#[serde(default)]` as the table's default.
+    #[test]
+    fn the_removed_stop_grace_field_decodes_in_both_directions() {
+        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250}"#;
+        let Ok(HostMsg::Launch(spec)) = HostMsg::decode(older.as_bytes()) else {
+            panic!("an older host's launch decodes");
+        };
+        assert_eq!(spec.link_frame_bound, 1024);
+        let mut bytes = Vec::new();
+        HostMsg::Launch(spec).encode(&mut bytes);
+        let text = String::from_utf8(bytes).expect("a launch is text");
+        assert!(text.contains(r#""t":"launch""#), "{text}");
+        assert!(!text.contains("stop_grace_ms"), "{text}");
     }
 
     #[test]
