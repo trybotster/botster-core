@@ -70,3 +70,14 @@ No merge carries a manual resolution.
 Main is now `49ff52d2`. It contains #98 (`xtask/src/taint.rs`) and #100 (`botster-core-conformance` `driver.rs`, `lib.rs`, `tests/driver_steps.rs`). `git merge-tree --write-tree d4d1f213 origin/main` reports `CONFLICT (content)` in `crates/botster-core-conformance/src/lib.rs`, the `pub use driver::{…}` list that both PRs extend. `driver.rs` and `driver_steps.rs` merge automatically. So the landing head needs a merge commit that resolves the conflict by hand. It also needs my review of that resolution (both export sets kept, no other change) and a gate on that exact head. The rulings-only rule does not apply.
 
 My finding F1 is closed. CLEAN on `d4d1f213e8e04ab842bdf49841bf12bf0bda9388`.
+
+## The landing resolution: 8da7fff1ab5a31842aee24af1dd85cfd2fc638bf (receipt)
+
+- **The parents** are the CLEAN head `d4d1f213` and main `49ff52d2` (#100).
+- **The conflict.** `git merge-tree --write-tree` of the parents reports one conflict, in `crates/botster-core-conformance/src/lib.rs`, in the `pub use driver::{…}` list. The commit differs from that automatic merge only in this hunk.
+- **The resolution keeps both sides.** Against main, `lib.rs` adds only `TESTKIT_PROVEN_ROWS`, and #100's `KERNEL_STATE_CONTROLS` and `KERNEL_STATE_RECHECK` stay. `driver.rs`, `driver_steps.rs` and `xtask` merged automatically.
+- **This PR's own change is unchanged.** Outside `lib.rs`, the stable patch-id of the diff from main (`f95be4b7`) is equal to that of `d4d1f213` against `3d590705`. 016c checked the same, blob by blob.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-stage0-final43-crate-8da7fff1-pool-20261012-133721-19110.log`, sha256 `ac49f81abf4b964c3c73b895cfcadab61714e0bc06b2a86ca69229ac3bd7eed6`. All ten steps PASS. Mutants: 9 of 9 caught, then 3 caught and 2 unviable. Exit 0 after 475 s on msa1, base main `5ce2cff1`, ledger 2552 ids. The two earlier logs for this head (`131633` exit 141, no node; `133456` exit 75, disk) did not start, and they are not results.
+- **The target.** `steward/final43` is `0bdb72e7`, an ancestor of `8da7fff1`, so it fast-forwards to `8da7fff1`. Main has since moved to `192d70bc` (#99 and #101). The final43 publish merge onto main gets its own gate and my Q7 receipt, as the steward planned. A test merge of `8da7fff1` with `5ce2cff1` was clean.
+
+Receipt given for `8da7fff1ab5a31842aee24af1dd85cfd2fc638bf` as the landing head of `steward/final43`.
