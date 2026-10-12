@@ -214,7 +214,6 @@ conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
-conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
@@ -228,7 +227,6 @@ conf::dp_5_resize_has_no_answer_size_arrives_in_modes
 conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
 conf::dp_5_silent_not_reported_is_omitted_not_written
 conf::dp_5_stalled_route_with_repeated_queries_stays_bounded
-conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves
 conf::dp_5b_abort_or_route_end_leaves_nothing
 conf::dp_5b_commit_is_answered_with_input_done_and_path
 conf::dp_5b_creation_failure_writes_no_path_and_leaves_no_file
@@ -293,7 +291,6 @@ conf::ev_8_core_has_no_other_query_timer
 conf::ev_8_decline_does_not_consume_the_query_id_before_fallback_admission
 conf::ev_8_encoded_reply_is_bounded_and_once
 # conf::ev_8_every_query_stays_in_output: passes on the testkit at seeds 0-31 in about 38 s, about 1.2 s per seed, over the 2 s default-tier test budget. Gate 42cdfda9 reported 2.005 s only because nextest's terminate-after ended the test at 2 s. Held in core-held.txt (budget). p4b-queries-files: make it faster or move it to the slow tier.
-conf::ev_8_every_query_stays_in_output
 conf::ev_8_exactly_one_reply_under_every_interleaving
 conf::ev_8_fallback_started_means_admitted_refused_fallback_stays_pending
 conf::ev_8_full_query_capacity_backpressures_parser_in_order
