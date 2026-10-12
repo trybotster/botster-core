@@ -338,3 +338,97 @@ This matching receipt grants no later head, amendment, pin, extra pending remova
 No reviewer execution job runs. Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; matching complete source reviews recorded, landing requirements remain due).
+
+## Round 5 — approved current-base import CLEAN
+
+Merged head: `48ff7a038d7c466776ae114acf32fd4f2f6d22da`.
+Tree: `5b0908bfefc6bf3e79dbd588d5a5fa5ef6beb550`.
+Previously reviewed head: `aeffbde6b393eb583f4363bd812fb2d64af0a057`.
+Imported v1 and new source base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Sole merge base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Owner receipt: `msg_plugin-w_1791845122_526e45`. The shared lead handoff confirms the import order after both complete CLEANs.
+The merge has exactly the reviewed head and approved v1 as parents. No later correction enters this head.
+The reviewer verifies that both remote v1 and the P5 branch name the supplied revisions.
+Import full-index diff SHA-256: `286cedef7f627371cbf926623eef2ed5a397cbd1925b8b2f14ab65c3b3bd5548`.
+Own diff against the imported base SHA-256: `abfb214921c1f1aa1be3a5290c95735fff9124079f4c19780007cb39932b5856`.
+The whitespace check passes.
+
+### Own-source preservation and resolutions
+
+The reviewer compares all 47 own paths against their reviewed source-base patches. Eleven overlap the moved base.
+Forty-six own added/removed line sequences remain exact, apart from hunk positions.
+The remaining path is the worker design index, whose header already exists in the imported base.
+Its own read-facts entry and paste rule remain exact. The merged index retains both topics in file-name order.
+The reviewer reads the complete remerge resolution diff. Only two additive conflicts require a resolution.
+The design index retains read-facts and the imported read-reply-order topic.
+The worker test module list retains exit_watch, read_facts, and routes, in order. No test module disappears.
+Every changed non-own blob equals the approved base. The import carries no additional own change.
+
+All host production and test blobs, core-link facts/frame code, facts retention, input, receipt, route, and model blobs remain exact.
+Both own decoder harnesses, root macros, source exports, dependency edges, and tests remain unchanged.
+The imported lockfile changes contract sources to .46 and adds the base's testkit bolero edge.
+The own host and worker bolero edges remain exact against that imported lockfile.
+The merged HARNESSES table retains both own decoders beside the imported FrameEnds and sock_diag decoders.
+The base's held-full accounting remains intact outside those own registrations. No new check family enters this merge.
+
+The shared worker and testkit files import the accepted exit-watch handling and unbounded drain implementation.
+Their own ReadFacts launch, clock, operation, receipt, tail, and completion hooks remain preserved.
+The worker still sends waiting output observations before a read's Done through its ordered report path.
+The new read-reply-order test coexists with the unchanged own read tests and ordinal-bearing launch fixture.
+The testkit keeps records_cost and its measurement decoder beside the new exit-watch fields and actions.
+The new ExitFailure binding does not replace or remove measurement. The common real-worker launch retains cursor_ordinal=1.
+The imported FIFO and exit-tail fixtures remain base changes and do not change the own frame-size or retention proofs.
+The R-116 and R-117 repairs, both Activity guards, and the accepted R320-Q4 frame-bound repair remain exact.
+None of the six closed findings reopens.
+
+### Contracts and status preservation
+
+The new pin and source match imported v1: contracts-v0.1.46 at `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`.
+The reviewer compares the old .44 source `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea` with this exact contracts source.
+All twenty ST-7 transcripts, the facts type file, and the limits file remain byte-identical.
+The route codec has no source change between those revisions. The .46 fence exception list contains no ST-7 entry.
+The import introduces no new ST-7 expected value, limit formula, decoder interpretation, or required control.
+The older .44 gate retains its exact old pin and head. It is not .46 execution evidence.
+
+All nine conformance text sets satisfy the three-way formula against the sole merge base.
+Every imported removal stays removed, and every imported addition remains present.
+Final counts: ledger 692, core-pending 367, real-pending 38, minimum 69, held four, real-only 26, and seven proof rows.
+The own eighteen ST-7 removals and one real-pending cost entry remain the only own status changes.
+No new minimum removal, pending-real removal, mutation exclusion, or retry authority is introduced by #320's import.
+All other status blobs, mutation configuration, and known-flaky data retain the approved base.
+
+### Supplied checks and evidence limits
+
+The reviewer reads checks.sh and retained records. The reviewer executes no producer.
+checks-48ff7a03.log records exact merged head, clean status, and cargo clean exit zero at 22:39:31 UTC.
+The producer sets both concurrency caps to four and unsets RUSTUP_TOOLCHAIN for cargo.
+Fmt, clippy of nine crates, unit tests, strict conformance, and lists each record exit zero.
+Host unit tests pass 387, testkit passes 480, and worker core passes 282. Both own props binaries pass all three tests.
+Strict explicitly uses BOTSTER_SEEDS=0-31. It reports 299 passed, zero failed, and 394 ignored in 5.31 seconds.
+It runs 280 of 297 pending ids, with 17 real-only not run and four held. Lists reports the counts above.
+These Mac results remain supplementary under pair-common. They do not prove fresh real-tier, slow, mutation, or fuzz results.
+Checks SHA-256: `2ec4bb242c5987096c16880f83bb8cb34bc14f7c42ce78dbf9bc01953eb4747a`.
+
+The locked workspace check record finishes successfully in 8.15 seconds. The owner receipt reports its command and exit zero.
+The retained record has no independent head, clean, command, or numeric exit marker. This review keeps that provenance limit.
+Its warnings concern CONTROLS, Answer/Withhold, and install in two unchanged testkit files, without the slow feature.
+The same blobs equal the imported base. Clippy with the slow feature and warnings denied records exit zero.
+Locked-check SHA-256: `d2f995b1132102650b24502637623546c5c42ef72b69f2572112628ea1faaa05`.
+Taint SHA-256: `5d2886a97c6abc1a07ece7f6e40f40e9125a0f624596f13a574ce7e3e1321fc4`; its sole step passes in 26.5 seconds.
+No fresh full gate, mutation run, or fuzz run is supplied for this merged head.
+The accepted aeff gate remains applicable evidence for the unchanged own implementations, with its original .44 composition.
+The lead assigns the merged package to train 11; the exact train gate supplies the merging evidence.
+
+### Body and disposition
+
+The reviewer reads the complete current body and its complete delta from the corrected Round 4 body.
+Body SHA-256: `d4e137ba0c3e46df85a35b2d6b616c5e090b6942d99a565efc980a66f5a7ebbf`.
+The body identifies the approved import, additive conflicts, local checks, and absence of a separate merged-head gate.
+It preserves earlier RED history, exact parent gate scope, evidence limits, protected-set exception, and the A26 hold.
+Zero source, body, or import findings remain, including LOW. All six finding closures remain valid.
+The matching complete integration delta remains due. Applicable train composition review, exact train gate, final receipts, and Q7 remain due.
+No final train, future pin, A26 acceptance, additional status removal, specific retry, or completed merge is granted here.
+No reviewer build, test, gate, mutation, reproduction, or executable base-check job runs.
+Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; #320 source, body, and approved current-base import on 48ff7a03).

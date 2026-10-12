@@ -2408,3 +2408,39 @@ Gate, mutation, fuzz, local/reversal limits, status scope, and the explicit R320
 A26 stays separate and on hold. No over-cap refusal or future amendment is accepted.
 Both complete source reviews are CLEAN. Current-base import/deltas, merging train gate, final receipts, and lead Q7 remain due.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Publication: matching #320 integration receipt is pushed at f5976234713d7f407f5a8269a89f02aa802c3452.
+P5 and Sol receive the complete matching CLEAN record. No terminal lead message repeats the unchanged source verdict.
+Landing requirements remain due. Wait for the doorbell. Never poll.
+
+## #320 approved current-base import — package Round 5 CLEAN
+
+Owner receipt msg_plugin-w_1791845122_526e45 requests the lead-ordered import delta after both complete CLEANs.
+Head: 48ff7a038d7c466776ae114acf32fd4f2f6d22da. Tree: 5b0908bfefc6bf3e79dbd588d5a5fa5ef6beb550.
+Parents: reviewed aeffbde6b393eb583f4363bd812fb2d64af0a057 and v1 644f632f194f62ad7fe14e66482ee01083706e30.
+Sole merge base: 3e655eff46d36f8c337339a1a17d401c8c662594. No post-merge correction enters the head.
+The reviewer reads the brief first, complete applicable source delta, remerge resolutions, local producer, records, and body.
+All 47 own paths are compared. Eleven overlap the base. Forty-six own line sequences remain exact.
+The remaining design index keeps its own topic and paste rule beside the base's topic header and read-reply-order entry.
+The other conflict retains exit_watch, read_facts, and routes. Every changed non-own blob equals the approved base.
+All six finding closures remain exact. Both own harnesses and macros remain, beside the imported two testkit harnesses.
+Shared worker/testkit files preserve every own hook and measurement beside the imported exit-watch/drain behavior.
+All 20 ST-7 transcripts, facts types, and limits remain byte-identical from .44 to imported .46; route codec source is unchanged.
+All nine conformance set formulas pass; no base removal returns. Counts: ledger 692, pending 367, real-pending 38, minimum 69.
+The own 18 removals and one real-pending cost entry remain. No new own exclusion, retry, pin, or status removal is added.
+
+Local checks record exact head, clean status, clean exit 0, and all command exits 0. Strict seeds 0-31 reports 299/0.
+Worker core 282, host 387, testkit 480; both own props binaries 3/3. Mac results stay supplementary.
+The locked check finishes successfully in 8.15s; the receipt reports exit 0. Its log lacks head/clean/command/numeric-exit markers.
+Known warnings come from unchanged report_holds.rs and stand_in.rs. Taint PASS. No fresh merged-head full gate is claimed.
+Checks hash: 2ec4bb242c5987096c16880f83bb8cb34bc14f7c42ce78dbf9bc01953eb4747a.
+Locked-check hash: d2f995b1132102650b24502637623546c5c42ef72b69f2572112628ea1faaa05.
+Taint hash: 5d2886a97c6abc1a07ece7f6e40f40e9125a0f624596f13a574ce7e3e1321fc4.
+Import diff hash: 286cedef7f627371cbf926623eef2ed5a397cbd1925b8b2f14ab65c3b3bd5548.
+New own diff hash: abfb214921c1f1aa1be3a5290c95735fff9124079f4c19780007cb39932b5856.
+Complete body hash: d4e137ba0c3e46df85a35b2d6b616c5e090b6942d99a565efc980a66f5a7ebbf.
+The body retains parent-gate/RED/local scopes, import facts, protected overflow, and A26 on hold.
+
+Formal package Round 5 is CLEAN on exact 48ff7a03, with zero open findings. Matching integration delta remains due.
+Train 11 composition/deltas, exact merging train gate, final receipts, and lead Q7 remain due. No reviewer execution job runs.
+Wait for the doorbell. Never poll.
