@@ -43,3 +43,13 @@ HIGH (rules 1 and 3: the shared driver, the shared hub-conformance route driver,
 ### Notes (not findings)
 
 - **The real tier runs a tool on each re-check.** As a kernel-state control, `route_frames_taken` is re-read every 5 ms while `await_control` waits (R-111). On macOS each read runs `/usr/sbin/netstat`. R-93 accepted that path, and the step deadline bounds it. Core #319's evidence should show that the per-read cost fits inside the step budget.
+
+## Round 2: CLEAN on a038119f361105c8a725479b1918c559a49324d9 (F1 and F2 closed)
+
+- **F1: closed** by `bfb9eb75`. The row's premise text now reads: "Reviewer checklist item 6 checks this premise (R-115, contracts main `11b2a5a8`); no lint checks it." The text of the premise is unchanged: no `route_gate` and no `route_accept` limit from the route's first frame to the fence, and `route_queue_bytes` at the default. The same commit also fixes 016c's sentence break in the `await_control` row (`driver.rs:26`).
+- **F2: closed** by `a038119f`. `git diff 49ff52d2 a038119f -- crates/botster-fake-route` is empty, so the frozen fake route endpoint is as on main (BUILD.md:48, R-73 item 4). `git grep frames_taken` finds nothing in `botster-fake-route`. The dispatch test now uses its own test endpoint: `Tagged` in `driver_steps.rs` counts the client's writes, one frame per `route_send`, and answers `route_frames_taken` only there. The test's expectations (r2: 2, r1: 0, the endpoint log, the op that the endpoint lacks, the unattached name) are unchanged.
+- **No other change.** The delta from `bdad2be3` has 6 files: `driver.rs` (the doc row), `driver_steps.rs`, three fake-route files restored, and `core-testkit-controls.md`. `am_2_one`, the dispatch code, the R-111 list and the vocabulary are as in round 1, so the round-1 checks and checklist item 6 stand.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-stage1-pc-route-frames-taken-a038119f-pool-20261012-135252-5876.log`, sha256 `9bc2b95994773c65558530c972aab90889abe970778460b6aed6a42146389a2d`. All ten steps PASS, with 5 of 5 mutants caught. Exit 0 after 1054 s on linux, base main `192d70bc`.
+- **Landing.** Main is now `61f3c128` (#99, #101 and final43). `git merge-tree --write-tree a038119f origin/main` is clean (`12efd100`). The landing head needs that main merge, my Q7 receipt and a gate.
+
+My findings F1 and F2 are closed. CLEAN on `a038119f361105c8a725479b1918c559a49324d9`.
