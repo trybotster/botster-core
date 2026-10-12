@@ -1510,7 +1510,7 @@ fn ou_7_a_tail_written_before_a_stop_that_kills_reaches_the_model_and_the_route_
 
 /// R-108 (1) on the real driver: a silent process that still holds the PTY does not hold the drain. The payload leaves a
 /// background holder in its group, which keeps the PTY as its output, writes nothing to it, and ignores the `SIGHUP` that
-/// the leader's exit sends to the group. The payload then exits. The holder waits for a byte that the test sends only after
+/// the leader's exit sends to the group: the leader ignores `SIGHUP` before it starts the holder, so the holder inherits it. The payload then exits. The holder waits for a byte that the test sends only after
 /// `Exited`, and only then it writes its second marker, so `Exited{code 0}` came while the holder was alive.
 ///
 /// On Linux the holder's output is still the terminal then: the PTY had a live writer at `Exited`, so the drain ended at
@@ -1524,14 +1524,14 @@ fn a_silent_holder_of_the_pty_does_not_delay_exited() {
     let mut after = marker_fifo(root.path(), "after");
     let mut up = marker_fifo(root.path(), "up");
     let script = format!(
-        "(trap '' HUP; /bin/echo held > {held}; /usr/bin/head -c 1 {release} > /dev/null; if [ -t 1 ]; then /bin/echo tty > {after}; else /bin/echo none > {after}; fi) & /bin/echo up > {up}; exit 0",
+        "trap '' HUP; (/bin/echo held > {held}; /usr/bin/head -c 1 {release} > /dev/null; if [ -t 1 ]; then /bin/echo tty > {after}; else /bin/echo none > {after}; fi) & /bin/echo up > {up}; exit 0",
         held = quoted(&root.path().join("held")),
         release = quoted(release.path()),
         after = quoted(&root.path().join("after")),
         up = quoted(&root.path().join("up")),
     );
     let mut s = GuardedSession::launch(root.path(), &script, 5000);
-    // The holder's own readiness: it ignores `SIGHUP` before it writes this marker.
+    // The holder's own readiness: it ignores `SIGHUP` from its start, and it writes this marker before it waits.
     assert_eq!(
         held.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("held\n")

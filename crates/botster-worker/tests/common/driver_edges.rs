@@ -609,6 +609,8 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     // as its loop does. On Linux the exit comes without reads, so nothing is read before `DrainPty`, and the drain must read
     // the whole tail, also the part that the count left out.
     let read_while_waiting = !cfg!(target_os = "linux");
+    // `spawn` assumes the new PTY readable. The test clears that assumption, so only a PTY event on the poll sets it.
+    h.driver.pty_readable = false;
     let mut output = Vec::new();
     let mut events = Events::with_capacity(16);
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -643,7 +645,7 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
     if !read_while_waiting {
         assert!(
             h.driver.pty_readable,
-            "the PTY's readiness came before the exit"
+            "a PTY event came on the poll before the exit"
         );
     }
     h.driver.perform(Action::DrainPty).unwrap();
