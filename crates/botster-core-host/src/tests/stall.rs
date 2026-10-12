@@ -448,6 +448,70 @@ fn the_close_step_answer_of_a_failed_resume_posts_its_reason_in_the_slot() {
     assert!(w.engine.queue.has_mandatory_room());
 }
 
+/// R-90 Q1: the answer of a due step posts in that step's own slot. With two steps of one link asked, the second route's
+/// answer leaves the first step's slot held, so the first answer posts in its own slot too, while the queue is full.
+#[test]
+fn an_answer_posts_in_its_own_slot_and_leaves_the_other_steps_slot() {
+    let mut w = world(3);
+    let a = attach(&mut w);
+    let b = attach(&mut w);
+    progress(&mut w, a, 3, true);
+    progress(&mut w, b, 5, true);
+    w.advance(STALL);
+    w.pump();
+    assert_eq!(dues(&w).len(), 2);
+    // One event and two slots fill the queue of three.
+    w.engine.begin(create("x1")).unwrap();
+    w.pump();
+    assert!(!w.engine.queue.has_mandatory_room());
+    w.worker_says("s1", WorkerMsg::RouteStalled { route: b, mark: 5 });
+    assert!(
+        w.engine.route_holds_slot(a),
+        "the first step keeps its slot"
+    );
+    w.worker_says("s1", WorkerMsg::RouteStalled { route: a, mark: 3 });
+    let events = w.engine.poll_events(64);
+    assert!(
+        events.ends_with(&[
+            Event::RouteStalled { route: b },
+            Event::RouteStalled { route: a }
+        ]),
+        "{events:?}"
+    );
+}
+
+/// R-90 follow-up (contracts `main` `1798a65d`): only a mandatory frame that waits for room takes a slot over. With room,
+/// a route close of the link takes none; with no room, a progress report (no mandatory event) takes none.
+#[test]
+fn no_slot_is_taken_over_with_room_or_by_a_frame_with_no_mandatory_event() {
+    let mut w = world(2);
+    let route = attach(&mut w);
+    let other = attach(&mut w);
+    let third = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.advance(STALL);
+    w.pump();
+    assert!(w.engine.queue.has_mandatory_room(), "one slot of two");
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route: other,
+            reason: RouteCloseReason::WriteFailed,
+            route_tag: None,
+        },
+    );
+    assert!(w.engine.route_holds_slot(route), "the close had room");
+    assert!(
+        !w.engine.queue.has_mandatory_room(),
+        "its event and the slot"
+    );
+    progress(&mut w, third, 1, true);
+    assert!(
+        w.engine.route_holds_slot(route),
+        "a progress report posts no mandatory event"
+    );
+}
+
 /// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
 /// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
 /// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.
