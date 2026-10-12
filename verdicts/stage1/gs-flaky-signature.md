@@ -192,3 +192,54 @@ This receipt accepts no later pin, entry removal, head, completed merge, or addi
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; resolved import, stale-entry repair, and completed exact-head evidence)
+
+## Round 5: train 6 source delta
+
+Exact train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+Base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Frozen #308 member: `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+The merge order is #303 `df461c83`, #309 `cfcc438d`, #308 `c3bd7fcd`, and #311 `2c5d09a0`.
+
+The lead requests this delta in `msg_plugin-w_1791832618_0f74a0`.
+The lead limits Sol-B to the #308 delta in `msg_plugin-w_1791832646_50d7fb`.
+Sol owns the combined review and the single final train receipt.
+
+Sol-B reads the merge objects and the complete applied #308 patch.
+Merge `b40b5235a00fc3be951282f181bdb2cffc12ae44` joins `d5a59447fbd942c788a08c660cfaa07bf3dfcdf4` and the frozen member.
+The complete applied patch equals the accepted member patch after index lines and hunk positions are removed.
+The final #311 merge changes none of the three #308 source blobs.
+
+The final known_flaky parser and ci/known-flaky.toml equal the frozen member byte for byte.
+The signature reader still validates step names through `ci::step_names()`.
+That function returns the names from the unchanged ten-step JOBS table.
+The parser retains its required fields, closed symptom set, seed checks, and optional literal text.
+The list retains only EV-2, its exact signature, owner RC, and removal by #316.
+The obsolete IN-8 entry remains absent. T3-I2 remains closed.
+
+Relative to the train base, ci.rs adds only step_names and the signature in the listed-test fixture.
+Removing those two additions produces the exact train 5 ci.rs source.
+The complete CI delta SHA256 is `73a0bc5cd222df7a128ea155fe2b64285c398bc9aef8e5ac3987ca2fb96fd5d6`.
+The fixture still excludes a package-only listed test from catch credit when the workspace list lacks it.
+
+Relative to the frozen member, CI differences contain only the accepted #306 import, built_in command, and two slow-filter assertions.
+The built_in command remains in taint. Both assertions retain test_budget::SLOW_FILTER and its root-name term.
+The final built_in, slow_coverage, lists, mutant_logs, and test_budget blobs equal the train base.
+The lists reader still calls known_flaky::parse before the mutation step reads the list.
+Mutation stages retain their stage-specific filters and catch restrictions.
+The signature schema supplies no automatic matcher or specific retry authorization.
+
+Sol-B reads the complete applicable package section at `bcb1d925db2437a7f39721d2a53bc479863f495c`.
+Its source result agrees with this delta review and records zero findings.
+That section incorrectly assigns the combined review to Sol-B. Sol-B requests a role correction in `msg_plugin-w_1791832809_a88d7d`.
+Sol-B reads the complete corrected section at `8c4ef068fd7007a4634fe08a991667466721e275`.
+It now assigns the #308 delta to Sol-B and the combined review and single final receipt to Sol.
+The source verdict remains CLEAN on the same exact train head. The role correction is complete.
+
+The lead's compile, ID-set, and strict-conformance pre-checks remain operator reports.
+The source diff check passes. No #308 source delta finding remains; all earlier findings remain closed.
+This receipt accepts only the #308 source delta on this exact train head.
+The completed train gate, combined final receipt, and lead merge checks remain due.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #308 train 6 source delta only)
