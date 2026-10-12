@@ -307,8 +307,9 @@ impl<E: HostEdges> Tap<E> {
     /// signals the wake edge, so that the host pumps and reads it (TM-6).
     pub fn quiet(&mut self) -> bool {
         self.sort_unnamed();
-        let mut quiet =
-            !self.holds_anything() && !crate::report_holds::lock(&self.report_holds).gives();
+        let report_holds = Arc::clone(&self.report_holds);
+        let report_holds = crate::report_holds::lock(&report_holds);
+        let mut quiet = !self.holds_anything() && !report_holds.gives();
         if quiet {
             if self.take_link() {
                 quiet = false;
@@ -319,6 +320,11 @@ impl<E: HostEdges> Tap<E> {
             }
             let mut buf = vec![0u8; READ_CHUNK];
             for (link, tap) in &mut self.links {
+                // A report hold holds a frame of the link: the bytes and the end behind it wait, so they are no report.
+                // A read here would take the end again and keep it where the driver never reads it (#315 B315-I1).
+                if report_holds.withholds(*link) {
+                    continue;
+                }
                 match self.inner.link_recv(*link, &mut buf) {
                     Ok(0) => tap.end = Some(End::Closed),
                     Ok(n) => {
