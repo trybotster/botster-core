@@ -1,5 +1,30 @@
 # PB-W1: worker process exit status
 
+## Current verdict: round 2
+
+Date: 2026-10-12. PR: #330. Tier: HIGH.
+Head: `572924b29bf4fca3d6a8c76d45fc486c0c070b70`, unchanged.
+Reviewed source and Linux gate base: `007efbde6a59af403d0937c38361c137a8961a48`.
+
+VERDICT: CLEAN
+
+PBW1-1 is closed. The reviewer read the focused Mac pool log and checked its citation in the complete PR body.
+The log records the exact reviewed head, macOS 27.0.1, and arm64.
+`slow_process`: 24 tests pass, zero skipped. Slow library tests: 25 pass, 43 outside the selected filter.
+Both affected reaper tests pass: `a_reaper_returns_right_after_its_notify` and `a_reaper_without_a_child_returns_at_once`.
+The job and wrapper exit 0. The commands use the slow feature and profile, with cargo and nextest parallelism capped at four.
+
+Mac log: `~/botster-sessions/gates/botster-core-stage1-pb-w1-exit-status-572924b2-pool-20261012-163652-79654.log`.
+Mac log SHA256: `93878c3f9836e48e69a7bd1301d7f13675b3e40d5fe3d8a12e1a08a14dbd7fe6`.
+This is focused platform evidence, not a replacement for the Linux gate recorded below.
+The Mac wrapper records the newer origin/v1 tip, but the executed source remains the unchanged reviewed head.
+
+No source delta needs review in this round. No package finding remains open.
+The required integration review, current-base import, #327 adaptation, and lead merge checks remain due.
+The reviewer built nothing locally and ran no execution job.
+
+## Historical verdict: round 1
+
 Date: 2026-10-12. Round: 1. PR: #330. Tier: HIGH.
 Head: `572924b29bf4fca3d6a8c76d45fc486c0c070b70`.
 Base: `007efbde6a59af403d0937c38361c137a8961a48`.
