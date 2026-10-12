@@ -530,3 +530,20 @@ This record accepts no later head, source tree, gate, or merge.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open) at 77eae642eaac0c56cde035870616d17bf2f877ba against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
+
+## Round 6 merge receipt
+
+Lead receipt: `msg_plugin-w_1791781190_e56ebc`.
+The lead reports Q7 complete and merge `ae49bbec2d1086f918341bc596bf8560ba27bcd1` on v1.
+I independently read the merge Git object.
+Its first parent is the reviewed imported base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Its second parent is the accepted head `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Its tree is `9423da03abc7b905308920570cf767216e0f3ee5`, exactly the reviewed and gated tree.
+Thus the final CLEAN carries to this merge without a different source composition.
+Complete package matching final receipt `9f21a84980907c2a14b2de0bb691049bf1e6089b` is also read.
+The earlier failed gates, canonical FAIL with explicit delta reviews, and all evidence limits remain.
+Separate encoder/clone cost work and the budget-held full-input queue id retain their scopes.
+No later head, pin, status change, or merge is accepted by this receipt.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open) for merge ae49bbec2d1086f918341bc596bf8560ba27bcd1 with the accepted gated tree
