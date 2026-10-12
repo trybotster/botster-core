@@ -157,7 +157,7 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
 #[test]
 fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     let (mut edges, mut peer, worker, now) = fixture(8);
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     // The run's process table knows the worker of this fixture, as a spawn would have recorded it.
     lock(&workers.run_processes).insert(
         edges.id,
@@ -195,7 +195,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
 fn worker_identities_do_not_repeat() {
-    let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
+    let workers = Workers::new(SchedulerHandle::with_seed(2), WorkerClock::real());
     assert!(format!("{workers:?}").contains("Workers"));
     let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
@@ -282,7 +282,7 @@ fn workers_expose_the_payload_grace_deadline() {
     );
     worker.handle(now, Input::EndPayload);
     while worker.poll_action().is_some() {}
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
     assert_eq!(
         workers.next_deadline(),
@@ -364,7 +364,7 @@ fn program_reads_retain_output_at_each_read_bound() {
 #[test]
 #[should_panic(expected = "a worker needs a positive read bound")]
 fn a_worker_refuses_zero_read_bound() {
-    Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
+    Workers::with_read_chunk(SchedulerHandle::with_seed(1), WorkerClock::real(), 0);
 }
 
 /// `edges_quiet` (Core A5-2): each report that the host has not consumed keeps the edges from quiet on its own: a worker's
@@ -372,7 +372,7 @@ fn a_worker_refuses_zero_read_bound() {
 #[test]
 fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     let now = Instant::now();
-    let workers = Workers::new(SchedulerHandle::with_seed(0), now);
+    let workers = Workers::new(SchedulerHandle::with_seed(0), WorkerClock::manual(now).0);
     let mut spawner = workers.spawner("d");
     let table = spawner.table();
     assert!(workers.edges_quiet(&table), "no worker, no report");
@@ -399,7 +399,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(!workers.edges_quiet(&table));
 
     // The hello is on the link and the host has not read it.
-    workers.run(now);
+    workers.run();
     assert!(!workers.has_ready());
     assert!(table.holds_reports());
     assert!(!workers.edges_quiet(&table));
@@ -410,7 +410,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     // The host's end closes first, so the worker's end of file is no report for it; then the worker is killed, and only its
     // exit waits for the host.
     host.end().close();
-    workers.run(now);
+    workers.run();
     assert!(workers.edges_quiet(&table));
     spawner.signal_group(id, GroupSignal::Kill);
     assert!(!workers.has_ready());
@@ -435,7 +435,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     use std::thread;
 
     let (edges, _peer, _worker, now) = fixture(8);
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     lock(&workers.run_processes).insert(
         edges.id,
         (Arc::clone(&edges.cell), Arc::clone(&edges.processes)),

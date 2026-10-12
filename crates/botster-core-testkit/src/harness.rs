@@ -10,7 +10,7 @@ use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{CoreRecord, RefusalHandle, RefusalLayer};
 use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
-use crate::worker::{ProcessTable, TestkitCore, Workers};
+use crate::worker::{ProcessTable, TestkitCore, WorkerClock, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
@@ -76,12 +76,11 @@ impl std::fmt::Debug for HandleEdges {
 
 impl TestkitHarness {
     pub fn new(seed: u64) -> TestkitHarness {
-        let start = Instant::now();
         TestkitHarness {
             controls: crate::controls::registered_controls(),
             seed,
             directories: Directories::default(),
-            workers: Workers::new(SchedulerHandle::with_seed(seed), start),
+            workers: Workers::new(SchedulerHandle::with_seed(seed), WorkerClock::real()),
             refusals: BTreeMap::new(),
             records: BTreeMap::new(),
             handles: BTreeMap::new(),

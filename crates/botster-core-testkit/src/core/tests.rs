@@ -455,7 +455,8 @@ fn reopen_retains_rows_and_advances_the_host_epoch() {
 fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     let start = Instant::now();
     let scheduler = SchedulerHandle::with_seed(5);
-    let workers = crate::worker::Workers::new(scheduler, start);
+    let workers =
+        crate::worker::Workers::new(scheduler, crate::worker::WorkerClock::manual(start).0);
     let mut limits = CoreLimits::default();
     limits.pump_events += 1;
     let features = core_features();
@@ -621,7 +622,10 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
         s.overrides_mut().poll_batch = Some(64);
         s.overrides_mut().no_spurious_wakes = true;
     });
-    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let workers = crate::worker::Workers::new(
+        scheduler.clone(),
+        crate::worker::WorkerClock::manual(start).0,
+    );
     let log = Arc::new(Mutex::new(ProcessLog::default()));
     let mut dirs = Directories::default();
     let opened = dirs
@@ -855,7 +859,11 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
         scheduler.with(|s| {
             s.overrides_mut().no_spurious_wakes = true;
         });
-        let workers = crate::worker::Workers::with_read_chunk(scheduler.clone(), start, bound);
+        let workers = crate::worker::Workers::with_read_chunk(
+            scheduler.clone(),
+            crate::worker::WorkerClock::manual(start).0,
+            bound,
+        );
         let mut dirs = Directories::default();
         let mut opened = dirs
             .open(
@@ -958,7 +966,10 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
     scheduler.with(|s| {
         s.overrides_mut().no_spurious_wakes = true;
     });
-    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let workers = crate::worker::Workers::new(
+        scheduler.clone(),
+        crate::worker::WorkerClock::manual(start).0,
+    );
     let mut dirs = Directories::default();
     let config = OpenConfig {
         data_dir: "reopen".into(),
@@ -1135,7 +1146,10 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
     scheduler.with(|s| {
         s.overrides_mut().no_spurious_wakes = true;
     });
-    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let workers = crate::worker::Workers::new(
+        scheduler.clone(),
+        crate::worker::WorkerClock::manual(start).0,
+    );
     let mut dirs = Directories::default();
     let config = OpenConfig {
         data_dir: "corrupt".into(),
@@ -1347,12 +1361,21 @@ fn create_and_start(core: &mut crate::worker::TestkitCore, id: &SessionId, start
 
 /// The run's scheduler and in-process workers, with no spurious wakes.
 fn adoption_run(start: Instant) -> (SchedulerHandle, crate::worker::Workers) {
+    let (scheduler, workers, _) = adoption_run_with_clock(start);
+    (scheduler, workers)
+}
+
+/// [`adoption_run`], with the cell of the workers' own clock (R-97), which the test moves.
+fn adoption_run_with_clock(
+    start: Instant,
+) -> (SchedulerHandle, crate::worker::Workers, Arc<Mutex<Instant>>) {
     let scheduler = SchedulerHandle::with_seed(13);
     scheduler.with(|s| {
         s.overrides_mut().no_spurious_wakes = true;
     });
-    let workers = crate::worker::Workers::new(scheduler.clone(), start);
-    (scheduler, workers)
+    let (clock, at) = crate::worker::WorkerClock::manual(start);
+    let workers = crate::worker::Workers::new(scheduler.clone(), clock);
+    (scheduler, workers, at)
 }
 
 /// The completed `Stop` of `id`, which a host stop of the payload ends (AD-1: the stop reaches the adopted payload).
@@ -1477,7 +1500,7 @@ fn a_second_candidate_is_closed_and_a_closed_candidate_frees_the_place() {
     let key = key_of(&dirs, "strangers", &session);
     let mut held = workers.connect_endpoint(&key).expect("the worker listens");
     let mut refused = workers.connect_endpoint(&key).expect("the worker listens");
-    workers.run(start);
+    workers.run();
     let mut buf = [0u8; 1];
     assert_eq!(
         refused.recv(&mut buf).unwrap(),
@@ -1490,7 +1513,7 @@ fn a_second_candidate_is_closed_and_a_closed_candidate_frees_the_place() {
         "the first candidate waits for its hello"
     );
     held.close();
-    workers.run(start);
+    workers.run();
 
     let mut second = handle_over(&mut dirs, "strangers", &workers, &scheduler);
     second.begin(Op::AdoptAll).unwrap();
@@ -1561,7 +1584,7 @@ fn remove_unlinks_the_endpoint_that_a_killed_worker_left() {
 #[test]
 fn a_silent_candidate_is_closed_at_the_spawning_handles_startup() {
     let start = Instant::now();
-    let (scheduler, workers) = adoption_run(start);
+    let (scheduler, workers, clock) = adoption_run_with_clock(start);
     let mut dirs = Directories::default();
     let session = SessionId("s".into());
     let limits = CoreLimits {
@@ -1573,14 +1596,15 @@ fn a_silent_candidate_is_closed_at_the_spawning_handles_startup() {
     let mut silent = workers
         .connect_endpoint(&key_of(&dirs, "silent", &session))
         .expect("the worker listens");
-    workers.run(start);
+    workers.run();
     let mut buf = [0u8; 1];
     assert_eq!(
         silent.recv(&mut buf).unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock,
         "the candidate waits for its hello"
     );
-    workers.run(start + limits.startup);
+    *lock(&clock) = start + limits.startup;
+    workers.run();
     assert_eq!(
         silent.recv(&mut buf).unwrap(),
         0,
@@ -1658,7 +1682,7 @@ fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
     let mut stranger = workers
         .connect_endpoint(&key_of(&dirs, "ctl", &session))
         .expect("the worker listens");
-    workers.run(start);
+    workers.run();
     let (mut b, table_b, wake_b) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
     b.begin(Op::AdoptAll).unwrap();
     let events = settle_partial(&mut b, start);
@@ -1677,7 +1701,7 @@ fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
     // A's table is gone (its host is retired). The stranger leaves, and B's retry adopts the worker.
     drop((table_a, wake_a));
     stranger.close();
-    workers.run(start);
+    workers.run();
     let adopt = b
         .begin(Op::Adopt {
             id: session.clone(),
@@ -1700,7 +1724,7 @@ fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
     program.write(b"y");
     wake.expect("the control host has a wake").signal();
     assert!(woken(&wake_b));
-    workers.run(start);
+    workers.run();
     assert!(
         !workers.edges_quiet(&table_b),
         "B holds the worker's report"
@@ -1722,7 +1746,7 @@ fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
     workers.break_link(worker).unwrap();
     assert!(woken(&wake_c));
     assert!(!woken(&wake_b));
-    workers.run(start);
+    workers.run();
     assert!(
         !workers.edges_quiet(&table_c),
         "C holds the end of the broken link"
@@ -1746,7 +1770,7 @@ fn a_refused_candidates_end_of_file_keeps_the_connecting_host_busy() {
     drop(first);
     let key = key_of(&dirs, "eof", &session);
     let _stranger = workers.connect_endpoint(&key).expect("the worker listens");
-    workers.run(start);
+    workers.run();
 
     // A host's edge connects (`SimEdges::connect_worker` gives the spawner the worker's end of a new link).
     let mut spawner = workers.spawner("eof");
@@ -1754,7 +1778,7 @@ fn a_refused_candidates_end_of_file_keeps_the_connecting_host_busy() {
     assert!(workers.edges_quiet(&table));
     let (mut host, worker) = crate::net::link_pair(1024);
     assert!(spawner.connect_worker(&key.instance, worker));
-    workers.run(start);
+    workers.run();
     assert!(
         !workers.edges_quiet(&table),
         "the refused candidate's end of file waits for the host"
@@ -1833,7 +1857,7 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
     }
     let mut spawner = workers.spawner("imp");
     let table = spawner.table();
-    workers.run(start);
+    workers.run();
     assert!(
         workers.edges_quiet(&table),
         "an impostor that no host reached is quiet"
@@ -1841,7 +1865,7 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
 
     let (mut host, end) = crate::net::link_pair(LINK_CAPACITY);
     assert!(spawner.connect_worker(&key.instance, end));
-    workers.run(start);
+    workers.run();
     assert!(
         workers.edges_quiet(&table),
         "a connected impostor with nothing to read is quiet"
@@ -1863,7 +1887,7 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
         !workers.edges_quiet(&table),
         "the impostor holds the host's bytes"
     );
-    workers.run(start);
+    workers.run();
     let mut buf = vec![0u8; LINK_CAPACITY];
     let n = host.recv(&mut buf).unwrap();
     let frames = frames_of(&buf[..n]);
@@ -1908,7 +1932,7 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
     // A second hello gets no second answer.
     let again = frame_bytes(FrameType::HELLO, &payload);
     assert_eq!(host.send(&again).unwrap(), again.len());
-    workers.run(start);
+    workers.run();
     assert_eq!(
         host.recv(&mut buf).map_err(|e| e.kind()),
         Err(io::ErrorKind::WouldBlock)
@@ -1918,7 +1942,7 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
     // impostor of `two`.
     spawner.signal_group(worker_two, GroupSignal::EndPayload);
     spawner.signal_group(worker_one, GroupSignal::Term);
-    workers.run(start);
+    workers.run();
     assert_eq!(
         workers.impostor_signals("imp", &one),
         Some(vec![GroupSignal::Term])
