@@ -6,19 +6,20 @@ use super::*;
 use botster_core_edges::scheduler::ChoicePoint;
 use std::collections::BTreeSet;
 
+/// The ops that a test holds.
+type Held = Arc<Mutex<BTreeSet<u64>>>;
+/// Every choice that the driver asks, in order.
+type Log = Arc<Mutex<Vec<(ChoicePoint, usize)>>>;
+
 /// The production policy, with the ops of `held` held, and every choice that the driver asks recorded in `log`.
 struct Holding {
-    held: Arc<Mutex<BTreeSet<u64>>>,
-    log: Arc<Mutex<Vec<(ChoicePoint, usize)>>>,
+    held: Held,
+    log: Log,
     policy: Production,
 }
 
 impl Holding {
-    fn new() -> (
-        Holding,
-        Arc<Mutex<BTreeSet<u64>>>,
-        Arc<Mutex<Vec<(ChoicePoint, usize)>>>,
-    ) {
+    fn new() -> (Holding, Held, Log) {
         let (held, log) = (Arc::default(), Arc::default());
         let policy = Holding {
             held: Arc::clone(&held),
@@ -46,11 +47,7 @@ impl Scheduler for Holding {
     }
 }
 
-fn holding_rig() -> (
-    Rig,
-    Arc<Mutex<BTreeSet<u64>>>,
-    Arc<Mutex<Vec<(ChoicePoint, usize)>>>,
-) {
+fn holding_rig() -> (Rig, Held, Log) {
     let (policy, held, log) = Holding::new();
     (
         Rig::with_scheduler(CoreLimits::default(), Box::new(policy)),
