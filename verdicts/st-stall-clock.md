@@ -2,6 +2,36 @@
 
 VERDICT: CLEAN (DP-8 design revision 5)
 
+## Core #298: merge delta at 4ca7bb2a
+
+Reviewed head: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Previous source CLEAN: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Imported v1: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Three-way base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+Status: no source finding in the announced resolution delta. The final receipt waits for the completed exact-head gate.
+The reviewer ran no local build or test.
+
+The reviewer inspected merge `24b5d65c374d2775b80b6024287a5974f66ad524` with `git show --remerge-diff`.
+Both text conflicts resolve as unions: all ST budget entries remain beside the imported DP-5 budget entry.
+The host test module list keeps both `stall` and `stop_drain`.
+The following commit adds only `mark: 0` and formatting to the imported drain test's `RouteStalled` construction.
+That test registers no route. It tests mandatory-room blocking at the driver, so the mark does not arm a route clock.
+The reviewer also inspected the imported driver drain changes where they meet the existing queue and budget paths.
+
+The reviewer independently checked the three-way id sets, excluding comments and parsing the deferred TOML entries.
+For every file, merged = (ours union theirs) minus ids removed from the base by either side.
+Results: held 7, pending 403, real-only 26, real-pending 49, real-proofs 3, deferred 2; all passed.
+The implementer's message said deferred 4. The file contains two `[[deferred]]` entries with two ids.
+This count difference does not indicate a missing id or merge defect.
+
+Local evidence: `~/botster-sessions/gates/st-298-merge-local-4ca7bb2a.log`.
+Its header names this head and reports the target clean before the run.
+The five selected packages passed 1086/1086, including the drain-room test and repaired stall-post tests.
+The strict default-tier run used seeds 0-31 and passed 594/595.
+It timed out at `conf::in_9_legacy_keys_table` after 2.019 seconds and exited 100.
+The implementer reports an isolated pass at 1.758 seconds. This review retains the broad timeout and does not call that run green.
+The reviewer has not read or polled the running pool gate. Its completion message remains due.
+
 ## DP-8 route adoption: design revision 5
 
 Follow-up artifact SHA-256: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.

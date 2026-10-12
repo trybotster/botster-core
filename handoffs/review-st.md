@@ -68,6 +68,12 @@ This design CLEAN does not replace the lead's approval before code. Wait for the
 Follow-up artifact: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.
 The reviewer inspected the absent-tag encoding update. The design verdict remains CLEAN.
 
+#298 merge delta: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`, importing v1 `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The reviewer found no source defect in the announced conflict resolutions and added drain-test mark.
+All six three-way conformance sets passed. The deferred file has two ids, not the four stated in the READY message.
+The local package run passed 1086/1086. The strict default-tier run retains its one in_9 timeout.
+The final receipt waits for the completed exact-head pool gate. Do not poll; wait for its doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
