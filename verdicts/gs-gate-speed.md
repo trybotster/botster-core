@@ -2637,3 +2637,42 @@ Reject unsupported forms. Add a negative fixture for the conditional call above.
 Sol-B independently reports the same attribute gap. The gate on this head is running. I read no running output and accept no completed result.
 
 The candidate and evidence findings remain closed. The coverage finding remains HIGH. I ran no gate, build, test, base-check script, or executable probe.
+
+### Core PR #293: call-attribute repair delta
+
+- Head: `fec71f93d39977cf71f7787a86b18e6e6cb2dfce`.
+- Base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+- VERDICT: NOT CLEAN (1 HIGH open: GS-B13-R1-2).
+
+I read the complete one-file delta. It rejects attributes on the call and its path. It rejects inner attributes of the test body.
+
+Three new negative fixtures cover those attributes. The earlier conditional-call example is repaired.
+
+The matcher still ignores `call.args`. This supported-looking body compares the runtime root with itself:
+
+```rust
+#[cfg(test)]
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    botster_test_process::built_in::assert_built_here(
+        env!("CARGO_PKG_NAME"),
+        &std::env::var("CARGO_MANIFEST_DIR").unwrap(),
+    );
+}
+```
+
+The function is registered and selected in both default tiers. Its body contains exactly one call without attributes and with the expected path suffix.
+
+`assert_built_here` receives the runtime manifest directory as the built directory. Its comparison succeeds even when the test binary came from another worktree.
+
+Thus, the coverage command can accept a test that cannot detect B13. The build-root constant can remain in the file, unused by that test.
+
+Required change: validate the supported call's compile-time root argument. Accept the current `BUILT_IN` or `env!("CARGO_MANIFEST_DIR")` forms. Reject unsupported argument expressions.
+
+Add a negative fixture for the runtime-root argument. Reject an early return inside an argument, which also prevents the root check from executing.
+
+Validate the supported callee paths. An unrelated function with the same path suffix is not the build-root check.
+
+Preserve the current root-test forms. The candidate and compilation-evidence findings remain closed. The gate on this head is running; I accept no result before completion.
+
+I ran no gate, build, test, base-check script, or executable probe.
