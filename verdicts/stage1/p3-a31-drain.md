@@ -357,3 +357,29 @@ The reviewer names published commit `388dcdf63fd8a585d8162af3ce917c6128dfc8c1` a
 Both reviews match the exact head, tree, base, body hash, local hashes, finding closures, and source-only limits.
 The status row now records Round 6 source CLEAN. The withdrawn-train NOT CLEAN history remains unchanged.
 No new review round, separate gate, or final train receipt follows from this acknowledgment.
+
+
+### Train-10 composition inspection: package delta pending
+
+Lead assignment: `msg_plugin-w_1791842737_74b111`.
+Train head: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Tree: `31f79709fd6d686a995da9f2d0506c59a9861b47`.
+Train base: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+Sole frozen member: `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+Unique merge base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+
+I read the merge parents and complete nine-path delta. It retains 630 additions and 144 deletions; the whitespace check passes.
+Every own added/deleted line matches the accepted member delta. Eight member blobs are byte-identical to the frozen member.
+Only DESIGN.md incorporates an additional base change: #319's route_frames_taken paragraph.
+The repeated drain and retained A24 gap remain exact. The route paragraph remains exact to the accepted train base.
+That paragraph preserves the default-queue, no-gate, and no-accept-limit premise, read-only query failure, and R-115 reviewer requirement.
+The two design changes describe separate edges and do not change their accepted interfaces or scope.
+All Rust member blobs retain their accepted source. F159 and F160 closures remain applicable to the composed source.
+
+All ten conformance blobs equal the train base. The nine text-set merge checks pass; real proofs use complete lines.
+No #328 removal returns. No pending, minimum, pin, exception, mutation rule, or CI change enters through #318.
+The current package Round 205 accepts the member. I requested the complete applicable composition delta or explicit lead carry ruling.
+No formal member-delta or combined CLEAN follows before that applicable package record is read.
+The lead reports local checks running and plans a detached exact-head gate. Neither statement is completed execution evidence.
+The exact merging gate, ONE final train receipt, and lead equal-tree/remote verification remain due.
+I ran no execution job and changed no product code.
