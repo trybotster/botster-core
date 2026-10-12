@@ -14528,3 +14528,72 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All earlier history remains preserved. Next package round: 200.
 
 VERDICT: CLEAN
+
+
+## Round 200 — #302 fit on train 7b, 2026-10-12
+
+Exact train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+Tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Frozen member: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`, source base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Previous package source CLEAN: Round 197, `4b40f248da48d41adb9998273744efc039187c83`.
+Previous integration source CLEAN: Round 3, `ed10cf0d5e5c6fd965935580a7e3965b5874eb59`.
+Lead request: `msg_plugin-w_1791836260_edeb24`. Scope: #302's source fit and the dropped DP-6 comment. Tier: HIGH, unchanged.
+Sol owns the #302/#322 integration deltas. Sol-C owns the combined review and one final train receipt.
+
+### Composition and preserved member change
+
+The actual first-parent order is #316 f1ac08b9, #323 6e6ebba7, #302 953aa2ba, then #322 25fbc9ec.
+The #302 merge is `abdae8913136fe68f51121d95cf40b15149ced99`.
+Its parents are `cd9af56fd6b0d238ad606aae9fec3ab9b431ebbf` and the frozen member.
+The #302 insertion has an empty diff. Both preceding and insertion trees equal `3a73d15508bed6bb3546a6e660157a1fb2d67e9e`.
+The two common bases are e37b91d6 and `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`.
+The reviewer uses the equal trees to check this insertion directly. No single-base merge formula is assumed.
+The accepted #302 source already exists in the train base through the stacked #311 change.
+
+All three #302 Rust paths remain byte-identical between train base and final head:
+- `crates/botster-worker-core/src/worker/input.rs`
+- `crates/botster-worker-core/src/worker/route.rs`
+- `crates/botster-worker-core/src/worker/tests/routes.rs`
+
+The accepted #311 resize/Latest/mode changes remain present. This review does not restore the older #302 resize refusal.
+The retained source preserves F142's queued semantic byte charge and F144's configured UTF-8 key bound.
+No new test, wait, process, terminal encoding, or input path appears in this insertion.
+The previous BUILD.md and anchor reviews retain their scope. F142 through F144 retain their closures.
+The reviewer checks member fit, not the independent correctness of the other train members.
+
+### Lists, comment, and dependency interface
+
+The old comment says that the s16 route resize is refused. #311 implements route resize, so that comment is obsolete.
+Neither the comment nor `conf::dp_3_route_codec_matches_client_appendix_a4_a5` exists in core-pending at the train base or final head.
+The same ID remains in core-real-pending at final line 153. It is not retired from all lists.
+Core-real-pending is byte-identical between base and final head. This train removes no new real-pending ID.
+The only base-to-final core-pending change adds A22-1 and its four comment lines through #316.
+Final counts: pending 388, real-pending 38, held four, real proofs seven. The four lists have no duplicate entries.
+
+The train changes contracts .44 (`99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`) to .46 (`7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`).
+The exact dependency diff has no route-codec changes.
+Core-contract changes RouteAdopted's route_tag and owner to Option<String>, with corresponding tests.
+That diff changes no #302 key, mouse, focus, semantic input, or byte-charge API.
+The combined reviewer retains responsibility for the complete pin change and other member interfaces.
+
+### Evidence and receipt scope
+
+The lead reports ID-set checks PASS, workspace check --tests PASS, and strict seeds 0-31 with 281 passes and zero failures.
+The request supplies no retained pre-check log. These remain reported pre-checks, not independently verified execution evidence.
+The exact train gate has not been supplied for this review.
+Historical member gates retain their heads and limits. No earlier gate is relabeled as a run of this train.
+P3 subsequently submits #328 to remove the remaining dp_3 real-pending ID. That new change is outside this verdict.
+
+### Verdict and limits
+
+#302's source fit is CLEAN at this exact train head. No package fit finding remains.
+This verdict supplies the requested source delta. It supplies no gate, combined, or merge acceptance.
+Sol's integration delta, Sol-C's combined review, the exact train gate, and equal-tree/push verification remain due.
+BUILD.md requires one final train receipt from the combined reviewer. The package sends no redundant receipt for an unchanged member.
+A changed member or composition requires the applicable new review.
+#318's repaired import, #328, the Mac IN-6 classification, F28/F33/F39, and F61/F62 remain separate.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 201.
+
+VERDICT: CLEAN
