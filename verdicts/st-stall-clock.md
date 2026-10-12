@@ -1,6 +1,122 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (5 open)
+
+## Core #298: first implementation review
+
+Reviewed head: `0f9079c44e028644c6d1724c9dae9cd8b03d0459`.
+Reviewed base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+PR: <https://github.com/trybotster/botster-core/pull/298>.
+Design hash: `5f170fb9b5c6b685dab043358028779db6ca0246824c84c2cb6fa2fac5acd848`.
+Risk tier: HIGH. The change affects deadlines, queue reservations, worker route transitions and shared testkit code.
+The reviewer inspected the source and supplied evidence. The reviewer ran no local build or test.
+
+### ST298-R1 — HIGH — A reservation can block the report that must release it
+
+Evidence: `engine.rs:284-304`, `stall.rs:98-119`, `stall.rs:204-212`, and the driver's FIFO held-frame path.
+
+Consider a stalled route with an empty event queue and one mandatory slot:
+
+1. The worker accepts bytes and queues `RouteResumed` before Core reads its link.
+2. Core pumps at the close deadline. The due step reserves the only slot before Core services the link.
+3. `accepts_at` rejects `RouteResumed` because the reservation leaves no mandatory room.
+4. The driver holds that frame and stops reading the link.
+5. `route_resumed` cannot release the close reservation because Core never receives the frame.
+
+The queue contains no event for a poll to remove. The worker declines the close because it already resumed.
+The route remains blocked with no deadline and no runnable work. This violates OU-2, TM-6 and R-90's release condition.
+
+The problem also includes an older mandatory frame before the due answer on the same link.
+For example, `Exited` can precede `RouteStalled` while a healthy close waits for route delivery.
+Reserving the last slot blocks `Exited`, so Core cannot reach the answer behind it.
+Adding only a `RouteResumed` exception does not resolve that FIFO case.
+
+Required change: make the reservation protocol compatible with every earlier frame on the answering link.
+Preserve FIFO, mandatory bounds and the later pump's event budget. Route any contract-meaning change through the lead.
+Add driver-level proofs for a queued resume before a due close and an older mandatory frame before a due answer.
+Use an empty event queue with all available room taken by the reservation. Verify progress without an event poll freeing room.
+The current engine-only resume test uses two slots and feeds the report directly. It cannot prove this driver boundary.
+
+### ST298-R2 — HIGH — A failed resume leaves the host and worker with different stall states
+
+Evidence: worker `route/stall.rs:149-157`, host `stall.rs:170-180`, and worker `on_route_close_due`.
+
+When the resumed baseline exceeds a bound, the worker clears `stall.stalled` and starts a healthy `SnapshotTooLarge` close.
+The worker sends no `RouteResumed`. The host therefore retains its old stalled state and close deadline.
+If the transport accepts the first resumed byte but then blocks, the healthy close remains unwritten.
+The later host close step reserves a slot and sends `RouteCloseDue` for the old stall.
+The worker rejects that message because its stall state is already clear. It sends no answer.
+The host releases a close reservation only on resume or close, so the reservation remains held.
+
+An existing healthy close also takes this path. `close_healthy` returns immediately when `closing` already has the first reason.
+The current oversized-baseline test drains all writes, which hides the blocked-close case.
+
+Required change: define and implement the host report and deadline state after a resumed baseline cannot be formed.
+Preserve OU-2's first reason and OU-9's typed close. Ensure a blocked healthy close retains a working clock and releases every due reservation.
+Add a combined host/worker proof: one accepted byte, baseline failure, then blocked writes across the old close deadline.
+Cover both a new `SnapshotTooLarge` close and an existing healthy close.
+
+### ST298-R3 — MEDIUM — New progress retains the old parked flag
+
+Evidence: host `stall.rs:103`, `stall.rs:176-181`, and `run.rs:102-105`.
+`run_route_due` sets `parked` when a due step finds no room.
+`route_progress` restarts or clears the reader deadline but leaves that flag set.
+While the mandatory queue remains full, `deadlines_at` then hides the new deadline, including a future deadline that never ran.
+This contradicts TM-3 and the stated E3-1 rule: a new step is carried until it runs; only a step that ran can be parked.
+
+Required change: clear parking state when progress invalidates the old due step and arms a new step.
+Check the other clock transitions for the same stale flag.
+Add a public-behavior proof: park a due step, consume new progress while room is still full, and inspect `next_deadline()`.
+Verify the new step's budget and room behavior at its own deadline.
+
+### ST298-R4 — MEDIUM — Output reports bypass the progress flush rule
+
+Evidence: worker `worker.rs:418-427`, `worker.rs:1096-1104`, and `report_output`.
+`report()` flushes `output_unsent` before it flushes route progress.
+The `LinkWritten` path also sends a waiting Output report before it calls `route_progress_written`.
+`report_output` calls `send_report` directly, so it does not run the progress flush.
+
+With an older unwritten Output report and progress report, a later output can leave both new reports pending.
+When the link becomes writable, Core can receive the new Output report before its progress report.
+That violates the R-90 report-order rule recorded in the design and worker module.
+The title test covers a later title report; it does not cover these Output paths.
+
+Required change: enforce the progress-before-later-report rule on the Output flush paths too.
+Add a link-backpressure proof with pending Output and progress reports and a later output with no title report.
+Check the resulting link order and the coalescing bound.
+
+### ST298-E1 — MEDIUM — Exact-head focused Mac evidence is missing
+
+The READY and PR body supply a full Linux gate but no completed focused Mac evidence for this head.
+The change affects worker route writes, link reads and descriptor receipt.
+Plan section 8, revision 23ai, requires focused Mac evidence for these OS-dependent paths before the first READY.
+
+Required change: supply the completed exact-head focused Mac log and retain every failure and its disposition.
+The earlier #295 Mac run does not prove the new worker stall and resync code.
+
+### Evidence and scope
+
+The Linux gate at `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-0f9079c4-pool-20261011-185413-82688.log` is green.
+Its header names the reviewed head and base. Every step passed, and the final status is exit 0 on msa1.
+Mutation result: 230 tested, 211 caught, 0 missed, 0 timeout and 19 unviable.
+Three catches came from the slow stage. These results do not cover the source traces above.
+
+The receipt and session checks address the new RouteProgress identity risk raised during revision 4.
+The reviewer accepts that change for these three clock reports. The PR retains the separate, pre-existing RouteClosed adoption limit.
+The A3-1 and query exclusions remain explicit, and their IDs remain pending.
+Six IDs move from testkit pending to real pending because their transcript fences are absent.
+Three additional IDs stay pending and gain lead-approved budget holds with full-seed slow proofs.
+The reviewer found no new list finding in this round.
+
+## Core #295: merged-head review in progress
+
+Merged head: `113da2366286adcef4a71449c5d362c146f6754f`.
+Merged base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+The merge has the previously reviewed head and the named base as its two parents.
+The reviewer checked the failed base-merge report and the overlapping diagnostics change.
+`parked_on_room` excludes a budget-held frame while room is available. It includes a frame that waits only for room.
+The `ready_at` and `accepts_at` refactors preserve the decisions used by #295's driver paths.
+No source finding arose from that interaction. The completed final gate is still required before the final receipt.
 
 ## Core #295: evidence review
 
