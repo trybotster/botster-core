@@ -235,3 +235,42 @@ This receipt accepts no later head and authorizes no additional retry.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; reviewed import and command proof with completed exact-head evidence)
+
+## Round 7: #306 source delta on train 5
+
+Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Frozen #306 member: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+Lead assignment: `msg_plugin-w_1791828964_e1c322`.
+The train merges #306 first, then #315. Sol-B owns both member deltas and the combined review.
+
+Sol-B reads both merge objects, shared file changes, and relevant test coverage paths.
+All 44 own added/deleted patches match the accepted #306 input exactly.
+Forty-two final own file blobs match that input. Two contain accepted imported changes.
+The shared testkit library retains queue_controls and report_holds, BUILT_IN, and the approved root macro.
+The route-log test retains its root macro and the .44 adaptation that finds the read step by key.
+Neither file introduces a separate test binary or changes the root-check callee.
+The eleven slow-target feature requirements, name rule, command fixture, presence decisions, slow filter, candidate checks, and LINKED check remain unchanged.
+
+Sol-B checks #307's 18 new tests and #315's 28 new tests in the composed source.
+All 46 names remain present. Forty-three are default library tests; three real report-control tests match the slow_controls filter.
+Their host, testkit, and worker-core library binaries retain root macros.
+The complete coverage mapping and its runtime limits are in `verdicts/stage1/train-5.md` in this commit.
+The new unit modules need no independent root entry. No test target disappears through the merge.
+
+The inherited .44 pin, known-flaky EV-2 entry, and parser retain the base versions.
+No retired IN-8 entry returns. #315 only moves the LINK_CAPACITY arithmetic exclusion from line 34 to line 35.
+The final source retains the same positive capacity and expression. No checker function receives an exclusion.
+Conformance sets and the CI directory retain the base versions. #306's accepted xtask CI checks remain part of its own patch.
+The manual name rule and mixed stale-library limit remain explicit and accepted.
+
+Sol-B reads exact-head package delta `a9309872c130cbdeb453483a82f3dd037747917d`, its complete train 5 section.
+It agrees with these checks and reports zero findings.
+No #306 source delta finding remains on this exact head.
+The earlier evidence retains its original heads. The lead's pre-checks remain operator reports, not a final train gate.
+The exact train gate, final body and receipts, and lead merge verification remain due.
+This receipt accepts no later head, status removal, completed merge, or additional retry.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; #306 train 5 source delta only, final train evidence pending)

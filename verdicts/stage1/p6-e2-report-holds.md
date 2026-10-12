@@ -197,3 +197,46 @@ This receipt accepts no later head, pin, status removal, or retry.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; exact repaired source and completed initial evidence)
+
+## Round 3: #315 source delta on train 5
+
+Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Frozen #315 member: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Lead assignment: `msg_plugin-w_1791828964_e1c322`.
+The train merges #306 first, then #315. Sol-B owns both deltas and the combined review.
+
+Sol-B independently compares all 18 own added/deleted patches against the landing merge. Every comparison matches.
+Thirteen whole files match the accepted member. Five testkit files also retain the imported base's changes.
+Sol-B reads their complete deltas and final control, receive, close, scheduler, quiet, and completion paths.
+The final library retains queue_controls, report_holds, and #306's approved root macro.
+Both control registrations and tapped real dispatch paths remain intact.
+Control-room state remains separate from report holds, scheduler holds, and start holds.
+The host's room check runs before link reads and replaces none of them.
+PumpBound remains the first scheduler choice, once per pump. The report delay counts the same pump boundary.
+The holder passes hello bytes before it withholds a report. RouteReports records only bytes returned to the driver.
+The new room lookup therefore preserves the instance and consumed-report boundary.
+The existing reports-to-faults and tap-to-holder lock orders remain. No new reverse acquisition appears.
+Spawned identity association, already-reaped exit retention, explicit break, quiet repair, free-end accounting, and completion deadline checks remain intact.
+The base's removed Writable observation needs no special ReportHolds branch; other decoded reports retain their generic classification.
+
+#306's macro invokes the same root callee with caller-side compile-time arguments.
+It changes no control state, process ownership, scheduler policy, or contract assertion.
+All 28 new #315 tests remain in their existing library binaries and module paths.
+The three real tests match real::slow_controls. The slow root filter excludes none of them.
+The separate integration-target feature repairs do not remove these unit modules.
+The complete test coverage mapping is in `verdicts/stage1/train-5.md` in this commit.
+
+No conformance set, pin, or known-flaky policy changes relative to the train base.
+The sole exclusion coordinate change still names LINK_CAPACITY at final core.rs line 35, column 33.
+All three earlier findings remain closed under their reviewed source and document scope.
+Sol-B reads exact-head package delta `f79ddfa7be40715be30942e326eb175693b028f5`, its complete Round 3.
+It agrees with these source and interface checks and reports zero findings.
+No #315 source delta finding remains on this head.
+The original gate retains its original head and comparison base. The lead's pre-checks remain operator reports only.
+The exact train gate, final body and receipts, and lead merge verification remain due.
+This receipt accepts no later head, pin, status removal, or completed merge.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; #315 train 5 source delta only, final train evidence pending)
