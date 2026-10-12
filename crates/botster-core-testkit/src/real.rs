@@ -97,7 +97,7 @@ use crate::crash::{CrashHandle, Crashable};
 use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
 use crate::harness::limits_of;
 use crate::process_controls::LoseReason;
-use crate::refusal::{arm_refusal, RefusalHandle, RefusalLayer};
+use crate::refusal::{arm_refusal, ParkedWork, RefusalHandle, RefusalLayer};
 use crate::stand_in::{self, StandIn};
 use crate::start_controls::{held_session, not_begun, row_report};
 use crate::worker::ImpostorField;
@@ -256,6 +256,8 @@ pub struct RealCoreHarness {
     /// The scripted synchronous refusals of each handle (`fail_next`, R-49 Q3): the testkit's own layer in front of the
     /// handle's Core returns them without calling Core.
     refusals: BTreeMap<String, RefusalHandle>,
+    /// The parked work of each tapped handle's Core, as the testkit's layer in front of it records it (`parked_work`, R-87).
+    parked: BTreeMap<String, ParkedWork>,
     /// The probes' control sockets (the program controls). Declared before `root`: its socket is in the root.
     programs: program::Programs,
     /// The bystanders of `reuse_pid`, by data directory and session. Their drop ends and reaps them (R-55 (3)), before the
@@ -331,6 +333,7 @@ impl RealCoreHarness {
             heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
+            parked: BTreeMap::new(),
             bystanders: BTreeMap::new(),
             hold: None,
             stand_ins: 0,
@@ -554,6 +557,19 @@ impl RealCoreHarness {
             )));
         }
         Ok(json!({ "alive": !children.is_empty() }))
+    }
+
+    /// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
+    /// diagnostics reported after its last call ([`ParkedWork`]). A session with no row is `Bad`.
+    fn parked_work(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        self.recorded(handle, &session)?;
+        let parked = self
+            .parked
+            .get(handle)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
+            .parked(&session);
+        Ok(json!({ "parked": parked }))
     }
 
     /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
@@ -1125,7 +1141,9 @@ impl CoreHarness for RealCoreHarness {
                 },
             );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            Box::new(RefusalLayer::new(Box::new(slot), script.clone()))
+            let parked = ParkedWork::default();
+            self.parked.insert(spec.handle.clone(), parked.clone());
+            Box::new(RefusalLayer::new(Box::new(slot), script.clone(), parked))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -1198,6 +1216,7 @@ impl CoreHarness for RealCoreHarness {
                     | "payload_alive"
                     | "lose_worker"
                     | "worker_alive"
+                    | "parked_work"
                     | "impostor_worker"
                     | "announce_protocol"
                     | "withhold_control_link"
@@ -1238,6 +1257,7 @@ impl CoreHarness for RealCoreHarness {
             "payload_alive" if self.tapped => self.payload_alive(handle, args),
             "lose_worker" if self.tapped => self.lose_worker(handle, args),
             "worker_alive" if self.tapped => self.worker_alive(handle, args),
+            "parked_work" if self.tapped => self.parked_work(handle, args),
             "impostor_worker" if self.tapped => self.impostor_worker(handle, args),
             "announce_protocol" if self.tapped => self.announce_protocol(handle, args),
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
@@ -1548,6 +1568,7 @@ mod slow_controls {
             "payload_alive",
             "lose_worker",
             "worker_alive",
+            "parked_work",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",
@@ -2130,6 +2151,17 @@ mod slow_controls {
         drop(core);
     }
 
+    /// `parked_work` (R-87) on the real tier: see the scenario.
+    #[test]
+    fn parked_work_reads_the_work_that_waits_for_room() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        crate::refusal::parked_work_scenario::a_stop_is_parked_work_until_a_poll_frees_room(
+            &mut harness,
+        );
+    }
+
     /// Core AD-6, AD-2, A10-2, EV-5(c), on real sessions:
     /// - `lose_worker` signals only a recorded worker whose pid and start time match: an identity with another start time
     ///   (a reused pid) is refused, and the worker keeps running. The worker's group holds no payload, so the kill never
@@ -2709,6 +2741,7 @@ mod slow_tests {
             "payload_alive",
             "lose_worker",
             "worker_alive",
+            "parked_work",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",

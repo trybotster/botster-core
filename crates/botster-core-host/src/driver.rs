@@ -930,6 +930,11 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn diagnostics(&self) -> serde_json::Value {
         let mut diagnostics = self.engine.diagnostics();
         diagnostics["edges"] = self.edges.diagnostics();
+        // The sessions whose work waits only for mandatory-queue room: an engine step, or a frame that a link holds (EV-5b,
+        // TM-6). The test control `parked_work` reads it (steward ruling R-87).
+        diagnostics["parked_work"] = serde_json::json!(self
+            .engine
+            .parked_on_room(self.links.values().filter_map(|l| l.held.as_ref())));
         diagnostics
     }
 
