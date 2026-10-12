@@ -38,7 +38,7 @@
 //! `HandoffFailed` with no frame (steward ruling R-44; the host's floor check, A19-1, keeps this from happening). So is a
 //! route with no common terminal format (the host refuses it first, OU-1).
 
-use super::{model, Action, Worker};
+use super::{model, Action, RouteKey, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::Observation;
 use botster_core_link::msg::WorkerMsg;
@@ -65,10 +65,33 @@ const ROUTE_FEATURES: &[&str] = &[];
 const STREAM_PREFIX: usize = 4;
 const OUTPUT_OVERHEAD: usize = STREAM_PREFIX + 1;
 
+/// A report about one route (DP-8): [`Worker::report_route`] gives it the route's `RouteId` on the control link.
+pub(super) enum RouteReport {
+    /// `WorkerMsg::RouteReceived`.
+    Received,
+    /// `WorkerMsg::RouteClosed`.
+    Closed {
+        reason: RouteCloseReason,
+        route_tag: Option<String>,
+    },
+    /// `WorkerMsg::RouteStalled`.
+    Stalled { mark: u64 },
+    /// `WorkerMsg::RouteResumed`.
+    Resumed { mark: u64 },
+    /// `Observation::ClientInput`.
+    ClientInput { input_rev: InputRev },
+}
+
 /// The routes of the session.
 #[derive(Debug, Default)]
 pub(super) struct Routes {
-    routes: BTreeMap<RouteId, Route>,
+    routes: BTreeMap<RouteKey, Route>,
+    /// The link table (DP-8): the control link's `RouteId` of each route, and back. `AttachRoute` adds a pair, and the route's
+    /// `RouteClosed` removes it. Every host message that names a route reads `keys`, and every route report reads `ids`.
+    ids: BTreeMap<RouteKey, RouteId>,
+    keys: BTreeMap<RouteId, RouteKey>,
+    /// The last key that `AttachRoute` allocated.
+    last_key: u64,
     /// The last budget that the driver got was a limit: when the last route ends, the limit is lifted once.
     limited: bool,
     /// `settle_routes` runs: a call from inside it (a refusal that an applied frame queues) only asks for one more pass.
@@ -405,18 +428,22 @@ impl Worker {
     /// link closes.
     pub(super) fn on_attach_route(
         &mut self,
-        route: RouteId,
+        id: RouteId,
         options: AttachOptions,
         limits: AppliedRouteLimits,
         client: ClientId,
     ) {
+        let route = RouteKey(self.routes.last_key + 1);
         let Some(descriptor) = self.attach_descriptor(route) else {
             return;
         };
+        self.routes.last_key = route.0;
+        self.routes.ids.insert(route, id);
+        self.routes.keys.insert(id, route);
         self.actions
             .push_back(Action::BindRoute { descriptor, route });
         // The worker holds its own copy of the stream now: the host may close its copy (DP-2, steward ruling R-65).
-        self.report(&WorkerMsg::RouteReceived { route });
+        self.report_route(route, RouteReport::Received);
         let mut entry = Route {
             limits,
             route_tag: options.route_tag.clone(),
@@ -582,7 +609,7 @@ impl Worker {
     /// frame bound (OU-12, DP-3). A `Stalled` route gets none: Core does not hold the PTY for it, and its resync carries a
     /// new baseline (OU-3b, OU-7).
     pub(super) fn route_output(&mut self, bytes: &[u8]) {
-        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        let ids: Vec<RouteKey> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let route = self.routes.routes.get_mut(&id).expect("listed");
             if !route.accepts_input() || route.stall.stalled() {
@@ -600,7 +627,7 @@ impl Worker {
     }
 
     /// Starts the next write of a route, when none is out.
-    fn pump_route(&mut self, id: RouteId) {
+    fn pump_route(&mut self, id: RouteKey) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -617,7 +644,7 @@ impl Worker {
     }
 
     /// The answer to a `RouteWrite` (OU-3a: progress is the bytes that the kernel accepted).
-    pub(super) fn on_route_written(&mut self, id: RouteId, result: Result<usize, i32>) {
+    pub(super) fn on_route_written(&mut self, id: RouteKey, result: Result<usize, i32>) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -666,36 +693,74 @@ impl Worker {
         self.settle_routes();
     }
 
-    pub(super) fn on_route_writable(&mut self, id: RouteId) {
+    pub(super) fn on_route_writable(&mut self, id: RouteKey) {
         self.pump_route(id);
     }
 
     /// Closes the transport once and reports the close once (OU-2). An ended session's close is reported too, when its queue
     /// is delivered or it fails or stalls (OU-7): the host waits for it, and posts it with the exit and the cause that the
     /// host decides (LC-5).
-    pub(super) fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
+    pub(super) fn end_route(&mut self, id: RouteKey, reason: RouteCloseReason) {
         let Some(route) = self.routes.routes.remove(&id) else {
             return;
         };
         self.actions.push_back(Action::RouteClose { route: id });
-        self.report(&WorkerMsg::RouteClosed {
-            route: id,
-            reason,
-            route_tag: route.route_tag,
-        });
+        self.report_route(
+            id,
+            RouteReport::Closed {
+                reason,
+                route_tag: route.route_tag,
+            },
+        );
         self.settle_routes();
+    }
+
+    /// The route that the control link's id `route` names, when the link has that id (DP-8).
+    pub(super) fn route_key(&self, route: RouteId) -> Option<RouteKey> {
+        self.routes.keys.get(&route).copied()
+    }
+
+    /// The control link's id of route `key`, when the link has one (DP-8).
+    pub(super) fn link_id(&self, key: RouteKey) -> Option<RouteId> {
+        self.routes.ids.get(&key).copied()
+    }
+
+    /// Sends a report about route `key` with its id on the control link (DP-8): the one place where a route's `RouteId` leaves
+    /// the worker. A route that the link has no id for is not reported. `RouteClosed` ends the route's pair in the table.
+    pub(super) fn report_route(&mut self, key: RouteKey, report: RouteReport) {
+        let Some(route) = self.link_id(key) else {
+            return;
+        };
+        let msg = match report {
+            RouteReport::Received => WorkerMsg::RouteReceived { route },
+            RouteReport::Closed { reason, route_tag } => {
+                self.routes.ids.remove(&key);
+                self.routes.keys.remove(&route);
+                WorkerMsg::RouteClosed {
+                    route,
+                    reason,
+                    route_tag,
+                }
+            }
+            RouteReport::Stalled { mark } => WorkerMsg::RouteStalled { route, mark },
+            RouteReport::Resumed { mark } => WorkerMsg::RouteResumed { route, mark },
+            RouteReport::ClientInput { input_rev } => WorkerMsg::Observed {
+                observation: Observation::ClientInput { route, input_rev },
+            },
+        };
+        self.report(&msg);
     }
 
     /// A healthy close (OU-2b): the Closed transition now; `route_closed` goes after every frame that is queued, and the
     /// transport closes when it is written. A route whose bound cannot carry the frame closes with no frame. A route that is
     /// closing already, or that drains for its session's end, keeps its first reason.
-    fn close_healthy(&mut self, id: RouteId, reason: RouteCloseReason) {
+    fn close_healthy(&mut self, id: RouteKey, reason: RouteCloseReason) {
         self.queue_close(id, reason, false);
     }
 
     /// `close_healthy`, or with `drain` the session end's close (OU-7): the route stays `Open` while it delivers its queue,
     /// and takes the Closed transition when the queue is empty (`on_route_written`; steward ruling R-99).
-    fn queue_close(&mut self, id: RouteId, reason: RouteCloseReason, drain: bool) {
+    fn queue_close(&mut self, id: RouteKey, reason: RouteCloseReason, drain: bool) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -724,28 +789,27 @@ impl Worker {
     }
 
     /// `Detach` (DP-7, OU-2b): the route closes with its reason, after the frames that are queued. A route that this worker
-    /// does not hold is reported closed at once, so the host's `Detach` completes.
-    pub(super) fn on_detach(&mut self, id: RouteId, reason: DetachReason) {
+    /// does not hold is reported closed at once, with the id of the `Detach`, so the host's `Detach` completes.
+    pub(super) fn on_detach(&mut self, route: RouteId, reason: DetachReason) {
         let close = match reason {
             DetachReason::Replaced => RouteCloseReason::Replaced,
             DetachReason::Revoked => RouteCloseReason::Revoked,
             // `Detached`; the enum is non-exhaustive, so a later reason closes the route as a plain detach (as the host does).
             _ => RouteCloseReason::Detached,
         };
-        if !self.routes.routes.contains_key(&id) {
-            self.report(&WorkerMsg::RouteClosed {
-                route: id,
+        match self.route_key(route) {
+            Some(id) if self.routes.routes.contains_key(&id) => self.close_healthy(id, close),
+            _ => self.report(&WorkerMsg::RouteClosed {
+                route,
                 reason: close,
                 route_tag: None,
-            });
-            return;
+            }),
         }
-        self.close_healthy(id, close);
     }
 
     /// OU-7: when the exit is reported, after the output tail is queued, every route closes `session_ended` with the exit.
     pub(super) fn routes_session_ended(&mut self, code: Option<i32>, signal: Option<i32>) {
-        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        let ids: Vec<RouteKey> = self.routes.routes.keys().copied().collect();
         for id in ids {
             self.end_with_session(id, code, signal);
         }
@@ -753,7 +817,7 @@ impl Worker {
 
     /// One route's close at the session's end, after its queue drains (`queue_close`). A route that is closing already keeps
     /// its first reason. The host replaces the exit of the reported reason with its own (LC-5).
-    fn end_with_session(&mut self, id: RouteId, code: Option<i32>, signal: Option<i32>) {
+    fn end_with_session(&mut self, id: RouteKey, code: Option<i32>, signal: Option<i32>) {
         let reason = RouteCloseReason::SessionEnded {
             exit: Exit {
                 code,
@@ -767,7 +831,7 @@ impl Worker {
     /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
     /// advances `input_rev{client}` on receipt (IN-4). `bytes` and `text` go to the admission point in their receive order
     /// (AM-2). A frame that cannot be decoded closes the route `BadFrame` with its code (OU-5: only that route).
-    pub(super) fn on_route_read(&mut self, id: RouteId, bytes: &[u8]) {
+    pub(super) fn on_route_read(&mut self, id: RouteKey, bytes: &[u8]) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -787,7 +851,7 @@ impl Worker {
     /// Receives every complete frame of the route's reader, in order (TS-3): each input frame, applied or refused, advances
     /// `input_rev{client}` now, on receipt, whatever room the route has (IN-4, IN-10). The frames wait in `received` for
     /// `apply_route`. A frame that cannot be decoded ends the receipt: nothing after it is a frame.
-    fn receive_route(&mut self, id: RouteId) {
+    fn receive_route(&mut self, id: RouteKey) {
         loop {
             let Some(route) = self.routes.routes.get_mut(&id) else {
                 return;
@@ -828,7 +892,7 @@ impl Worker {
 
     /// Applies the route's received frames in order, while the route is open and one more refusal fits (DP-5). A frame that
     /// is not applied stays in `received`; `settle_routes` applies it when the route has room again.
-    fn apply_route(&mut self, id: RouteId) {
+    fn apply_route(&mut self, id: RouteKey) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         loop {
             let reserved = self.reserved(id);
@@ -858,7 +922,7 @@ impl Worker {
     /// discards what it reads.
     pub(super) fn read_allowances(&mut self) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
-        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        let ids: Vec<RouteKey> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let held = self.input.route_bytes(id);
             let reserved = self.reserved(id);
@@ -887,7 +951,7 @@ impl Worker {
 
     /// The client closed its end, or its read failed (OU-5: `PeerClosed`, only that route). The transport ends now. A healthy
     /// close that was delivering keeps its first reason (OU-2), as a failed write does in `on_route_written`.
-    pub(super) fn on_route_ended(&mut self, id: RouteId) {
+    pub(super) fn on_route_ended(&mut self, id: RouteKey) {
         let Some(route) = self.routes.routes.get(&id) else {
             return;
         };
@@ -897,14 +961,9 @@ impl Worker {
 
     /// The receipt of one complete client input frame, applied or refused: `input_rev{client}` advances, and the activity
     /// carries its route (IN-4). An ignored extension frame is not input.
-    fn client_received(&mut self, id: RouteId) {
+    fn client_received(&mut self, id: RouteKey) {
         let input_rev = self.input.client_received();
-        self.report(&WorkerMsg::Observed {
-            observation: Observation::ClientInput {
-                route: id,
-                input_rev,
-            },
-        });
+        self.report_route(id, RouteReport::ClientInput { input_rev });
     }
 
     /// An `input_refused` for a frame that is not applied as sent (DP-5), queued in order with the route's frames, with the
@@ -912,7 +971,7 @@ impl Worker {
     /// closing one: its `route_closed` is its last frame (OU-2b).
     pub(super) fn refuse(
         &mut self,
-        id: RouteId,
+        id: RouteKey,
         op: Option<Op>,
         reason: RefusalReason,
         written_bytes: Option<u64>,
@@ -940,7 +999,7 @@ impl Worker {
     /// `input_done` (Codec TS-5b): a paste that asked for its result was written whole, `written` bytes to the PTY. It is
     /// queued in order with the route's frames, in the room that the route kept for the input's refusal. A route that closed
     /// gets nothing, and so does a closing one (OU-2b).
-    pub(super) fn input_done(&mut self, id: RouteId, op: Option<Op>, written: u64) {
+    pub(super) fn input_done(&mut self, id: RouteKey, op: Option<Op>, written: u64) {
         let Some(op) = op else {
             return;
         };
@@ -975,7 +1034,7 @@ impl Worker {
         self.routes.settling = true;
         self.routes.unsettled = true;
         while std::mem::take(&mut self.routes.unsettled) {
-            let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+            let ids: Vec<RouteKey> = self.routes.routes.keys().copied().collect();
             for id in ids {
                 self.apply_route(id);
             }
@@ -1012,7 +1071,7 @@ impl Worker {
 
     /// The queue room that the route keeps for the refusals of its held input: one `input_refused` for each of its inputs at
     /// the admission point (DP-5).
-    fn reserved(&self, id: RouteId) -> usize {
+    fn reserved(&self, id: RouteKey) -> usize {
         self.input.route_inputs(id) * refusal_bound()
     }
 }

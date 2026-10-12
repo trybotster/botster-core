@@ -25,7 +25,7 @@ fn writes(actions: &[Action]) -> Vec<Vec<u8>> {
         .iter()
         .filter_map(|a| match a {
             Action::RouteWrite {
-                route: RouteId(1),
+                route: RouteKey(1),
                 bytes,
             } => Some(bytes.clone()),
             _ => None,
@@ -78,7 +78,7 @@ const RESUMED: [&str; 5] = ["resync", "baseline_begin", "screen", "baseline_end"
 fn a_route_reports_waiting_until_its_transport_takes_the_bytes() {
     let (mut w, mut client, write, mark) = waiting_route(10);
     let actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
     let reports = w.reports(&actions);
@@ -86,7 +86,7 @@ fn a_route_reports_waiting_until_its_transport_takes_the_bytes() {
     // A readiness that takes no byte is no progress (OU-3a, OU-6).
     let (mut w2, _, _, mark2) = waiting_route(10);
     let none = w2.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     assert!(progress(&w2.reports(&none)).is_empty());
@@ -101,7 +101,7 @@ fn a_waiting_report_goes_before_the_title_of_the_output_that_caused_it() {
     let (mut w, _client, write, mark) = waiting_route(10);
     w.instant_link = false;
     let mut actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
     actions.extend(w.feed(Input::PtyOutput(b"y\x1b]2;sentinel\x07".to_vec())));
@@ -135,11 +135,11 @@ fn progress_changes_alone_queue_one_unwritten_report() {
     let mut rest = write;
     for _ in 0..3 {
         actions.extend(w.feed(Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(1),
         }));
         rest.remove(0);
-        actions.extend(w.feed(Input::RouteWritable { route: RouteId(1) }));
+        actions.extend(w.feed(Input::RouteWritable { route: RouteKey(1) }));
     }
     let reports = w.reports(&actions);
     assert_eq!(progress(&reports), [(mark + 1, true)], "{reports:?}");
@@ -180,7 +180,7 @@ fn a_stall_at_the_mark_drops_the_unstarted_output_and_the_resume_resyncs() {
     // The write that was out completes its frame, and its acceptance resumes the route.
     client.reader.push(&write);
     let actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
     let reports = w.reports(&actions);
@@ -191,7 +191,7 @@ fn a_stall_at_the_mark_drops_the_unstarted_output_and_the_resume_resyncs() {
         }),
         "{reports:?}"
     );
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let frames = &client.frames[before..];
     let kinds: Vec<&str> = frames
         .iter()
@@ -231,7 +231,7 @@ fn a_stall_due_at_another_mark_or_with_nothing_waiting_is_declined() {
     });
     assert!(w.reports(&actions).is_empty(), "{actions:?}");
     let _ = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
     let actions = w.send(&HostMsg::RouteStallDue {
@@ -261,7 +261,7 @@ fn a_close_due_at_the_stall_mark_closes_the_route_stall_timeout() {
     });
     assert!(actions
         .iter()
-        .any(|a| matches!(a, Action::RouteClose { route: RouteId(1) })));
+        .any(|a| matches!(a, Action::RouteClose { route: RouteKey(1) })));
     assert!(writes(&actions).is_empty(), "no frame after a failed close");
     assert_eq!(
         w.reports(&actions),
@@ -307,7 +307,7 @@ fn a_stall_before_the_first_accepted_byte_keeps_attached_first() {
     let mut w = World::running();
     let mut actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     actions.extend(w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     }));
     assert_eq!(progress(&w.reports(&actions)), [(0, true)]);
@@ -320,13 +320,13 @@ fn a_stall_before_the_first_accepted_byte_keeps_attached_first() {
         mark: 0
     }));
     let early = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(5, b"x")),
     });
     assert!(pty_writes(&early).is_empty());
     actions.extend(early);
     let mut client = Client::default();
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     let mut expected = vec!["attached"];
     expected.extend(RESUMED);
     expected.push("input_refused");
@@ -357,7 +357,7 @@ fn a_stall_before_the_first_accepted_byte_keeps_attached_first() {
         "{budgets:?}"
     );
     let late = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(6, b"y")),
     });
     assert_eq!(pty_writes(&late), b"y", "the new baseline is written");
@@ -370,14 +370,14 @@ fn a_stall_drops_an_output_frame_that_the_transport_took_nothing_of() {
     let (mut w, mut client, _write, mark) = waiting_route(10);
     let before = client.frames.len();
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     let actions = w.send(&HostMsg::RouteStallDue {
         route: RouteId(1),
         mark,
     });
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(kinds(&client.frames[before..]), RESUMED);
 }
 
@@ -388,12 +388,12 @@ fn a_stall_completes_a_partly_written_frame() {
     let before = client.frames.len();
     client.reader.push(&write[..1]);
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     // The write of the rest takes nothing: no write is out.
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     let actions = w.send(&HostMsg::RouteStallDue {
@@ -404,7 +404,7 @@ fn a_stall_completes_a_partly_written_frame() {
         route: RouteId(1),
         mark: mark + 1
     }));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let mut expected = vec!["output"];
     expected.extend(RESUMED);
     assert_eq!(kinds(&client.frames[before..]), expected);
@@ -440,10 +440,10 @@ fn a_resume_whose_baseline_is_over_the_bound_closes_the_route() {
     // frame, then the host is told.
     client.reader.push(&write);
     let actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     let reports = w.reports(&all);
     assert!(
         reports.contains(&WorkerMsg::RouteClosed {
@@ -465,14 +465,14 @@ fn a_newer_report_waits_until_the_link_wrote_the_last_one() {
     let (mut w, _client, _write, mark) = waiting_route(3 * FRAME as usize);
     w.instant_link = false;
     let first = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     assert_eq!(progress(&w.reports(&first)), [(mark + 1, true)]);
     let sent = w.sent;
-    w.feed(Input::RouteWritable { route: RouteId(1) });
+    w.feed(Input::RouteWritable { route: RouteKey(1) });
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     let short = w.feed(Input::LinkWritten { total: sent - 1 });
@@ -482,9 +482,9 @@ fn a_newer_report_waits_until_the_link_wrote_the_last_one() {
     // The link wrote exactly the last report: the next change goes out at once.
     let sent = w.sent;
     w.feed(Input::LinkWritten { total: sent });
-    w.feed(Input::RouteWritable { route: RouteId(1) });
+    w.feed(Input::RouteWritable { route: RouteKey(1) });
     let next = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     assert_eq!(progress(&w.reports(&next)), [(mark + 3, true)]);
@@ -534,10 +534,10 @@ fn a_resume_whose_baseline_begin_is_over_the_frame_bound_closes_the_route() {
     w.feed(Input::PtyOutput(b"\x1b[?1003h\x1b[?1006h".to_vec()));
     client.reader.push(&write);
     let actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     let reports = w.reports(&all);
     assert!(
         reports.contains(&WorkerMsg::RouteClosed {
@@ -565,7 +565,7 @@ fn a_second_stall_before_the_resync_is_written_drops_the_first_resync() {
     // One byte of the started frame resumes the route; the write of its rest is out.
     client.reader.push(&write[..1]);
     let mut actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     assert!(w.reports(&actions).contains(&WorkerMsg::RouteResumed {
@@ -581,7 +581,7 @@ fn a_second_stall_before_the_resync_is_written_drops_the_first_resync() {
         mark: mark + 1
     }));
     actions.extend(second);
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let mut expected = vec!["output"];
     expected.extend(RESUMED);
     assert_eq!(kinds(&client.frames[before..]), expected);
@@ -613,11 +613,11 @@ fn stalled_with_a_resume_over_the_bound() -> (World, Client, Vec<u8>, u64) {
 fn one_byte_then_blocked(w: &mut World, client: &mut Client, write: &[u8]) -> Vec<WorkerMsg> {
     client.reader.push(&write[..1]);
     let mut actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     actions.extend(w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     }));
     w.reports(&actions)
@@ -643,7 +643,7 @@ fn a_failed_resume_with_blocked_writes_is_closed_by_the_close_step() {
     });
     assert!(actions
         .iter()
-        .any(|a| matches!(a, Action::RouteClose { route: RouteId(1) })));
+        .any(|a| matches!(a, Action::RouteClose { route: RouteKey(1) })));
     assert_eq!(
         w.reports(&actions),
         [WorkerMsg::RouteClosed {
@@ -693,7 +693,7 @@ fn a_pending_progress_report_goes_before_a_pending_output_report() {
     let (mut w, _client, _write, mark) = waiting_route(3 * FRAME as usize);
     w.instant_link = false;
     let first = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     assert_eq!(progress(&w.reports(&first)), [(mark + 1, true)]);
@@ -704,9 +704,9 @@ fn a_pending_progress_report_goes_before_a_pending_output_report() {
             observation: Observation::Output { .. }
         }
     )));
-    w.feed(Input::RouteWritable { route: RouteId(1) });
+    w.feed(Input::RouteWritable { route: RouteKey(1) });
     let change = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     });
     let later = w.feed(Input::PtyOutput(b"b".to_vec()));

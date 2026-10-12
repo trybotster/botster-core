@@ -27,7 +27,7 @@ use botster_core_link::msg::{Observation, PayloadId, WorkerMsg};
 use botster_core_link::proof::{token_proof, TOKEN_LEN};
 use botster_route_codec::prelude::QueryKind;
 use botster_worker_core::{
-    Action, CandidateId, DescriptorId, Drain, Input, PayloadSpec, SpawnFailure, Worker,
+    Action, CandidateId, DescriptorId, Drain, Input, PayloadSpec, RouteKey, SpawnFailure, Worker,
     WorkerConfig,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1000,11 +1000,11 @@ enum Ready {
     PtyDrained,
     Exited,
     /// A `RouteWrite` waits, and the route's stream would take bytes now.
-    RouteWrite(RouteId),
+    RouteWrite(RouteKey),
     /// The route's stream takes bytes again after a write that it did not take.
-    RouteWritable(RouteId),
+    RouteWritable(RouteKey),
     /// The route's stream has client bytes, or the client closed it.
-    RouteRead(RouteId),
+    RouteRead(RouteKey),
 }
 
 /// The most bytes that one read of a route's stream takes (a socket read's buffer).
@@ -1071,7 +1071,7 @@ struct WorkerEdges {
     /// Where a link read with a descriptor stops (the kernel form, plan 23ae).
     descriptor_form: DescriptorForm,
     /// The bound route streams.
-    routes: BTreeMap<RouteId, RouteEdge>,
+    routes: BTreeMap<RouteKey, RouteEdge>,
     /// The PTY bytes that the worker may still read (`PtyReadBudget`, OU-3d); `None`: no limit.
     pty_budget: Option<usize>,
 }

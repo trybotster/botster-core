@@ -63,7 +63,12 @@ impl Client {
 
     /// Answers every `RouteWrite` of `route` in `actions` as fully written, until the worker writes nothing more, and keeps
     /// the frames. Returns every action of the exchange.
-    fn take_all(&mut self, w: &mut World, route: RouteId, mut actions: Vec<Action>) -> Vec<Action> {
+    fn take_all(
+        &mut self,
+        w: &mut World,
+        route: RouteKey,
+        mut actions: Vec<Action>,
+    ) -> Vec<Action> {
         let mut all = Vec::new();
         loop {
             let writes: Vec<Vec<u8>> = actions
@@ -101,7 +106,7 @@ impl Client {
     fn take_after_room(
         &mut self,
         w: &mut World,
-        route: RouteId,
+        route: RouteKey,
         mut actions: Vec<Action>,
     ) -> (Vec<Action>, Option<usize>) {
         let mut all = Vec::new();
@@ -188,7 +193,7 @@ fn attached(limits: AppliedRouteLimits) -> (World, Client, Vec<Action>) {
     let mut w = World::running();
     let mut client = Client::with(&limits);
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits);
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     (w, client, all)
 }
 
@@ -210,7 +215,7 @@ fn an_attach_that_binds_its_descriptor_reports_route_received_once() {
     let actions = attach(&mut w, DescriptorId(1), RouteId(5), options(), limits());
     assert!(actions.contains(&Action::BindRoute {
         descriptor: DescriptorId(1),
-        route: RouteId(5)
+        route: RouteKey(1)
     }));
     let received: Vec<WorkerMsg> = w
         .reports(&actions)
@@ -234,10 +239,10 @@ fn an_attach_binds_the_descriptor_of_its_read_and_writes_the_baseline_then_live(
     let actions = attach(&mut w, DescriptorId(1), RouteId(5), options(), limits());
     assert!(actions.contains(&Action::BindRoute {
         descriptor: DescriptorId(1),
-        route: RouteId(5)
+        route: RouteKey(1)
     }));
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(5), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let kinds: Vec<u8> = client.frames.iter().map(ToClient::type_byte).collect();
     assert_eq!(
         kinds,
@@ -260,7 +265,7 @@ fn an_attach_binds_the_descriptor_of_its_read_and_writes_the_baseline_then_live(
     let second = attach(&mut w, DescriptorId(2), RouteId(6), options(), limits());
     assert!(second.contains(&Action::BindRoute {
         descriptor: DescriptorId(2),
-        route: RouteId(6)
+        route: RouteKey(2)
     }));
 }
 
@@ -296,7 +301,7 @@ fn the_worker_announces_and_enforces_exactly_the_limits_that_the_host_sent() {
     // `max_frame_bytes` holds the type byte and `FRAME - 1` bytes of output.
     let out: Vec<u8> = (0..2500u32).map(|i| b'a' + (i % 26) as u8).collect();
     let actions = w.feed(Input::PtyOutput(out.clone()));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let (bytes, sizes) = client.output();
     assert_eq!(bytes, out);
     assert_eq!(
@@ -333,9 +338,9 @@ fn output_that_the_model_holds_at_the_bind_is_the_first_output_after_live() {
     assert!(!held.is_empty(), "the model holds the ESC");
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let actions = w.feed(Input::PtyOutput(b"\\after".to_vec()));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let mut expected = held;
     expected.extend_from_slice(b"\\after");
     assert_eq!(client.output().0, expected);
@@ -364,7 +369,7 @@ fn a_snapshot_over_max_snapshot_bytes_closes_the_route_with_no_baseline() {
     let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     let mut client = Client::default();
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         client.frames,
         vec![ToClient::RouteClosed(RouteClosedFrame {
@@ -374,7 +379,7 @@ fn a_snapshot_over_max_snapshot_bytes_closes_the_route_with_no_baseline() {
             exit: None
         })]
     );
-    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert_eq!(
         closes(&mut w, &all),
         vec![WorkerMsg::RouteClosed {
@@ -424,7 +429,7 @@ fn the_features_are_the_intersection_with_the_workers() {
     opts.route_features = vec!["output_deflate".into(), "x".into()];
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let ToClient::Attached(attached) = &client.frames[0] else {
         unreachable!()
     };
@@ -452,13 +457,13 @@ fn the_pty_read_budget_follows_the_free_queue_space() {
         .expect("a smaller limit");
     assert!(smaller < first, "{smaller} < {first}");
     let mut client = Client::default();
-    let all = client.take_all(&mut w, RouteId(1), [bound, more].concat());
+    let all = client.take_all(&mut w, RouteKey(1), [bound, more].concat());
     let freed = budgets(&all).last().copied().flatten().expect("a limit");
     assert!(freed > smaller, "written bytes free the queue");
     // A write error ends the only route: the limit is lifted.
     w.feed(Input::PtyOutput(b"z".to_vec()));
     let ended = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Err(32),
     });
     assert_eq!(budgets(&ended).last(), Some(&None));
@@ -474,22 +479,22 @@ fn a_write_error_closes_the_route_write_failed_once() {
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
     let waiting = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     assert!(!waiting
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. } | Action::RouteClose { .. })));
-    let again = w.feed(Input::RouteWritable { route: RouteId(1) });
+    let again = w.feed(Input::RouteWritable { route: RouteKey(1) });
     assert!(
         again.iter().any(|a| matches!(a, Action::RouteWrite { .. })),
         "{again:?}"
     );
     let failed = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Err(32),
     });
-    assert!(failed.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(failed.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert_eq!(
         closes(&mut w, &failed),
         vec![WorkerMsg::RouteClosed {
@@ -505,7 +510,7 @@ fn a_write_error_closes_the_route_write_failed_once() {
     );
     assert!(w
         .feed(Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(1)
         })
         .is_empty());
@@ -585,7 +590,7 @@ fn the_snapshot_limits_take_a_snapshot_at_the_exact_bound() {
         route.max_screen_frame_bytes = screen;
         let mut client = Client::with(&route);
         let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), route);
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refused(&client),
             refuse,
@@ -616,14 +621,14 @@ fn a_frame_written_in_parts_frees_exactly_its_bytes() {
     let one = budgets(&fed).last().copied().flatten().expect("a limit");
     w.feed(Input::PtyOutput(vec![b'y'; 999]));
     let part = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(3),
     });
     assert_eq!(write(&part), first[3..].to_vec(), "the rest of the frame");
     let partial = budgets(&part).last().copied().flatten().expect("a limit");
     assert!(partial < empty, "{partial} < {empty}");
     let second = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1001),
     });
     let next = write(&second);
@@ -634,7 +639,7 @@ fn a_frame_written_in_parts_frees_exactly_its_bytes() {
         "one frame waits again"
     );
     let done = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1004),
     });
     assert_eq!(budgets(&done).last(), Some(&Some(empty)));
@@ -649,7 +654,7 @@ fn assert_handoff_failed_with_no_frame(w: &mut World, actions: &[Action]) {
             .any(|a| matches!(a, Action::RouteWrite { .. })),
         "{actions:?}"
     );
-    assert!(actions.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(actions.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert_eq!(
         closes(w, actions),
         vec![WorkerMsg::RouteClosed {
@@ -700,7 +705,7 @@ fn a_route_bound_below_route_closed_closes_with_no_frame() {
             .any(|a| matches!(a, Action::RouteWrite { .. })),
         "{actions:?}"
     );
-    assert!(actions.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(actions.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert_eq!(
         closes(&mut w, &actions),
         vec![WorkerMsg::RouteClosed {
@@ -749,10 +754,10 @@ fn a_write_error_during_a_healthy_close_keeps_the_first_reason() {
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
     let failed = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Err(32),
     });
-    assert!(failed.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(failed.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert_eq!(
         closes(&mut w, &failed),
         vec![WorkerMsg::RouteClosed {
@@ -806,7 +811,7 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
         )))
     );
     let mut client = Client::default();
-    let all = client.take_all(&mut w, RouteId(1), bound);
+    let all = client.take_all(&mut w, RouteKey(1), bound);
     let kinds: Vec<u8> = client.frames.iter().map(ToClient::type_byte).collect();
     use botster_route_codec::prelude::{
         TYPE_ATTACHED, TYPE_BASELINE_BEGIN, TYPE_BASELINE_END, TYPE_LIVE, TYPE_OUTPUT, TYPE_SCREEN,
@@ -884,14 +889,14 @@ fn a_detach_sends_route_closed_last_with_its_reason() {
             route: RouteId(1),
             reason,
         }));
-        let all = client.take_all(&mut w, RouteId(1), actions);
+        let all = client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             client.output().0,
             b"tail",
             "{reason:?}: the output before the close"
         );
         assert_eq!(client.frames.last(), Some(&route_closed(wire, None)));
-        assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+        assert!(all.contains(&Action::RouteClose { route: RouteKey(1) }));
         assert_eq!(
             closes(&mut w, &all),
             vec![WorkerMsg::RouteClosed {
@@ -936,7 +941,7 @@ fn a_detach_of_a_closing_route_keeps_the_first_reason() {
         route: RouteId(1),
         reason: DetachReason::Revoked,
     }));
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     let closed: Vec<&ToClient> = client
         .frames
         .iter()
@@ -964,7 +969,7 @@ fn a_detach_that_is_closing_at_the_exit_keeps_its_reason() {
     });
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
     actions.extend(w.feed(Input::PtyDrained));
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     let closed: Vec<&ToClient> = client
         .frames
         .iter()
@@ -990,9 +995,9 @@ fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_each_clo
     let mut one = Client::default();
     let mut two = Client::default();
     let a = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    one.take_all(&mut w, RouteId(1), a);
+    one.take_all(&mut w, RouteKey(1), a);
     let b = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
-    two.take_all(&mut w, RouteId(2), b);
+    two.take_all(&mut w, RouteKey(2), b);
     let mut actions = w.feed(Input::PtyOutput(b"bye".to_vec()));
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
     assert!(
@@ -1014,14 +1019,14 @@ fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_each_clo
         vec![],
         "no close is reported before its queue is delivered"
     );
-    let mut all = one.take_all(&mut w, RouteId(1), actions.clone());
-    all.extend(two.take_all(&mut w, RouteId(2), actions));
+    let mut all = one.take_all(&mut w, RouteKey(1), actions.clone());
+    all.extend(two.take_all(&mut w, RouteKey(2), actions));
     for client in [&one, &two] {
         assert_eq!(client.output().0, b"bye");
         assert_eq!(client.frames.last(), Some(&ended));
     }
-    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
-    assert!(all.contains(&Action::RouteClose { route: RouteId(2) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteKey(1) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteKey(2) }));
     let reason = RouteCloseReason::SessionEnded {
         exit: Exit {
             code: Some(3),
@@ -1047,7 +1052,7 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
     w.feed(Input::PtyDrained);
     let mut client = Client::default();
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert!(client.frames.contains(&ToClient::Live));
     assert_eq!(
         client.frames.last(),
@@ -1078,7 +1083,7 @@ fn client_input_after_live_reaches_the_pty_in_order_and_is_tagged() {
     }));
     let (first, rest) = stream.split_at(3);
     let mut all = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: first.to_vec(),
     });
     assert!(
@@ -1086,7 +1091,7 @@ fn client_input_after_live_reaches_the_pty_in_order_and_is_tagged() {
         "no write before the frame is whole"
     );
     all.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: rest.to_vec(),
     }));
     // The first transaction owns the PTY until its count (AM-2); then the second starts.
@@ -1128,13 +1133,13 @@ fn input_before_live_is_written_is_refused_not_ready() {
     let bound = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     // The baseline is queued, and no write of it is answered yet.
     let mut actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(5, b"x")),
     });
     assert!(pty_writes(&actions).is_empty());
     actions.splice(0..0, bound);
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals(&client),
         vec![(Some(Op(5)), RefusalReason::NotReady)]
@@ -1158,13 +1163,13 @@ fn a_view_only_route_refuses_input_not_writable() {
     opts.input = false;
     let mut client = Client::default();
     let bound = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    client.take_all(&mut w, RouteId(1), bound);
+    client.take_all(&mut w, RouteKey(1), bound);
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(0, b"x")),
     });
     assert!(pty_writes(&actions).is_empty());
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(refusals(&client), vec![(None, RefusalReason::NotWritable)]);
 }
 
@@ -1188,10 +1193,10 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
         stream_wrap(&key),
     ] {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes,
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
     }
     let unsupported = |op: Option<u64>, what: &str| {
         (op.map(Op), RefusalReason::Unsupported { what: what.into() })
@@ -1204,7 +1209,7 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
         ]
     );
     assert!(
-        !all.contains(&Action::RouteClose { route: RouteId(1) }),
+        !all.contains(&Action::RouteClose { route: RouteKey(1) }),
         "{:?}",
         client.frames
     );
@@ -1229,10 +1234,10 @@ fn a_refused_complete_input_frame_advances_the_client_revision_once() {
         json(r#"{"kind":"key","key":{"char":"ab"},"event":"press"}"#),
     ] {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: stream_wrap(&raw),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
     }
     assert_eq!(
         refusals(&client),
@@ -1256,9 +1261,9 @@ fn a_refused_complete_input_frame_advances_the_client_revision_once() {
         pty_writes(&all).is_empty(),
         "a refused frame reaches no PTY"
     );
-    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!all.contains(&Action::RouteClose { route: RouteKey(1) }));
     all.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(0, b"ok")),
     }));
     assert_eq!(pty_writes(&all), b"ok");
@@ -1289,10 +1294,10 @@ fn a_bad_client_frame_closes_the_route_bad_frame_with_its_code() {
     let mut bytes = (u32::try_from(FRAME).unwrap() + 1).to_be_bytes().to_vec();
     bytes.push(0x10);
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes,
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         client.frames.last(),
         Some(&route_closed(
@@ -1327,12 +1332,12 @@ fn the_clients_close_during_a_healthy_close_keeps_the_first_reason() {
         !all.iter().any(|a| matches!(a, Action::RouteClose { .. })),
         "the close waits for its frame: {all:?}"
     );
-    all.extend(w.feed(Input::RouteEnded { route: RouteId(1) }));
+    all.extend(w.feed(Input::RouteEnded { route: RouteKey(1) }));
     all.extend(w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(1),
     }));
-    all.extend(w.feed(Input::RouteEnded { route: RouteId(1) }));
+    all.extend(w.feed(Input::RouteEnded { route: RouteKey(1) }));
     let transport_closes = all
         .iter()
         .filter(|a| matches!(a, Action::RouteClose { .. }))
@@ -1352,8 +1357,8 @@ fn the_clients_close_during_a_healthy_close_keeps_the_first_reason() {
 #[test]
 fn the_clients_close_closes_the_route_peer_closed() {
     let (mut w, _, _) = attached(limits());
-    let actions = w.feed(Input::RouteEnded { route: RouteId(1) });
-    assert!(actions.contains(&Action::RouteClose { route: RouteId(1) }));
+    let actions = w.feed(Input::RouteEnded { route: RouteKey(1) });
+    assert!(actions.contains(&Action::RouteClose { route: RouteKey(1) }));
     assert!(!actions
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
@@ -1368,7 +1373,7 @@ fn the_clients_close_closes_the_route_peer_closed() {
 }
 
 /// The last read allowance of `route` in `actions` (DP-5).
-fn allowance(actions: &[Action], route: RouteId) -> Option<usize> {
+fn allowance(actions: &[Action], route: RouteKey) -> Option<usize> {
     actions.iter().rev().find_map(|a| match a {
         Action::RouteReadAllowance { route: r, bytes } if *r == route => Some(*bytes),
         _ => None,
@@ -1411,7 +1416,7 @@ fn route_input_is_held_within_its_allowance_while_the_pty_is_blocked() {
     let (mut w, _, all) = attached(limits());
     let bound = limits().route_input_queue_bytes as usize;
     assert_eq!(
-        allowance(&all, RouteId(1)),
+        allowance(&all, RouteKey(1)),
         Some(bound),
         "the bind's allowance"
     );
@@ -1420,12 +1425,12 @@ fn route_input_is_held_within_its_allowance_while_the_pty_is_blocked() {
     // Four frames of 991 payload bytes: the first is written, and its PTY write is not answered (the PTY is blocked).
     for k in 0..4 {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&bytes_frame(0, &payload(k))),
         });
         writes.extend(pty_writes(&actions));
         assert_eq!(
-            allowance(&actions, RouteId(1)),
+            allowance(&actions, RouteKey(1)),
             Some(bound - 991 * (usize::from(k) + 1)),
             "frame {k}"
         );
@@ -1435,18 +1440,18 @@ fn route_input_is_held_within_its_allowance_while_the_pty_is_blocked() {
     let fifth = client_frame(&bytes_frame(0, &payload(4)));
     let left = bound - 4 * 991;
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: fifth[..300].to_vec(),
     });
     // The driver spent 300 bytes of its allowance, so its rest is `left - 300`: the value now, so no new allowance goes out.
-    assert_eq!(allowance(&actions, RouteId(1)), None);
+    assert_eq!(allowance(&actions, RouteKey(1)), None);
     // The PTY takes the first frame: the allowance grows by its bytes, and the rest of the fifth frame fits.
     let actions = w.feed(Input::PtyWritten(Ok(991)));
     writes.extend(pty_writes(&actions));
-    assert_eq!(allowance(&actions, RouteId(1)), Some(left - 300 + 991));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(left - 300 + 991));
     assert!(fifth.len() - 300 <= left - 300 + 991);
     w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: fifth[300..].to_vec(),
     });
     for _ in 0..4 {
@@ -1468,26 +1473,26 @@ fn refused_input_against_a_client_that_does_not_read_is_held_at_the_queue_bound(
     opts.input = false;
     let mut client = Client::default();
     let bound = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    client.take_all(&mut w, RouteId(1), bound);
+    client.take_all(&mut w, RouteKey(1), bound);
     let flood: Vec<u8> = (1..=200)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: flood,
     });
     // Before the client reads: every frame is received, the refusals that the worker queued fit the queue, and the other
     // frames wait.
     assert_eq!(received(&mut w, &actions), 200, "each frame on its read");
-    assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
-    let (all, queued) = client.take_after_room(&mut w, RouteId(1), actions);
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(0), "the reads stop");
+    let (all, queued) = client.take_after_room(&mut w, RouteKey(1), actions);
     // When the route has room again, every frame is applied: its unread refusals fit the queue.
     let queued = queued.expect("the route gets room again");
     assert!(queued <= queue as usize, "{queued} bytes of refusals");
     let ops: Vec<Option<Op>> = refusals(&client).into_iter().map(|(op, _)| op).collect();
     assert_eq!(ops, (1..=200).map(|k| Some(Op(k))).collect::<Vec<_>>());
     assert_eq!(
-        allowance(&all, RouteId(1)),
+        allowance(&all, RouteKey(1)),
         Some(limits().route_input_queue_bytes as usize),
         "nothing is held: the whole bound"
     );
@@ -1504,15 +1509,15 @@ fn a_gated_closing_route_discards_the_clients_bytes() {
     });
     for k in 0..50 {
         actions.extend(w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&bytes_frame(k, &[b'y'; 900])),
         }));
     }
     assert!(pty_writes(&actions).is_empty());
     assert_eq!(received(&mut w, &actions), 0, "no frame is decoded");
-    assert_eq!(allowance(&actions, RouteId(1)), Some(usize::MAX));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(usize::MAX));
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert!(refusals(&client).is_empty());
 }
 
@@ -1522,13 +1527,13 @@ fn a_gated_closing_route_discards_the_clients_bytes() {
 fn a_partly_written_route_input_is_refused_with_its_written_bytes() {
     let (mut w, mut client, _) = attached(limits());
     let mut actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(9, b"abcd")),
     });
     actions.extend(w.feed(Input::PtyWritten(Ok(2))));
     actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
     actions.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&ToWorker::Text {
             op: Op(10),
             text: "efgh".into(),
@@ -1537,7 +1542,7 @@ fn a_partly_written_route_input_is_refused_with_its_written_bytes() {
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyWritten(Err(EIO))));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals_written(&client),
         vec![
@@ -1560,7 +1565,7 @@ fn a_route_write_error_is_classified_by_what_failed_not_by_its_order() {
         for exit_first in [false, true] {
             let (mut w, mut client, _) = attached(limits());
             let mut actions = w.feed(Input::RouteRead {
-                route: RouteId(1),
+                route: RouteKey(1),
                 bytes: client_frame(&bytes_frame(9, b"abcd")),
             });
             actions.extend(w.feed(Input::PtyWritten(Ok(2))));
@@ -1576,7 +1581,7 @@ fn a_route_write_error_is_classified_by_what_failed_not_by_its_order() {
             if !exit_first {
                 actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
             }
-            client.take_all(&mut w, RouteId(1), actions);
+            client.take_all(&mut w, RouteKey(1), actions);
             assert_eq!(
                 refusals_written(&client),
                 vec![(Some(Op(9)), reason.clone(), Some(2))],
@@ -1593,13 +1598,13 @@ fn queued_route_input_at_the_payloads_end_is_refused_session_ended() {
     let (mut w, mut client, _) = attached(limits());
     let mut actions = w.send(&write(1, b"abc", None));
     actions.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(4, b"zz")),
     }));
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     assert_eq!(pty_writes(&actions), b"abc", "only the host's write");
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals_written(&client),
         vec![(Some(Op(4)), RefusalReason::SessionEnded, None)]
@@ -1614,11 +1619,11 @@ fn route_input_during_a_stop_is_refused_session_ended() {
         let (mut w, mut client, _) = attached(limits());
         let mut actions = w.send(&stop);
         actions.extend(w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&bytes_frame(4, b"zz")),
         }));
         assert!(pty_writes(&actions).is_empty(), "{stop:?}");
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refusals_written(&client),
             vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
@@ -1663,7 +1668,7 @@ fn an_empty_route_input_before_live_is_refused_not_ready() {
         let mut w = World::running();
         let bound = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
         let mut actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&frame),
         });
         assert!(pty_writes(&actions).is_empty(), "{frame:?}");
@@ -1674,7 +1679,7 @@ fn an_empty_route_input_before_live_is_refused_not_ready() {
         );
         actions.splice(0..0, bound);
         let mut client = Client::default();
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refusals(&client),
             vec![(Some(Op(5)), RefusalReason::NotReady)],
@@ -1691,7 +1696,7 @@ fn an_empty_route_input_takes_the_same_admission() {
     for frame in empty_frames(4) {
         let (mut w, mut client, _) = attached(limits());
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&frame),
         });
         assert!(pty_writes(&actions).is_empty(), "{frame:?}");
@@ -1700,11 +1705,11 @@ fn an_empty_route_input_takes_the_same_admission() {
             vec![InputRev(1)],
             "{frame:?}"
         );
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert!(refusals_written(&client).is_empty(), "{frame:?}");
         // The next input still starts: the empty frame holds no transaction.
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&bytes_frame(5, b"zz")),
         });
         assert_eq!(pty_writes(&actions), b"zz", "{frame:?}");
@@ -1721,7 +1726,7 @@ fn an_empty_route_input_takes_the_same_admission() {
         let (mut w, mut client, _) = attached(limits());
         let mut actions = end(&mut w);
         let read = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&frame),
         });
         assert_eq!(
@@ -1731,7 +1736,7 @@ fn an_empty_route_input_takes_the_same_admission() {
         );
         actions.extend(read);
         assert!(pty_writes(&actions).is_empty(), "{frame:?}");
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refusals_written(&client),
             vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
@@ -1741,7 +1746,7 @@ fn an_empty_route_input_takes_the_same_admission() {
         let (mut w, mut client, _) = attached(limits());
         let mut actions = w.send(&write(1, b"abc", None));
         let read = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&frame),
         });
         assert_eq!(
@@ -1753,7 +1758,7 @@ fn an_empty_route_input_takes_the_same_admission() {
         actions.extend(end(&mut w));
         actions.extend(w.feed(Input::PtyWritten(Ok(3))));
         assert_eq!(pty_writes(&actions), b"abc", "{frame:?}");
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refusals_written(&client),
             vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
@@ -1771,7 +1776,7 @@ fn queued_route_input_that_starts_after_a_stop_is_refused_session_ended() {
         let (mut w, mut client, _) = attached(limits());
         let mut actions = w.send(&write(1, b"abc", None));
         actions.extend(w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(&bytes_frame(4, b"zz")),
         }));
         actions.extend(w.send(&stop));
@@ -1781,7 +1786,7 @@ fn queued_route_input_that_starts_after_a_stop_is_refused_session_ended() {
             b"abc",
             "{stop:?}: only the host's write"
         );
-        client.take_all(&mut w, RouteId(1), actions);
+        client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(
             refusals_written(&client),
             vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
@@ -1797,7 +1802,7 @@ fn queued_route_input_survives_an_adoption() {
     let (mut w, mut client, _) = attached(limits());
     let mut actions = w.send(&write(1, b"abc", None));
     actions.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(4, b"zz")),
     }));
     w.send(&write(2, b"old", None));
@@ -1811,7 +1816,7 @@ fn queued_route_input_survives_an_adoption() {
         b"abczz",
         "the old host's queued write never runs; the route's input does"
     );
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert!(refusals(&client).is_empty());
 }
 
@@ -1824,29 +1829,29 @@ fn each_routes_allowance_counts_only_its_own_input_and_the_unwritten_rest_of_its
     let bound = limits().route_input_queue_bytes as usize;
     let mut second = Client::default();
     let bind = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
-    let bind = second.take_all(&mut w, RouteId(2), bind);
-    assert_eq!(allowance(&bind, RouteId(2)), Some(bound));
+    let bind = second.take_all(&mut w, RouteKey(2), bind);
+    assert_eq!(allowance(&bind, RouteKey(2)), Some(bound));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(1, &[b'a'; 100])),
     });
     assert_eq!(pty_writes(&actions), [b'a'; 100], "route 1's write is out");
-    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 100));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(bound - 100));
     // The PTY takes 40 bytes: route 1 holds the 60 that are not written.
     let actions = w.feed(Input::PtyWritten(Ok(40)));
-    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 60));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(bound - 60));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(2, &[b'b'; 30])),
     });
-    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 60 - 30));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(bound - 60 - 30));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(2),
+        route: RouteKey(2),
         bytes: client_frame(&bytes_frame(3, &[b'c'; 50])),
     });
-    assert_eq!(allowance(&actions, RouteId(2)), Some(bound - 50));
+    assert_eq!(allowance(&actions, RouteKey(2)), Some(bound - 50));
     assert_eq!(
-        allowance(&actions, RouteId(1)),
+        allowance(&actions, RouteKey(1)),
         None,
         "route 2's input leaves route 1's allowance as it was"
     );
@@ -1857,11 +1862,11 @@ fn each_routes_allowance_counts_only_its_own_input_and_the_unwritten_rest_of_its
 fn a_route_input_that_fails_before_any_byte_is_written_is_refused_with_no_written_bytes() {
     let (mut w, mut client, _) = attached(limits());
     let mut actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(7, b"abcd")),
     });
     actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals_written(&client),
         vec![(Some(Op(7)), RefusalReason::Failed, None)]
@@ -1878,25 +1883,25 @@ fn a_refusal_needs_room_only_behind_an_unread_baseline() {
     // The baseline's size, from a client that reads all of it.
     let mut w = with_limits(|_| {});
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), opts.clone(), limits());
-    let all = Client::default().take_all(&mut w, RouteId(1), bind);
+    let all = Client::default().take_all(&mut w, RouteKey(1), bind);
     let baseline: usize = all
         .iter()
         .filter_map(|a| match a {
-            Action::RouteWrite { route, bytes } if *route == RouteId(1) => Some(bytes.len()),
+            Action::RouteWrite { route, bytes } if *route == RouteKey(1) => Some(bytes.len()),
             _ => None,
         })
         .sum();
     let mut w = with_limits(|l| l.route_queue_bytes = baseline as u64);
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    assert!(allowance(&bind, RouteId(1)).is_some_and(|n| n > 0));
+    assert!(allowance(&bind, RouteKey(1)).is_some_and(|n| n > 0));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(5, b"x")),
     });
     assert_eq!(received(&mut w, &actions), 1, "the frame is decoded");
-    assert!(allowance(&actions, RouteId(1)).is_none_or(|n| n > 0));
+    assert!(allowance(&actions, RouteKey(1)).is_none_or(|n| n > 0));
     let mut client = Client::default();
-    client.take_all(&mut w, RouteId(1), [bind, actions].concat());
+    client.take_all(&mut w, RouteKey(1), [bind, actions].concat());
     assert_eq!(
         refusals(&client),
         vec![(Some(Op(5)), RefusalReason::NotWritable)]
@@ -1914,25 +1919,25 @@ fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
     let mut w = with_limits(|l| l.route_queue_bytes = queue);
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    client.take_all(&mut w, RouteId(1), bind);
+    client.take_all(&mut w, RouteKey(1), bind);
     let mut actions = w.send(&write(1, b"abc", None));
     let flood: Vec<u8> = (1..=50)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     actions.extend(w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: flood,
     }));
     assert_eq!(received(&mut w, &actions), 50, "each frame on its read");
     // The frames past the reserved room wait: the route has no room, so the reads stop. Without the reservation (PR3
     // F100), the worker would admit the whole batch and the route would have room.
-    assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(0), "the reads stop");
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     assert_eq!(pty_writes(&actions), b"abc", "only the host's write");
     // The payload ended: every input that the worker applied is refused at once, and the reads still stop.
-    assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
-    let (all, queued) = client.take_after_room(&mut w, RouteId(1), actions);
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(0), "the reads stop");
+    let (all, queued) = client.take_after_room(&mut w, RouteKey(1), actions);
     let queued = queued.expect("the route gets room again");
     assert!(queued <= queue as usize, "{queued} bytes of refusals");
     assert_eq!(
@@ -1942,7 +1947,7 @@ fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
             .collect::<Vec<_>>(),
         "no outcome is lost"
     );
-    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!all.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// OU-2b, DP-5 (PR3 F101): `route_closed` is a closing route's last frame. A client's write is out on the PTY, the host
@@ -1951,7 +1956,7 @@ fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
 fn a_route_input_that_fails_after_a_detach_sends_no_frame_after_route_closed() {
     let (mut w, mut client, _) = attached(limits());
     let mut actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(6, b"abcd")),
     });
     assert_eq!(pty_writes(&actions), b"abcd", "the write is out");
@@ -1960,7 +1965,7 @@ fn a_route_input_that_fails_after_a_detach_sends_no_frame_after_route_closed() {
         reason: DetachReason::Detached,
     }));
     actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         client.frames.last(),
         Some(&route_closed(CloseReason::Detached, None))
@@ -1981,8 +1986,8 @@ fn a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one() {
     let mut w = with_limits(|l| l.route_queue_bytes = 1 << 20);
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    let bind = client.take_all(&mut w, RouteId(1), bind);
-    let first = allowance(&bind, RouteId(1)).expect("the bind's allowance");
+    let bind = client.take_all(&mut w, RouteKey(1), bind);
+    let first = allowance(&bind, RouteKey(1)).expect("the bind's allowance");
     let sent: Vec<u8> = (1..=400)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
@@ -2002,13 +2007,13 @@ fn a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one() {
             sent.len()
         );
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: sent[at..at + n].to_vec(),
         });
         at += n;
         rest -= n;
-        let all = client.take_all(&mut w, RouteId(1), actions);
-        if let Some(new) = allowance(&all, RouteId(1)) {
+        let all = client.take_all(&mut w, RouteKey(1), actions);
+        if let Some(new) = allowance(&all, RouteKey(1)) {
             rest = new;
         }
     }
@@ -2039,7 +2044,7 @@ fn feed_within_allowance(w: &mut World, frame: &[u8], mut rest: usize) -> Vec<Ac
         assert!(rest > 0, "the reads stopped at {at} of {}", frame.len());
         let n = rest.min(frame.len() - at).min(64 * 1024);
         let mut actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: frame[at..at + n].to_vec(),
         });
         at += n;
@@ -2053,7 +2058,7 @@ fn feed_within_allowance(w: &mut World, frame: &[u8], mut rest: usize) -> Vec<Ac
             all.append(&mut actions);
             actions = w.feed(Input::PtyWritten(Ok(bytes.len())));
         }
-        if let Some(new) = allowance(&actions, RouteId(1)) {
+        if let Some(new) = allowance(&actions, RouteKey(1)) {
             rest = new;
         }
         all.append(&mut actions);
@@ -2069,7 +2074,7 @@ fn one_frame_of_exactly_max_frame_bytes_at_the_default_limits_is_written() {
     let limits = default_limits();
     assert!(limits.max_frame_bytes > limits.route_input_queue_bytes);
     let (mut w, _, bind) = attached(limits);
-    let first = allowance(&bind, RouteId(1)).expect("the bind's allowance");
+    let first = allowance(&bind, RouteKey(1)).expect("the bind's allowance");
     assert_eq!(first as u64, limits.max_frame_bytes + 4, "R-53");
     // The type byte and the op: the payload fills the rest of the frame.
     let payload = vec![b'z'; usize::try_from(limits.max_frame_bytes).unwrap() - 9];
@@ -2077,7 +2082,7 @@ fn one_frame_of_exactly_max_frame_bytes_at_the_default_limits_is_written() {
     assert_eq!(frame.len() as u64, limits.max_frame_bytes + 4);
     let all = feed_within_allowance(&mut w, &frame, first);
     assert_eq!(pty_writes(&all), payload, "the whole frame reaches the PTY");
-    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!all.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// DP-5, R-53 (PR3 F104): a legal `route_input_queue_bytes` below one frame. The route still reads one whole frame, and it
@@ -2091,12 +2096,12 @@ fn a_route_input_queue_below_one_frame_still_completes_a_frame_and_holds_no_more
     };
     let (mut w, _, bind) = attached(limits);
     let bound = usize::try_from(FRAME).unwrap() + 4;
-    assert_eq!(allowance(&bind, RouteId(1)), Some(bound), "R-53");
+    assert_eq!(allowance(&bind, RouteKey(1)), Some(bound), "R-53");
     let payload = vec![b'w'; usize::try_from(FRAME).unwrap() - 9];
     let frame = client_frame(&bytes_frame(1, &payload));
     assert_eq!(frame.len(), bound, "a frame of exactly max_frame_bytes");
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: frame.clone(),
     });
     assert_eq!(
@@ -2104,12 +2109,12 @@ fn a_route_input_queue_below_one_frame_still_completes_a_frame_and_holds_no_more
         payload,
         "the frame is decoded and its write is out"
     );
-    let held = allowance(&actions, RouteId(1)).expect("a new allowance");
+    let held = allowance(&actions, RouteKey(1)).expect("a new allowance");
     assert_eq!(held, bound - payload.len(), "the unwritten payload is held");
     assert!(held < frame.len(), "a second frame does not fit");
     let actions = w.feed(Input::PtyWritten(Ok(payload.len())));
     assert_eq!(
-        allowance(&actions, RouteId(1)),
+        allowance(&actions, RouteKey(1)),
         Some(bound),
         "the write is done"
     );
@@ -2124,8 +2129,8 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
     let mut w = with_limits(|l| l.route_queue_bytes = 1000);
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    let first = allowance(&bind, RouteId(1)).expect("an allowance");
-    client.take_all(&mut w, RouteId(1), bind);
+    let first = allowance(&bind, RouteKey(1)).expect("an allowance");
+    client.take_all(&mut w, RouteKey(1), bind);
     let batch: Vec<u8> = (0..50u8).map(|k| b'A' + k).collect();
     let read: Vec<u8> = batch
         .iter()
@@ -2134,12 +2139,12 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
         .collect();
     assert!(read.len() <= first, "{} of {first}: one read", read.len());
     let mut actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: read,
     });
     // Part of the batch waits for room: the route has no refusal room, so the reads stop.
     assert_eq!(
-        allowance(&actions, RouteId(1)),
+        allowance(&actions, RouteKey(1)),
         Some(0),
         "part of the batch waits"
     );
@@ -2152,7 +2157,7 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
                 .any(|a| matches!(a, Action::RouteWrite { .. })),
             "no outgoing frame"
         );
-        last = allowance(&actions, RouteId(1)).or(last);
+        last = allowance(&actions, RouteKey(1)).or(last);
         let started = pty_writes(&actions);
         if started.is_empty() {
             break;
@@ -2181,18 +2186,18 @@ fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
     opts.input = false;
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    let first = allowance(&bind, RouteId(1)).expect("an allowance");
-    client.take_all(&mut w, RouteId(1), bind);
+    let first = allowance(&bind, RouteKey(1)).expect("an allowance");
+    client.take_all(&mut w, RouteKey(1), bind);
     let flood: Vec<u8> = (1..=50)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     assert!(flood.len() <= first, "{} of {first}: one read", flood.len());
     let read = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: flood,
     });
     assert_eq!(
-        allowance(&read, RouteId(1)),
+        allowance(&read, RouteKey(1)),
         Some(0),
         "refusals wait for room"
     );
@@ -2227,7 +2232,7 @@ fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
     );
     let actions = w.send(&write(2, b"abc", Some(guard(last))));
     assert_eq!(pty_writes(&actions), b"abc", "the guard passes");
-    let later = client.take_all(&mut w, RouteId(1), [read, stale, actions].concat());
+    let later = client.take_all(&mut w, RouteKey(1), [read, stale, actions].concat());
     // The actions hold the read's 50 reports, and no later report: no frame was left to count.
     assert_eq!(received(&mut w, &later), 50, "only the read's reports");
     assert_eq!(refusals(&client).len(), 50, "every frame is refused");
@@ -2243,17 +2248,17 @@ fn a_healthy_close_discards_the_frames_that_wait_for_room() {
     let mut w = with_limits(|l| l.route_queue_bytes = queue_bytes);
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    let first = allowance(&bind, RouteKey(1)).expect("an allowance");
     let batch: Vec<u8> = (1..=50)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     assert!(batch.len() <= first, "{} of {first}: one read", batch.len());
     let read = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: batch,
     });
     assert_eq!(
-        allowance(&read, RouteId(1)),
+        allowance(&read, RouteKey(1)),
         Some(0),
         "refusals wait for room"
     );
@@ -2261,7 +2266,7 @@ fn a_healthy_close_discards_the_frames_that_wait_for_room() {
         route: RouteId(1),
         reason: DetachReason::Revoked,
     });
-    client.take_all(&mut w, RouteId(1), [bind, read, detach].concat());
+    client.take_all(&mut w, RouteKey(1), [bind, read, detach].concat());
     let live = client
         .frames
         .iter()
@@ -2304,22 +2309,22 @@ fn input_received_before_live_stays_not_ready_when_it_waits_for_room() {
     let mut w = with_limits(|l| l.route_queue_bytes = 1000);
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    let first = allowance(&bind, RouteKey(1)).expect("an allowance");
     let batch: Vec<u8> = (1..=50)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     assert!(batch.len() <= first, "{} of {first}: one read", batch.len());
     let read = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: batch,
     });
     assert_eq!(received(&mut w, &read), 50, "each frame on its read");
     assert_eq!(
-        allowance(&read, RouteId(1)),
+        allowance(&read, RouteKey(1)),
         Some(0),
         "refusals wait for room"
     );
-    let all = client.take_all(&mut w, RouteId(1), [bind, read].concat());
+    let all = client.take_all(&mut w, RouteKey(1), [bind, read].concat());
     assert!(
         client.frames.iter().any(|f| matches!(f, ToClient::Live)),
         "the client read live"

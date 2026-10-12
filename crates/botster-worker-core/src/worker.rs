@@ -147,15 +147,15 @@ pub enum Input {
     /// [`Input::RouteWritable`]. `Err(errno)` is a terminal write error; the driver writes again on `Interrupted` and
     /// reports `WouldBlock` as `Ok(0)`.
     RouteWritten {
-        route: RouteId,
+        route: RouteKey,
         result: Result<usize, i32>,
     },
     /// The route's transport takes bytes again after a write that it did not take.
-    RouteWritable { route: RouteId },
+    RouteWritable { route: RouteKey },
     /// Bytes that the driver read from a bound route's transport: the client's frames (DP-5).
-    RouteRead { route: RouteId, bytes: Vec<u8> },
+    RouteRead { route: RouteKey, bytes: Vec<u8> },
     /// The client closed the route's transport, or a read of it failed (OU-5).
-    RouteEnded { route: RouteId },
+    RouteEnded { route: RouteKey },
 }
 
 /// An action of the worker, for its driver.
@@ -190,22 +190,28 @@ pub enum Action {
     /// The stream of `descriptor` is `route`'s transport from now (DP-2).
     BindRoute {
         descriptor: DescriptorId,
-        route: RouteId,
+        route: RouteKey,
     },
     /// Close a descriptor that no route took (its link ended or was replaced, DP-8).
     CloseDescriptor(DescriptorId),
     /// Write these bytes to the route's transport, and answer with [`Input::RouteWritten`]. One write is out per route.
-    RouteWrite { route: RouteId, bytes: Vec<u8> },
+    RouteWrite { route: RouteKey, bytes: Vec<u8> },
     /// Close the route's transport. The driver reports nothing more of the route.
-    RouteClose { route: RouteId },
+    RouteClose { route: RouteKey },
     /// Read at most this many PTY bytes in total until the next budget (OU-3d source backpressure); `Some(0)` stops every
     /// PTY read, a drain too. `None` lifts the limit. A driver starts with no limit.
     PtyReadBudget(Option<usize>),
     /// Read at most `bytes` more client bytes of the route's stream until its next allowance (DP-5: the route's input bound,
     /// and room for one more `input_refused`); `0` stops the route's reads, and so the client gets transport backpressure.
     /// The worker sends one after the bind, before the driver reads the route.
-    RouteReadAllowance { route: RouteId, bytes: usize },
+    RouteReadAllowance { route: RouteKey, bytes: usize },
 }
+
+/// The worker's own key of a route (DP-8). It never changes while the route lives, over every link. The link names a route by
+/// a `RouteId`, which belongs to one host handle (ID-2), so each machine structure, action and input of a route uses this key,
+/// and the worker's link table (`route.rs`) is the only place where a `RouteId` enters or leaves the worker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RouteKey(pub u64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LinkState {
@@ -605,8 +611,16 @@ impl Worker {
                 client,
             } => self.on_attach_route(route, options, limits, client),
             HostMsg::Detach { route, reason } => self.on_detach(route, reason),
-            HostMsg::RouteStallDue { route, mark } => self.on_route_stall_due(route, mark),
-            HostMsg::RouteCloseDue { route, mark } => self.on_route_close_due(route, mark),
+            HostMsg::RouteStallDue { route, mark } => {
+                if let Some(key) = self.route_key(route) {
+                    self.on_route_stall_due(key, mark);
+                }
+            }
+            HostMsg::RouteCloseDue { route, mark } => {
+                if let Some(key) = self.route_key(route) {
+                    self.on_route_close_due(key, mark);
+                }
+            }
             // A later variant of the enum is a later host's.
             _ => {}
         }

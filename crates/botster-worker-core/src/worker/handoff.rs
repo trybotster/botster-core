@@ -16,8 +16,9 @@
 //! in the same way, because no read that is left was proven (F117).
 
 use super::route::DescriptorId;
+use super::RouteKey;
 use super::{Action, LinkState, Worker};
-use botster_core_contract::prelude::{RouteCloseReason, RouteId};
+use botster_core_contract::prelude::RouteCloseReason;
 use std::collections::BTreeMap;
 
 /// The link reads that came with descriptors, until every frame whose first byte is in them is complete.
@@ -36,7 +37,7 @@ pub(super) struct Handoffs {
 struct DescriptorRead {
     descriptors: Vec<DescriptorId>,
     /// The route of the `AttachRoute` frame whose first byte is in this read, once it took the read's descriptor.
-    route: Option<RouteId>,
+    route: Option<RouteKey>,
 }
 
 impl Worker {
@@ -85,7 +86,7 @@ impl Worker {
 
     /// The descriptor of the complete `AttachRoute` frame of `route`: the one descriptor of the read that holds the frame's
     /// first byte. `None` is a fault, already handled.
-    pub(super) fn attach_descriptor(&mut self, route: RouteId) -> Option<DescriptorId> {
+    pub(super) fn attach_descriptor(&mut self, route: RouteKey) -> Option<DescriptorId> {
         let start = self.handoffs.frame_start;
         let read = self.handoffs.reads.get_mut(&start);
         match read {

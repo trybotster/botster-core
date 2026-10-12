@@ -35,7 +35,7 @@ impl Write for Scripted {
     }
 }
 
-const R: RouteId = RouteId(7);
+const R: RouteKey = RouteKey(7);
 
 fn routes(read_chunk: usize) -> Routes<Scripted> {
     Routes::new(NonZeroUsize::new(read_chunk).unwrap())
@@ -283,10 +283,10 @@ fn an_error_event_makes_both_directions_ready() {
 #[test]
 fn route_tokens_are_new_and_never_a_candidates() {
     let mut routes = routes(1);
-    let a = routes.bind(RouteId(1), Scripted::default());
-    let b = routes.bind(RouteId(2), Scripted::default());
-    routes.close(RouteId(1));
-    let c = routes.bind(RouteId(1), Scripted::default());
+    let a = routes.bind(RouteKey(1), Scripted::default());
+    let b = routes.bind(RouteKey(2), Scripted::default());
+    routes.close(RouteKey(1));
+    let c = routes.bind(RouteKey(1), Scripted::default());
     assert!(a != b && b != c && a != c);
     for token in [a, b, c] {
         assert!(is_route_token(token));

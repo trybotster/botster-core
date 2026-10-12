@@ -12,7 +12,8 @@ pub mod worker;
 
 pub use drain::Drain;
 pub use worker::{
-    Action, CandidateId, DescriptorId, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+    Action, CandidateId, DescriptorId, Input, PayloadSpec, RouteKey, SpawnFailure, Worker,
+    WorkerConfig,
 };
 
 /// The worker protocol number `T` of this Core. The first v1 worker protocol number is 1.

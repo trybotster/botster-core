@@ -680,13 +680,13 @@ fn a_received_descriptor_binds_a_route_or_closes() {
         now,
         Action::BindRoute {
             descriptor: id,
-            route: RouteId(3),
+            route: RouteKey(3),
         },
     );
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(3),
+            route: RouteKey(3),
             bytes: b"xy".to_vec(),
         },
     );
@@ -694,7 +694,7 @@ fn a_received_descriptor_binds_a_route_or_closes() {
     assert_eq!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(3),
+            route: RouteKey(3),
             result: Ok(2)
         }
     );
@@ -725,13 +725,13 @@ fn a_full_route_stream_holds_the_write_until_the_client_reads() {
         now,
         Action::BindRoute {
             descriptor: id,
-            route: RouteId(1),
+            route: RouteKey(1),
         },
     );
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"1234".to_vec(),
         },
     );
@@ -739,21 +739,21 @@ fn a_full_route_stream_holds_the_write_until_the_client_reads() {
     assert_eq!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(4)
         }
     );
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"5".to_vec(),
         },
     );
     assert_eq!(edges.ready(now, &worker), 0, "a full queue holds the write");
     let control = edges
         .routes
-        .get_mut(&RouteId(1))
+        .get_mut(&RouteKey(1))
         .unwrap()
         .end
         .end()
@@ -774,11 +774,11 @@ fn a_full_route_stream_holds_the_write_until_the_client_reads() {
     assert_eq!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(1)
         }
     );
-    edges.perform(now, Action::RouteClose { route: RouteId(1) });
+    edges.perform(now, Action::RouteClose { route: RouteKey(1) });
     loop {
         let n = botster_core_edges::RouteTransport::read(&mut client, &mut buf).unwrap();
         if n == 0 {
@@ -834,7 +834,7 @@ fn bind_route(
     peer: &mut LinkEnd,
     worker: &SharedWorker,
     now: Instant,
-    route: RouteId,
+    route: RouteKey,
 ) -> crate::net::StreamEnd {
     bind_route_of(edges, peer, worker, now, route, 4)
 }
@@ -845,7 +845,7 @@ fn bind_route_of(
     peer: &mut LinkEnd,
     worker: &SharedWorker,
     now: Instant,
-    route: RouteId,
+    route: RouteKey,
     capacity: usize,
 ) -> crate::net::StreamEnd {
     let client = bind_route_unread(edges, peer, worker, now, route, capacity);
@@ -865,7 +865,7 @@ fn bind_route_unread(
     peer: &mut LinkEnd,
     worker: &SharedWorker,
     now: Instant,
-    route: RouteId,
+    route: RouteKey,
     capacity: usize,
 ) -> crate::net::StreamEnd {
     let (descriptor, client) = route_descriptor_of(&edges.scheduler, capacity);
@@ -898,7 +898,7 @@ fn each_descriptor_gets_its_own_id() {
     }
     assert_eq!(ids.len(), 2);
     assert_ne!(ids[0], ids[1]);
-    for (id, route, bytes) in [(ids[0], RouteId(1), b"1"), (ids[1], RouteId(2), b"2")] {
+    for (id, route, bytes) in [(ids[0], RouteKey(1), b"1"), (ids[1], RouteKey(2), b"2")] {
         edges.perform(
             now,
             Action::BindRoute {
@@ -928,11 +928,11 @@ fn each_descriptor_gets_its_own_id() {
 #[test]
 fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let _client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    let _client = bind_route(&mut edges, &mut peer, &worker, now, RouteKey(1));
     let interest = |edges: &mut WorkerEdges| {
         edges
             .routes
-            .get_mut(&RouteId(1))
+            .get_mut(&RouteKey(1))
             .unwrap()
             .end
             .end()
@@ -942,7 +942,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"ab".to_vec(),
         },
     );
@@ -950,7 +950,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     assert!(interest(&mut edges), "a write waits");
     let control = edges
         .routes
-        .get_mut(&RouteId(1))
+        .get_mut(&RouteKey(1))
         .unwrap()
         .end
         .end()
@@ -959,7 +959,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     assert_eq!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(0)
         }
     );
@@ -969,7 +969,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     assert_eq!(edges.ready(now, &worker), 1);
     assert_eq!(
         edges.take(now, &worker, 0),
-        Input::RouteWritable { route: RouteId(1) }
+        Input::RouteWritable { route: RouteKey(1) }
     );
     assert_eq!(edges.ready(now, &worker), 0);
     assert!(!interest(&mut edges), "nothing waits");
@@ -978,7 +978,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"i".to_vec(),
         },
     );
@@ -986,7 +986,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     assert_eq!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Ok(1)
         }
     );
@@ -995,7 +995,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     edges.perform(
         now,
         Action::RouteWrite {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"c".to_vec(),
         },
     );
@@ -1003,7 +1003,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     assert!(matches!(
         edges.take(now, &worker, 0),
         Input::RouteWritten {
-            route: RouteId(1),
+            route: RouteKey(1),
             result: Err(_)
         }
     ));
@@ -1014,7 +1014,7 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
 #[test]
 fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteKey(1));
     assert_eq!(edges.ready(now, &worker), 0, "nothing to read");
     assert_eq!(
         botster_core_edges::RouteTransport::write(&mut client, b"abcd").unwrap(),
@@ -1027,7 +1027,7 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
         let Input::RouteRead { route, bytes } = edges.take(now, &worker, 0) else {
             panic!("a route read")
         };
-        assert_eq!(route, RouteId(1));
+        assert_eq!(route, RouteKey(1));
         assert!(!bytes.is_empty(), "a stream that holds bytes gives bytes");
         got.extend_from_slice(&bytes);
     }
@@ -1037,7 +1037,7 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
     assert_eq!(edges.ready(now, &worker), 1, "the close is readable");
     assert_eq!(
         edges.take(now, &worker, 0),
-        Input::RouteEnded { route: RouteId(1) }
+        Input::RouteEnded { route: RouteKey(1) }
     );
     assert_eq!(
         edges.ready(now, &worker),
@@ -1052,12 +1052,12 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
 #[test]
 fn a_route_is_read_only_within_its_allowance() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let mut client = bind_route_unread(&mut edges, &mut peer, &worker, now, RouteId(1), 16);
+    let mut client = bind_route_unread(&mut edges, &mut peer, &worker, now, RouteKey(1), 16);
     let allow = |edges: &mut WorkerEdges, bytes: usize| {
         edges.perform(
             now,
             Action::RouteReadAllowance {
-                route: RouteId(1),
+                route: RouteKey(1),
                 bytes,
             },
         );
@@ -1117,7 +1117,7 @@ const SOCKET_READ_BYTES: usize = 64 * 1024;
 fn a_route_read_takes_at_most_a_socket_buffer() {
     let total = 4 * SOCKET_READ_BYTES;
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let mut client = bind_route_of(&mut edges, &mut peer, &worker, now, RouteId(1), total);
+    let mut client = bind_route_of(&mut edges, &mut peer, &worker, now, RouteKey(1), total);
     let sent: Vec<u8> = (0..total).map(|i| (i % 251) as u8).collect();
     assert_eq!(
         botster_core_edges::RouteTransport::write(&mut client, &sent).unwrap(),
@@ -1146,7 +1146,7 @@ fn a_route_read_takes_at_most_a_socket_buffer() {
 #[test]
 fn an_interrupted_read_is_retried_a_would_block_read_is_empty_and_an_error_ends_the_route() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteKey(1));
     let worker_end = client.end().control().peer();
     let read = |edges: &mut WorkerEdges| {
         assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
@@ -1170,7 +1170,7 @@ fn an_interrupted_read_is_retried_a_would_block_read_is_empty_and_an_error_ends_
     assert_eq!(
         read(&mut edges),
         Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: Vec::new()
         },
         "nothing to take: an empty read"
@@ -1178,7 +1178,7 @@ fn an_interrupted_read_is_retried_a_would_block_read_is_empty_and_an_error_ends_
     assert_eq!(
         read(&mut edges),
         Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: b"c".to_vec()
         },
         "the route stays open and its byte waits"
@@ -1186,7 +1186,7 @@ fn an_interrupted_read_is_retried_a_would_block_read_is_empty_and_an_error_ends_
 
     botster_core_edges::RouteTransport::write(&mut client, b"d").unwrap();
     worker_end.fail_next_read(io::ErrorKind::ConnectionReset);
-    assert_eq!(read(&mut edges), Input::RouteEnded { route: RouteId(1) });
+    assert_eq!(read(&mut edges), Input::RouteEnded { route: RouteKey(1) });
     assert_eq!(
         edges.ready(now, &worker),
         0,

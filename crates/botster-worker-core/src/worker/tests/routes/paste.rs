@@ -45,10 +45,10 @@ fn send(w: &mut World, client: &mut Client, frames: &[ToWorker]) -> Vec<Action> 
     let mut all = Vec::new();
     for frame in frames {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: client_frame(frame),
         });
-        all.extend(client.take_all(w, RouteId(1), actions));
+        all.extend(client.take_all(w, RouteKey(1), actions));
     }
     all
 }
@@ -56,7 +56,7 @@ fn send(w: &mut World, client: &mut Client, frames: &[ToWorker]) -> Vec<Action> 
 /// The PTY takes `n` bytes of the write that is out.
 fn pty_took(w: &mut World, client: &mut Client, n: usize) -> Vec<Action> {
     let actions = w.feed(Input::PtyWritten(Ok(n)));
-    client.take_all(w, RouteId(1), actions)
+    client.take_all(w, RouteKey(1), actions)
 }
 
 /// Each PTY write, one entry per write.
@@ -92,7 +92,7 @@ fn refused(ops: &[u64]) -> Vec<(Option<Op>, RefusalReason, Option<u64>)> {
 fn bracketed(w: &mut World, client: &mut Client) -> (Vec<u8>, Vec<u8>) {
     let on = b"\x1b[?2004h";
     let actions = w.feed(Input::PtyOutput(on.to_vec()));
-    client.take_all(w, RouteId(1), actions);
+    client.take_all(w, RouteKey(1), actions);
     let mut expected = oracle();
     expected.vt_write(on);
     expected.paste_frame().expect("the mode is on")
@@ -117,7 +117,7 @@ fn unmatched_paste_continuations_without_an_open_paste_are_refused() {
     ));
     assert_eq!(writes(&all), [b"ab".to_vec()]);
     assert_eq!(refusals_written(&client).len(), 3, "no other refusal");
-    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!all.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// Codec TS-5d (R-5): after its commit, a paste is not open. A chunk, a commit and an abort of its op are refused `refused`,
@@ -302,7 +302,7 @@ fn a_partly_written_paste_is_refused_with_its_pty_bytes() {
     );
     pty_took(&mut w, &mut client, part);
     let actions = w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR)));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals_written(&client),
         [(Some(Op(1)), RefusalReason::Failed, Some(part as u64))]
@@ -335,9 +335,9 @@ fn a_paste_that_is_open_at_the_close_writes_nothing() {
         route: RouteId(1),
         reason: DetachReason::Detached,
     });
-    all.extend(client.take_all(&mut w, RouteId(1), actions));
+    all.extend(client.take_all(&mut w, RouteKey(1), actions));
     assert!(writes(&all).is_empty());
-    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// DP-5: the route's read allowance counts the caller's bytes of its held input: a `text` frame and a committed paste at the
@@ -356,11 +356,11 @@ fn held_text_and_a_committed_paste_count_in_the_allowance() {
             text: "xyz".into(),
         }],
     ));
-    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3));
+    assert_eq!(allowance(&all, RouteKey(1)), Some(bound - 100 - 3));
     all.extend(send(&mut w, &mut client, &[begin(3), chunk(3, b"pq")]));
-    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3));
+    assert_eq!(allowance(&all, RouteKey(1)), Some(bound - 100 - 3));
     all.extend(send(&mut w, &mut client, &[commit(3, None)]));
-    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3 - 2));
+    assert_eq!(allowance(&all, RouteKey(1)), Some(bound - 100 - 3 - 2));
 }
 
 /// Codec TS-5: `bytes` and `text` have no success acknowledgement. An empty one with an op is written as nothing, and gets no
@@ -398,7 +398,7 @@ fn a_paste_blocked_at_the_payloads_end_is_refused_session_ended_with_its_pty_byt
     pty_took(&mut w, &mut client, 0);
     let mut actions = w.feed(Input::PayloadExited(ExitStatus::Code(0)));
     actions.extend(w.feed(Input::PtyDrained));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals_written(&client),
         [(Some(Op(1)), RefusalReason::SessionEnded, Some(3))]

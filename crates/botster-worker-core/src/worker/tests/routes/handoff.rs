@@ -90,7 +90,7 @@ fn descriptor_closes(actions: &[Action]) -> BTreeMap<DescriptorId, usize> {
     closes
 }
 
-fn binds(actions: &[Action]) -> Vec<(DescriptorId, RouteId)> {
+fn binds(actions: &[Action]) -> Vec<(DescriptorId, RouteKey)> {
     actions
         .iter()
         .filter_map(|a| match a {
@@ -125,7 +125,7 @@ fn a_split_attach_route_takes_the_descriptor_of_the_read_with_its_first_byte() {
             let actions = feed_all(&mut w, inputs);
             assert_eq!(
                 binds(&actions),
-                vec![(DescriptorId(1), RouteId(1))],
+                vec![(DescriptorId(1), RouteKey(1))],
                 "{form:?} {prefix} {chunk}"
             );
             assert!(
@@ -153,7 +153,7 @@ fn a_descriptor_read_that_begins_with_earlier_frames_gives_its_descriptor_to_the
         3,
     );
     let actions = feed_all(&mut w, inputs);
-    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteKey(1))]);
     assert!(!actions.contains(&Action::LinkClose), "{actions:?}");
 }
 
@@ -183,7 +183,10 @@ fn two_attach_routes_take_their_own_descriptors() {
         let actions = feed_all(&mut w, inputs);
         assert_eq!(
             binds(&actions),
-            vec![(DescriptorId(1), RouteId(1)), (DescriptorId(2), RouteId(2))],
+            vec![
+                (DescriptorId(1), RouteKey(1)),
+                (DescriptorId(2), RouteKey(2))
+            ],
             "{form:?}"
         );
         assert!(!actions.contains(&Action::LinkClose), "{form:?}");
@@ -288,7 +291,7 @@ fn a_second_attach_route_start_in_a_descriptor_read_ends_the_route_that_took_it(
         let actions = with_link_written(&mut w, fed);
         assert_eq!(
             binds(&actions),
-            vec![(DescriptorId(1), RouteId(1))],
+            vec![(DescriptorId(1), RouteKey(1))],
             "{form:?}"
         );
         assert!(
@@ -436,7 +439,7 @@ fn a_frame_above_the_bound_after_a_bound_attach_route_ends_the_route() {
         let actions = with_link_written(&mut w, fed);
         assert_eq!(
             binds(&actions),
-            vec![(DescriptorId(1), RouteId(1))],
+            vec![(DescriptorId(1), RouteKey(1))],
             "{form:?}"
         );
         assert!(
@@ -466,7 +469,7 @@ fn a_frame_that_closes_the_link_after_a_bound_attach_route_ends_the_route() {
     let bytes = [attach_frame(1), World::msg(&HostMsg::Remove)].concat();
     let fed = w.feed(World::read(bytes, vec![DescriptorId(1)]));
     let actions = with_link_written(&mut w, fed);
-    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteKey(1))]);
     assert!(actions.contains(&Action::LinkClose), "{actions:?}");
     assert_eq!(
         descriptor_closes(&actions),
@@ -491,7 +494,7 @@ fn a_terminate_before_the_read_is_checked_ends_its_route() {
     w.feed(Input::PtyDrained);
     let mut actions = bound_with_an_open_frame(&mut w);
     actions.extend(w.feed(Input::Terminate));
-    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteKey(1))]);
     assert!(actions.contains(&Action::LinkClose), "{actions:?}");
     assert_eq!(
         descriptor_closes(&actions),
@@ -510,13 +513,17 @@ fn a_link_end_before_the_read_is_checked_ends_only_its_route() {
     actions.extend(w.feed(Input::LinkClosed));
     assert_eq!(
         binds(&actions),
-        vec![(DescriptorId(2), RouteId(2)), (DescriptorId(1), RouteId(1))]
+        // Route 2 attaches first, so it has the first key.
+        vec![
+            (DescriptorId(2), RouteKey(1)),
+            (DescriptorId(1), RouteKey(2))
+        ]
     );
     assert_eq!(
         descriptor_closes(&actions),
         BTreeMap::from([(DescriptorId(1), 1)])
     );
-    assert!(!actions.contains(&Action::RouteClose { route: RouteId(2) }));
+    assert!(!actions.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// F120, DP-8: a host adopts the worker while a read of the old link with a bound route is not checked. The new host gets
@@ -526,7 +533,7 @@ fn an_adoption_before_the_read_is_checked_ends_its_route_after_the_hello() {
     let mut w = World::running();
     let mut actions = bound_with_an_open_frame(&mut w);
     actions.extend(adopt(&mut w, EPOCH + 3));
-    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteKey(1))]);
     assert_eq!(
         descriptor_closes(&actions),
         BTreeMap::from([(DescriptorId(1), 1)])

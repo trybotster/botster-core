@@ -28,7 +28,7 @@
 //! [`HostMsg::RouteStallDue`]: botster_core_link::msg::HostMsg::RouteStallDue
 //! [`HostMsg::RouteCloseDue`]: botster_core_link::msg::HostMsg::RouteCloseDue
 
-use super::{Kind, Queued, Worker};
+use super::{Kind, Queued, RouteKey, RouteReport, Worker};
 use crate::worker::LinkState;
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::WorkerMsg;
@@ -72,7 +72,7 @@ impl Clock {
 
 impl Worker {
     /// The transport of route `id` accepted bytes (OU-3a): the mark advances, and a `Stalled` route resumes (OU-2).
-    pub(super) fn route_progressed(&mut self, id: RouteId) {
+    pub(super) fn route_progressed(&mut self, id: RouteKey) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -85,7 +85,7 @@ impl Worker {
     /// `HostMsg::RouteStallDue` (R-90, OU-3b): the route becomes `Stalled` only while it is `Open`, it holds bytes that the
     /// transport has not accepted, and its mark is still `mark`. Otherwise the worker does nothing: its newer report is on
     /// the link already, and the host releases its reservation when it reads it.
-    pub(in crate::worker) fn on_route_stall_due(&mut self, id: RouteId, mark: u64) {
+    pub(in crate::worker) fn on_route_stall_due(&mut self, id: RouteKey, mark: u64) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -120,7 +120,7 @@ impl Worker {
         route.queue.push_back(resync);
         route.queue.append(&mut kept);
         route.stall.stalled = Some(mark);
-        self.report(&WorkerMsg::RouteStalled { route: id, mark });
+        self.report_route(id, RouteReport::Stalled { mark });
         self.pump_route(id);
         // A `Stalled` route leaves the PTY read budget (OU-3b, OU-7).
         self.settle_routes();
@@ -128,7 +128,7 @@ impl Worker {
 
     /// `HostMsg::RouteCloseDue` (R-90, OU-2): a route that is still `Stalled` at `mark` closes. The close keeps the first
     /// reason: `StallTimeout` with no reason before it (a failed close: no more frames, OU-2b), otherwise the healthy close's.
-    pub(in crate::worker) fn on_route_close_due(&mut self, id: RouteId, mark: u64) {
+    pub(in crate::worker) fn on_route_close_due(&mut self, id: RouteKey, mark: u64) {
         let Some(route) = self.routes.routes.get(&id) else {
             return;
         };
@@ -144,7 +144,7 @@ impl Worker {
     /// `Stalled → Open` (OU-2): the new baseline sequence at a new cut `R`, and the output that the model holds after it, go
     /// right behind the `resync` (OU-9), and the host is told. A baseline that cannot be formed closes the route
     /// `SnapshotTooLarge` (OU-2).
-    fn resume_route(&mut self, id: RouteId) {
+    fn resume_route(&mut self, id: RouteKey) {
         let Some(route) = self.routes.routes.get(&id) else {
             return;
         };
@@ -186,7 +186,7 @@ impl Worker {
             resync.kind = Kind::Droppable;
         }
         let mark = route.stall.mark;
-        self.report(&WorkerMsg::RouteResumed { route: id, mark });
+        self.report_route(id, RouteReport::Resumed { mark });
     }
 
     /// Sends each route's progress report whose state changed, or marks it to follow when the last one is written.
@@ -215,7 +215,7 @@ impl Worker {
     /// The flush rule: before any other report, each route with a waiting change sends one report of its latest state, in
     /// route-id order. Called by `report`.
     pub(in crate::worker) fn flush_route_progress(&mut self) {
-        let due: Vec<RouteId> = self
+        let due: Vec<RouteKey> = self
             .routes
             .routes
             .iter()
@@ -233,7 +233,7 @@ impl Worker {
             return;
         }
         let written = self.written_total;
-        let due: Vec<RouteId> = self
+        let due: Vec<RouteKey> = self
             .routes
             .routes
             .iter()
@@ -255,7 +255,11 @@ impl Worker {
         }
     }
 
-    fn send_route_progress(&mut self, id: RouteId) {
+    fn send_route_progress(&mut self, id: RouteKey) {
+        // A route that the link has no id for sends no progress (DP-8).
+        let Some(link_id) = self.link_id(id) else {
+            return;
+        };
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -266,7 +270,7 @@ impl Worker {
         }
         route.stall.sent = Some((mark, waiting));
         self.send_report(&WorkerMsg::RouteProgress {
-            route: id,
+            route: link_id,
             mark,
             waiting,
         });

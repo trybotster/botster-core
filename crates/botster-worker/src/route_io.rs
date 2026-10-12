@@ -13,8 +13,7 @@
 //! bound of its control socket and PTY reads.
 
 use crate::io_decisions::{failure, IoFailure, EIO};
-use botster_core_contract::prelude::RouteId;
-use botster_worker_core::Input;
+use botster_worker_core::{Input, RouteKey};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
@@ -60,7 +59,7 @@ pub struct Routes<S> {
     /// The most bytes that one read of a route's stream takes.
     read_chunk: NonZeroUsize,
     next_token: usize,
-    routes: BTreeMap<RouteId, RouteIo<S>>,
+    routes: BTreeMap<RouteKey, RouteIo<S>>,
 }
 
 impl<S: Read + Write> Routes<S> {
@@ -75,7 +74,7 @@ impl<S: Read + Write> Routes<S> {
 
     /// `BindRoute`: the stream is the route's transport from now. Returns its poll token: a new one for each bind. Both
     /// directions start as ready, so the first turn finds out what the stream holds.
-    pub fn bind(&mut self, route: RouteId, stream: S) -> usize {
+    pub fn bind(&mut self, route: RouteKey, stream: S) -> usize {
         self.next_token += 1;
         let token = ROUTE_TOKEN + self.next_token;
         self.routes.insert(
@@ -95,19 +94,19 @@ impl<S: Read + Write> Routes<S> {
     }
 
     /// `RouteClose`: the route leaves the transport. The driver deregisters the stream, and its drop closes it.
-    pub fn close(&mut self, route: RouteId) -> Option<S> {
+    pub fn close(&mut self, route: RouteKey) -> Option<S> {
         self.routes.remove(&route).map(|io| io.stream)
     }
 
     /// `RouteWrite`: the bytes wait for the route's next turn.
-    pub fn write(&mut self, route: RouteId, bytes: Vec<u8>) {
+    pub fn write(&mut self, route: RouteKey, bytes: Vec<u8>) {
         if let Some(io) = self.routes.get_mut(&route) {
             io.write = Some(bytes);
         }
     }
 
     /// `RouteReadAllowance`: the route may read `bytes` more client bytes until the next allowance.
-    pub fn allow(&mut self, route: RouteId, bytes: usize) {
+    pub fn allow(&mut self, route: RouteKey, bytes: usize) {
         if let Some(io) = self.routes.get_mut(&route) {
             io.allowance = bytes;
         }
@@ -153,7 +152,7 @@ impl<S: Read + Write> Routes<S> {
 
 /// The route's pending write, once. `Interrupted` keeps it for the next turn; `WouldBlock` (or a write that took nothing)
 /// is `Ok(0)` and waits for writable; another error is terminal.
-fn write_once<S: Write>(route: RouteId, io: &mut RouteIo<S>, inputs: &mut VecDeque<Input>) {
+fn write_once<S: Write>(route: RouteKey, io: &mut RouteIo<S>, inputs: &mut VecDeque<Input>) {
     let Some(bytes) = io.write.take() else {
         return;
     };
@@ -182,7 +181,7 @@ fn write_once<S: Write>(route: RouteId, io: &mut RouteIo<S>, inputs: &mut VecDeq
 /// One read of the route, bounded by `read_chunk` and its allowance. The end of the stream, or an error other than `Interrupted` and
 /// `WouldBlock`, ends the route's reads (OU-5): `RouteEnded`, once.
 fn read_once<S: Read>(
-    route: RouteId,
+    route: RouteKey,
     io: &mut RouteIo<S>,
     read_chunk: NonZeroUsize,
     inputs: &mut VecDeque<Input>,

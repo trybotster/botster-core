@@ -14,7 +14,7 @@
 //! libghostty), for the host's writes and for a route's input alike (`model::encode`, the one encoder). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
 //! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
 
-use super::{PayloadState, Worker};
+use super::{PayloadState, RouteKey, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_route_codec::prelude::{Op, RefusalReason};
@@ -61,7 +61,7 @@ enum Source {
 /// A client's input and the route that owns it: an exception goes back on that route, with the frame's op (DP-5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RouteInput {
-    route: RouteId,
+    route: RouteKey,
     op: Option<Op>,
     payload: InputPayload,
     /// `paste_commit{want_result: true}`: a written paste is answered with `input_done` (Codec TS-5b).
@@ -85,7 +85,7 @@ enum Owner {
     /// A reply of the model: it reports nothing.
     Reply,
     /// A client's input: only an exception goes back, on its route (DP-5), and `input_done` when the paste asked for it.
-    Route(RouteId, Option<Op>, bool),
+    Route(RouteKey, Option<Op>, bool),
 }
 
 /// The transaction that owns the PTY input (AM-2).
@@ -138,7 +138,7 @@ pub(super) struct InputState {
 impl InputState {
     /// The input bytes of a route that the admission point holds: queued, and the rest of the route's write in progress
     /// (DP-5, the route's read allowance).
-    pub(super) fn route_bytes(&self, route: RouteId) -> usize {
+    pub(super) fn route_bytes(&self, route: RouteKey) -> usize {
         let queued: usize = self
             .queue
             .iter()
@@ -157,7 +157,7 @@ impl InputState {
 
     /// The inputs of a route that the admission point holds: queued, and the route's write in progress. Each may still be
     /// refused on the route (DP-5).
-    pub(super) fn route_inputs(&self, route: RouteId) -> usize {
+    pub(super) fn route_inputs(&self, route: RouteKey) -> usize {
         let queued = self
             .queue
             .iter()
@@ -220,7 +220,7 @@ impl Worker {
     /// too: at its turn it takes the same admission as every other client input (PR3 R5, Sol), and then writes nothing.
     pub(super) fn enqueue_route_input(
         &mut self,
-        route: RouteId,
+        route: RouteKey,
         op: Option<Op>,
         payload: InputPayload,
         want_result: bool,

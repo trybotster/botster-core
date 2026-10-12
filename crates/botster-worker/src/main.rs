@@ -22,7 +22,6 @@ mod command_line;
 mod io_decisions;
 mod route_io;
 
-use botster_core_contract::prelude::RouteId;
 use botster_core_edges::Machine;
 use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
@@ -30,7 +29,7 @@ use botster_core_sys::fd_pass;
 use botster_core_sys::payload::{self, LoopThread, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
 use botster_worker_core::{
-    Action, CandidateId, DescriptorId, Input, PayloadSpec, SpawnFailure, Worker,
+    Action, CandidateId, DescriptorId, Input, PayloadSpec, RouteKey, SpawnFailure, Worker,
 };
 use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
@@ -399,7 +398,7 @@ impl Driver {
 
     /// `BindRoute`: the stream becomes the route's transport, nonblocking and in the loop for both directions. A stream that
     /// the loop cannot serve ends the route's reads (OU-5), and the machine closes the route.
-    fn bind_route(&mut self, descriptor: DescriptorId, route: RouteId) {
+    fn bind_route(&mut self, descriptor: DescriptorId, route: RouteKey) {
         let Some(fd) = self.descriptors.take(descriptor) else {
             return;
         };
