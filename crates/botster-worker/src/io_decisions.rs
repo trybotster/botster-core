@@ -269,6 +269,14 @@ pub fn pty_write(written: Option<io::Result<usize>>, len: usize) -> PtyWrite {
     }
 }
 
+/// The answer to one PTY resize (`None`: no PTY any more), for `Input::PtyResized`: the errno of a resize that failed.
+pub fn pty_resized(resized: Option<io::Result<()>>) -> Result<(), i32> {
+    match resized {
+        None => Err(EIO),
+        Some(result) => result.map_err(|error| error.raw_os_error().unwrap_or(EIO)),
+    }
+}
+
 /// The PTY's write interest after asking for `on` (plan 2.5): `reregister` when the poll must change, and the new state.
 /// A PTY that left the loop has no write interest.
 #[derive(Debug, PartialEq, Eq)]
@@ -457,6 +465,22 @@ mod tests {
             report(Err(EIO), false)
         );
         assert_eq!(pty_write(None, 5), report(Err(EIO), false));
+    }
+
+    /// #311 F148: a PTY resize that failed gives its errno, and a resize with no PTY fails as one of a closed PTY does.
+    #[test]
+    fn a_pty_resize_answer_carries_the_errno_of_its_failure() {
+        assert_eq!(pty_resized(Some(Ok(()))), Ok(()));
+        let notty = rustix::io::Errno::NOTTY.raw_os_error();
+        assert_eq!(
+            pty_resized(Some(Err(io::Error::from_raw_os_error(notty)))),
+            Err(notty)
+        );
+        assert_eq!(
+            pty_resized(Some(Err(io::ErrorKind::Other.into()))),
+            Err(EIO)
+        );
+        assert_eq!(pty_resized(None), Err(EIO));
     }
 
     /// Plan 2.5: only a writable PTY with a waiting write gives `PtyWritable`; a readable-only event or a write that does

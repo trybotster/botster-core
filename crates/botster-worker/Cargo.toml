@@ -38,3 +38,14 @@ tempfile.workspace = true
 kqueue = "1.2.1"
 libc = "0.2"
 libproc = "0.14"
+
+# The slow tier's integration tests. Each file is `#![cfg(feature = "slow")]`, so without the feature its binary holds no
+# test. `required-features` keeps cargo from building that empty binary in the default tier: every test binary that a
+# tier builds lists the build-root test (bug catalog B13, #306).
+[[test]]
+name = "slow_cli"
+required-features = ["slow"]
+
+[[test]]
+name = "slow_session"
+required-features = ["slow"]
