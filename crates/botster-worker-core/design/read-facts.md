@@ -43,9 +43,9 @@
   minimal form, with `payload_truncated`. `payload_truncated` means only that something was cut: a record with no
   truthful payload has none and is not `payload_truncated` (R-103). The minimal form always keeps the cursor, the full
   source tags, `at`, kind and state. If the protected pair in its minimal form alone exceeds `input_events_bytes` (route
-  tags at `max_route_tag_bytes` that JSON escapes), the list keeps the pair, drops every older record and reports `gap`:
-  this is the only case where the list, and `input_records_cost`, exceed the bound (steward ruling R-116; the 9B minimum
-  stays).
+  tags at `max_route_tag_bytes` that JSON escapes), the list keeps the pair and drops every older record, and every read
+  reports `gap` while it is over the bound: this is the only case where the list, and `input_records_cost`, exceed the
+  bound (steward ruling R-116; the 9B minimum stays).
 - **Time:** `at` and `age_ms` are milliseconds on the worker's own clock, from the worker's start (the first `now` that
   it is given). Before any client input, `age_ms` counts from that start (R-101 Q4, Q5). They are not comparable with
   the unix `at` of events (TM-1).
