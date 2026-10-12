@@ -3388,3 +3388,63 @@ Its five unchanged blobs, nine list formulas, R-92 removal proof, RC-PIN44-4 clo
 Both repaired-member delta reviews have zero open findings, including LOW findings.
 FINAL-READY may follow the lead's repair order. Final train reviews, composed gate, member receipts, and equal-tree merge verification remain due.
 The reviewer runs no execution job and waits for the next assigned review doorbell.
+
+
+### Core #312 — train 4 delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Train base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Train tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Reviewed #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+Lead assignment: `msg_plugin-w_1791821464_295fe5`.
+Open #312 package delta findings and conditions: 0, including LOW findings.
+
+The reviewer independently reads the three ordered merge commits and exact parents.
+The train contains #314, then #312, then #307. #309 is absent after its DESIGN.md conflict.
+Five of #312's six own blobs equal the accepted repaired-member head.
+Cargo.toml, Cargo.lock, real/program.rs, route_pty_log.rs, and core-real-pending.txt are unchanged.
+The only changed own blob is core-pending.txt through #307's separate removals and debt comments.
+
+The reviewer independently combines all nine conformance line sets against the imported member bases and ordered members.
+Every formula matches. Core-pending contains 403 IDs. Core-real-pending retains 34 IDs.
+#312's R-92 a5_2 removal and nine real-pending removals remain removed.
+#307 separately removes in_6_cancel_result_kinds and in_6_refused_full_wakes_on_room.
+No removed ID returns. No unexpected ID removal appears.
+The added comments retain am_2 and ev_9 debt with PC ownership; neither ID is removed.
+The #307 reviewers own acceptance of its two removal proofs. The final train gate must verify the combined lists.
+
+The reviewer reads the imported #314 scheduler-test change and #307 control interface.
+#314 changes the seeded-trace test to the lead's approved determinism scope, without changing the driver implementation.
+The one-time migration proof remains explicitly attributed to the accepted train-2 gate.
+This test change does not weaken #312's R-92 pending-slot transcript or its admitted-operation hold.
+
+R-91 explicitly authorizes control_queue through the injected link_room edge on both tiers.
+The testkit uses SimEdges; the real form uses EdgeTap. Both set room to zero for the named worker instance.
+Release restores room and signals the existing host wake. Core itself posts SessionWritable after a refused cancel.
+The control does not reimplement a production queue or terminal model. Its behavior matches the steward's stated real form.
+The added tests use public cancel results and events. They assert no private queue state in the inspected control tests.
+The probe's Printed report arm remains the unchanged opt-in compatibility arm. P3 print-history serving stays separate.
+
+#307 removes the unused Observation::Writable variant. No #312 own code refers to it.
+The host computes its queue term from the existing link-frame bound, with saturating additions and multiplication.
+The six-times bound from #309 is absent in this train. This verdict accepts no future #309/#307 composition without review.
+The shared LaunchSpec already reflects #305's stop-grace field removal; #312 adds no Launch initializer.
+The earlier stale-field test from #309 is absent from this train.
+
+The mutation file, known-flaky file, and process-check allowlist equal the train base.
+Every mutation exclusion retains the previously reviewed text and narrow reasons.
+No in_8 known-flaky entry or new exception appears. The earlier retirement condition remains inapplicable.
+The .44 pin still selects its exact contracts revision, and the shared CI job copy retains its reviewed bytes.
+The imported checkout resolver remains the accepted #310 resolver. Its slow comparison remains due in the final train gate.
+
+The lead reports strict seeds 0-31 with 264 passes and no failure on the train.
+That report is supplementary; this delta verdict claims no completed final train gate.
+The member body and all four closed body findings remain scoped to the unchanged #312 member head.
+This source delta introduces no new #312 model, private-state assertion, or changed terminal expectation.
+
+This CLEAN satisfies the requested #312 package source delta review on this exact train head.
+Matching integration delta, other required member reviews, combined review when required, final train gate, final receipts, and equal-tree merge verification remain due.
+This verdict accepts no later head, different tree, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
