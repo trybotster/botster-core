@@ -11,14 +11,13 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
 | #318 | Import Round 4 CLEAN at `acd6ced0`. Package Round 201 `4aaa3091` checked. F157 closes; the WorkerClock repair and exact-head green gate are accepted. | Final import, train reviews, final gate and receipts, and merge verification. Mac IN-6 classification remains P3's separate duty. No F28 closure accepted. |
 | #316 | Train-7b Round 3 source CLEAN at `007efbde` for frozen member `f1ac08b9`. Package `9ac22d23` checked. All member blobs remain exact. | Train-7b FINAL `007efbde` is recorded in train-7b.md. Lead equal-tree/remote merge verification remains due. Future #313 composition remains unaccepted. |
-
 | #328 | Additional integration Round 1 CLEAN at `6b1918c9`. Package Round 202 and expanded receipt `744bf1e9` checked. F155/F156/F158 close; exact member gate passes. | Later base import, train-9 list delta and gate, final receipt, and merge verification. Two .46 candidates remain deferred to the post-.49 batch. |
 
-The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
+The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No later #308 composition is accepted.
 
 The lead assigns Sol and Sol-C to #317. Both reviews now accept its exact READY head. P3's A31 structural fix remains separate.
 
-R107-SI-2 replaces R107-SI-1's EV-2 removal condition. The .45 title fence already fixes EV-2. The entry leaves with #316's .46 pin, The final #316 list contains the separate R-111 IN-8 entry, owned by PC and removed by draft #321. A31 no longer gates EV-2 removal.
+R107-SI-2 replaces R107-SI-1's EV-2 removal condition. The .45 title fence already fixes EV-2. The entry leaves with #316's .46 pin. The final #316 list contains the separate R-111 IN-8 entry, owned by PC and removed by draft #321. A31 no longer gates EV-2 removal.
 
 I ran no build, test, gate, or pool job. I read new messages only after a doorbell.
 
