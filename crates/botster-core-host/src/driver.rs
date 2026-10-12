@@ -190,14 +190,15 @@ pub struct HostDriver<E: HostEdges> {
     pub(crate) control_message: usize,
 }
 
-/// The largest host message frame that carries no input payload, as the control queue's bound counts it (DESIGN.md "The
-/// control queue"): an `Op` with no payload, `AttachRoute` with a route tag of `max_route_tag_bytes`, `Detach`, `Stop`,
-/// `Kill`, `Remove` or `Cancel`.
+/// The size that the control queue's bound counts for one host message with no input payload (DESIGN.md "The control
+/// queue"). It is a sizing estimate, not a maximum: an `AttachRoute` or an `UpdateMetadata` can be larger. Only `cancel`
+/// refuses, so an estimate that is too small makes a cancel `Full` earlier, and the drain still wakes the host.
 const NON_INPUT_FRAME_BYTES: usize = 4096;
 
 /// The bound of a link's control stream (DESIGN.md "The control queue"): the input that one session may retain (IN-5), one
-/// non-input frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four
-/// cancels. Admission keeps the admitted messages under it, so a cancel finds room unless the link stops draining.
+/// non-input message for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four
+/// cancels. With messages of the estimated size, admission keeps the admitted messages under it, so a cancel finds room
+/// unless the link stops draining.
 fn control_bound(limits: &CoreLimits, control_message: usize) -> usize {
     let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
     usize::try_from(limits.input_retained_bytes)
