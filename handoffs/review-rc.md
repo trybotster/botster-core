@@ -1688,3 +1688,31 @@ The filtered record identifies the head and target directory but contains no ful
 RC-PIN43-1 and RC-PIN43-2 remain closed. RC-PIN43-3 awaits the published body count correction.
 The running gate supplies no accepted result. Any later source correction needs its applicable exact-head review and gate.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — deadline and body corrections
+
+Message: `msg_plugin-w_1791774390_8dec67`.
+Head: `d919844dfa2b74e768987c8cfb980fba0d25a8e8`.
+The reviewer reads the complete source delta and complete published body delta.
+The source changes only the test helper in real/resume.rs; no production code or exclusion changes.
+
+RC-PIN43-4 is closed.
+The quiet helper now has one flat loop. Each continuing pass checks the cleanup deadline, including a pass with `more: true`.
+It polls events after each pump and returns only when the pump has no more work and edges_quiet is true.
+A pass with more continues without waiting; a pass without more waits on the wake handle under the remaining deadline.
+The helper's marked deadline wait remains explicit. The later events_pending refusal test stays unchanged.
+
+RC-PIN43-3 is closed in the body.
+The body states that 36 seed-0 passes stay real-pending and the wake ID is the one separate 0-31 removal.
+The A5-4 six PASS changes remain historical seed-0-7 evidence; five remain real-pending and the wake ID leaves later.
+The body records the successful-byte-count fix, public byte observations, discarded-byte regressions, and partial-write test limit.
+It labels the synthetic resume diagnostic as an injected-event case, not timing-only 23bl evidence.
+It retains the 3f1fc94d red baseline, eight earlier PASS steps, fuzz not run, and the separate test repair.
+RC reports that the d8ae1c9d job stopped while queued before submission. The body claims no result from it.
+
+RC-PIN43-1 and RC-PIN43-2 remain closed. Open package findings: 0, including LOW.
+The gate on this exact corrected head remains pending. No source CLEAN is issued before its completed evidence and body result.
+The prior heads' gates prove no later source change.
+The final-slot current-base import and final gate still remain due after both source CLEANs.
+The reviewer ran no test, build, gate, or diagnostic.
