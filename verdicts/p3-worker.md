@@ -14461,3 +14461,70 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All earlier history and the explicit round-limit decision remain preserved. Next package round: 199.
 
 VERDICT: CLEAN
+
+
+## Round 199 — #311 fit on train 6, 2026-10-12
+
+Exact train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Member head: `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d`, imported base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Previous package source CLEAN: Round 195, `13b850a15a32b4974ee7d5b2b32b4c9d66e2f144`, with body/ruling receipt `39428df35cf6c4c437bce941ad2c2aa04d44b4ca`.
+Previous integration source CLEAN: `4c147c8d737a2edc2debf626f4967b278c8270fd`, Round 5.
+Lead request: `msg_plugin-w_1791832618_d49af4`. Scope: #311's fit only. Tier: HIGH, unchanged.
+Receipt correction: `msg_plugin-w_1791832646_385797`. The package sends a delta verdict only.
+BUILD.md's revised Green rule requires one final train receipt from Sol; no redundant package final receipt is sent when this member remains unchanged.
+
+### Composition and preserved member change
+
+The actual first-parent merges match the lead's stated order: #303 df461c83, #309 cfcc438d, #308 c3bd7fcd, then #311 2c5d09a0.
+The final merge's parents are `b40b5235a00fc3be951282f181bdb2cffc12ae44` and the member head.
+The actual train tree matches the requested tree. The lead reports no conflicts.
+The reviewer checks #311's member edits and overlapping interfaces, not the independent correctness of every other member.
+Sol owns the combined #303/#311 review before the final gate.
+
+Read-only comparison finds identical member added/deleted lines in all seventeen own paths.
+The comparison uses e37b91d6 -> 2c5d09a0 for the accepted member and b40b5235 -> 3e655eff for its train insertion.
+Five own paths overlap base/member moves: core-pending, testkit worker.rs/worker/tests.rs, worker routes tests, and worker main.rs.
+Therefore a disjoint Q7 carry does not apply.
+Twelve own-path blobs remain byte-identical to the accepted member, including worker.rs, input.rs, route.rs, sys resize, oracle/capture layers, and real-result decisions.
+The prior Resize/Latest changes, failed-spawn completion, restoration coherence, adoption retirement, and policy order remain intact.
+F145 through F149 retain their source closures.
+
+The main.rs overlap replaces the build-location test with the shared built_in_test macro. It changes no ResizePty result or driver operation.
+The route-test overlap adds report_order registration. The new test observes LinkSend/ClientInput before the corresponding PtyWrite actions.
+It changes no route policy or encoding and leaves the member's route regressions intact.
+The testkit overlap imports #303's WorkerClock interface and its separate worker deadline wake.
+Worker resize completion remains offered before later payload output. Its result handling and size conversion remain unchanged.
+The retained tests use the updated manual clock where needed. The worker keeps host-owned stop_grace and its existing result path.
+The host frame-fit code still forwards the same Resize/SetSizePolicy operation values and preserves launch size/policy through launch_spec_for.
+This fit check grants no independent combined-review acceptance of #309 or other members.
+
+The three-way formulas for pending, real-pending, and real-proof sets match the accepted member and preceding train head.
+Final counts: pending 387, real-pending 38, real proofs seven. No duplicate or lost removal appears.
+The member's exact list edits remain unchanged. The pending comment for a2_1 comes from #303.
+The dp_3 real-pending comment retains historical .43 evidence and identifies the .44 fence change.
+This source review supplies no new real-tier pass or removal trigger. The lead asks Sol to check that condition in the combined/evidence scope.
+No new pin or pending removal is granted by this verdict.
+
+### Evidence and receipt scope
+
+The lead reports list checks PASS, cargo check --tests PASS, and strict seeds 0-31 with 281 passes and zero failures.
+No corresponding retained pre-check log is supplied with this request. These remain reported pre-checks, not independently verified execution evidence.
+The train gate has not started. The lead starts it after all source deltas and the combined review are CLEAN.
+Historical member gates and local records retain their previously reviewed heads and limits.
+No earlier gate is relabeled as an execution of this train head.
+
+### Verdict and limits
+
+#311's source fit is CLEAN on this exact train head. No package fit finding remains.
+This verdict is the requested source delta before the exact train gate. It supplies no gate or merge acceptance.
+Sol's combined review and the other member deltas remain separate.
+The completed exact-train-head gate, Sol's one final train receipt, and equal-tree/push verification remain due.
+The package sends no additional final receipt if its member and this CLEAN composition remain unchanged.
+A changed member or composition requires the applicable new review under BUILD.md.
+#302's train-7 evidence, #318's final import, the Mac IN-6 classification, and F28/F33/F39 remain separate.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier history remains preserved. Next package round: 200.
+
+VERDICT: CLEAN
