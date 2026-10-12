@@ -147,3 +147,92 @@ Package source delta CLEAN: `90cdc8686f24e25b62216e39193aaa12e3dda535`, `verdict
 The new-head gate is running. Sol-B read no unfinished result. Local list and check results remain implementer reports. Completed gate, mutation evidence, timing comparison, required evidence, and the final body remain due. All failed gates retain their original results. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; source delta only, evidence pending)
+
+## Round 6: current-base import, command proof, and completed evidence
+
+Exact head: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+Tree: `410fd2c0bfd96c4db9ab7adbf79336cc30d42a44`.
+Imported and gate base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Previous accepted source: `2fa58b79291f44023778a8a53f8bd05387e93cfb`, based on `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Merge `a217da8226048e9cff904f629faee36b5da0df5a` joins that previous source and the imported base.
+The final head has that merge as its only parent and adds one test in xtask/src/built_in.rs.
+
+Sol-B reads the complete canonical report:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-2fa58b79-to-a217da82.log`.
+Ancestry and conditions 1 and 4 PASS. Conditions 2 and 3 FAIL on four overlapping paths.
+This manual delta review covers the overlap. It does not relabel the canonical FAIL as PASS.
+
+Sol-B independently compares all 44 own paths and every added and deleted line before and after the import.
+The path set and normalized own patch match exactly. No extra own path appears.
+The four overlap files retain the imported signal rules, op_holds module, and DP-2 proof changes.
+They retain the shared root macro changes from #306 alongside that imported source.
+The source retains the required-features repair, selected slow root test, presence decisions, candidate checks, and LINKED check.
+No conformance file, pin, mutation exclusion, process allowance, or CI profile changes relative to the imported base.
+
+The imported-head gate remains RED:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-a217da82-pool-20261012-091300-76813.log`.
+Sol-B reads its survivor and final exits. The command replacement with Ok(()) survives both stages.
+Mutants fails. Fuzz does not run. The job exits 1 after 686 seconds; the wrapper exits 1 after 687 seconds.
+
+The new test calls the actual command on two tracked fixture repositories.
+An allowed Rust file plus a non-Rust file with the reserved name passes.
+A tracked Rust file with that name fails with exactly one violation.
+The test creates scanner input. It compiles no fake root entry and accepts none as an executable proof.
+The existing fixture helper tracks files through Git. The new test starts no Cargo process.
+The command and its production decisions remain unchanged.
+
+Reversal record: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/gs-306-command-reversal-0a091687.log`.
+Sol-B reads the complete record. It names this head, the GS target, cleanup time, and unchanged worktree.
+The scratch early return produces an assertion failure because unwrap_err receives Ok(()).
+The restored source passes the new test among three selected tests.
+The record's mutant exit field is blank; its failure summary and assertion supply the recorded negative result.
+The cleanup and restoration facts remain owner-recorded provenance. Sol-B claims no independent execution or cleanup verification.
+
+Focused mutation log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-0a091687-focused-mutants.log`.
+SHA256: `a8c477ffa2c28e803796d50bc97833f5e9a51750e0d065dbafbd96f2ee9236a1`.
+Sol-B reads its commands and all outcomes. They use --no-config on the two changed checker files in both stages.
+Both stages test the same 17 identities. These identities equal the completed gate's 17 identities.
+Default catches 11 and misses four, with two unviable. Slow catches seven and misses eight, with two unviable.
+Neither stage reports a timeout. The intersection of the two missed sets is empty.
+No configured exclusion hides one of those listed mutants. The focused shell exit alone supplies no combined verdict.
+The wrapper exits 0 after 292 seconds on msa1. The ordinary gate below supplies valid cited catches.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-0a091687-pool-20261012-093420-53357.log`.
+SHA256: `d7a0683fdefdb35551719a6d3e22b10fd3f7881002926895a6d3c51d10ca4ba5`.
+Sol-B reads the exact identity, base accounting, changed-test result, presence result, mutation records, citations, summaries, and exits.
+Gate and merge base both equal 838e4bb0. All ten steps PASS in 701.0 seconds.
+Default passes 1,952 tests; slow passes 648 tests. The name check reads 244 Rust files.
+The root tests and presence checks pass. The new command test passes in 0.013 seconds.
+Stage 1 tests 17 mutants: 11 caught, four missed, two unviable, and zero timeout.
+The unmutated stage 2 baseline passes 658 tests. Stage 2 catches all four exact misses.
+The final result has 15 caught, two unviable, zero missed, and zero timeout.
+Sol-B independently matches all 15 raw catch identities to citations. Every catcher has a normal PASS.
+The new command test catches the former command survivor in stage 1.
+
+Stage 2 records one FLAKY in_8 result under the empty slow_coverage::tests replacement.
+The failed-then-passed trial receives no catch credit under BUILD rule 9's mutation-profile exception.
+The valid catch is ci::slow_tests::slow_a_listed_test_that_the_workspace_list_lacks_is_still_no_catch.
+Its raw catch, citation, and normal PASS match. The FLAKY record remains in the evidence.
+The structural fix remains PC's contracts #79 through the .44 pin. This exact head still contains .43.
+This acceptance grants no ordinary retry exception and claims no in_8 repair in #306.
+The four selected fuzz harnesses complete their runs.
+The job exits 0 after 716 seconds on msa1; the wrapper exits 0 after 717 seconds.
+
+Sol-B verifies the timing samples in the body against the retained completed logs.
+The earlier #293 gate at 029a740b has a 106.8-second slow step and runs no stage 2.
+This head has a 92.0-second slow step, a 54.2-second mutation baseline, and four stage 2 mutants in 131.0 seconds.
+The full mutation step takes 234.1 seconds.
+The samples use different bases, nodes, and mutant sets. They establish no measured gain or small added cost.
+Local Mac results retain their earlier owner-report scope. This delta adds no platform implementation change.
+
+Sol-B reads the full exact-head body and complete applicable package section at `b98047a8ab44fd06d5ee3233d8a62e9b85d7b2c2`.
+The package receipt agrees with the independent checks and reports zero findings.
+The body retains the failed gates, repairs, focused evidence, reversal, timing limits, and FLAKY disposition.
+All earlier source findings remain closed. The manual name rule and mixed stale-library limit remain accepted and explicit.
+No source, body, or supplied-evidence finding remains on this exact head.
+The lead owns the next slot or train, its applicable delta and final gate, and merge/tree/push verification.
+This receipt accepts no later head and authorizes no additional retry.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; reviewed import and command proof with completed exact-head evidence)
+
