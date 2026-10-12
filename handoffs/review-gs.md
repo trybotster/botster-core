@@ -2,6 +2,14 @@
 
 ## Current Core PR #306 result
 
+NOT CLEAN at `c20029a68cbb80612d242e7ce8560260bb7460e4`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. GS-BC-R3-1 HIGH remains open.
+
+The repair creates an empty reserved-name test outside the approved macro. The mandatory manual rule requires rejection. The complete finding is in the verdict.
+
+The imported-head gate at `ee61090e81650831dcd9131b9cdacb24d70255f9` fails the slow fixture assertion. Mutants and fuzz do not run.
+
+The canonical base-check output, repaired source, completed evidence, and final body remain due. I ran no execution job.
+
 Early package source CLEAN at `354c59e78e2232543b06a4705e968fba60daed5f`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open source findings: 0.
 
 The binary inventory preserves empty suites. The public name constant is removed. The lead accepts the remaining name-rule limit with a mandatory manual review rule.

@@ -3164,3 +3164,51 @@ Sol-B confirms the preserved member patches and exact pending removals. Sol-B fi
 The original R-97, identity, guardian, composed-proof, and reversal provenance limits remain. This receipt changes no finding or approval scope.
 
 The train gate, final evidence receipts, and exact base-tree verification remain pending. I ran no execution job.
+
+## Core #306 — slow-fixture repair review
+
+- Exact head: `c20029a68cbb80612d242e7ce8560260bb7460e4`.
+- Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- VERDICT: NOT CLEAN (1 open).
+
+The base import `ee61090e81650831dcd9131b9cdacb24d70255f9` has parents the reviewed source head and current v1.
+
+The implementer reports canonical base-merge-check PASS. Its retained output remains due; I requested that output. I ran no base-check script.
+
+I read the complete one-file repair and its surrounding fixture test. GitHub confirms the exact repair head and base.
+
+### GS-BC-R3-1 — HIGH — OPEN: the positive fixture creates a root-name test outside the approved macro
+
+Evidence: `xtask/src/slow_coverage.rs`, the slow test `a_slow_only_test_outside_the_filter_or_an_ignored_one_not_pending_fails`.
+
+The repair appends `#[test] fn {TEST_NAME}() {}` to the temporary library source. The name comes from `test_budget::BUILT_IN_TEST`.
+
+This creates an actual empty test with the reserved root name outside `built_in_test!()`. The repair also prints the reserved name in the custom fixture's list.
+
+The positive presence fixture then accepts these entries. Their bodies do not call the shared build-root check. The comment says they are made as the macros make them.
+
+The pair-common rule at line 108 requires rejection of any reserved-name test or trial outside `built_in_test!()` or `built_in_trial!()`.
+
+The lead accepted the reduced name guarantee only with that manual rule. The rule contains no positive-fixture exception.
+
+Required change: use the approved macros for positive fixture entries, or test list data without creating a reserved-name test outside the macros.
+
+The negative missing-test fixture can remain. Do not describe an empty body as the shared root check. A passing gate cannot close this source finding.
+
+I sent the finding to the implementer and Sol-B. This is an ordinary NOT CLEAN result, not a lead BLOCKED notice.
+
+### Retained failed gate and pending evidence
+
+The imported-head gate is `gates/botster-core-stage1-gs-built-in-coverage-ee61090e-pool-20261011-220352-43493.log`.
+
+The header records the exact imported head, current base, and node MS-A1. The default tier passes. The slow fixture assertion fails.
+
+The actual assertion output includes the original unselected-test violation and three missing-root violations. This matches the repair's stated trigger.
+
+The summary reports slow FAIL at 66.8 seconds. Mutants and fuzz are NOT RUN. The job and wrapper exit 1 after 393 seconds.
+
+This failed result remains failed. It supplies no acceptance evidence. The implementer reports a new ordinary gate on the source repair; no completed result is reviewed here.
+
+The complete live PR body still records the earlier gates and pending timing. The final body and required evidence remain due.
+
+I ran no build, test, gate, diagnostic, mutation job, or executable base check.
