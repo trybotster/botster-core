@@ -215,13 +215,16 @@ impl TestkitRoute {
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
-    fn flush(&mut self) {
+    /// Returns the count of bytes that the stream took: bytes that a lost stream discards are not counted.
+    fn flush(&mut self) -> usize {
+        let mut moved = 0;
         while !self.unsent.is_empty() {
             match self.end.write(&self.unsent) {
                 Ok(n) => {
                     self.unsent.drain(..n);
+                    moved += n;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return moved,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 // The stream is lost: its bytes go with it, as with a lost transport (OU-5).
                 Err(_) => {
@@ -230,6 +233,7 @@ impl TestkitRoute {
                 }
             }
         }
+        moved
     }
 
     /// The controls of the worker's end of the stream: they hold after the end moved into the worker (DP-2).
@@ -350,11 +354,9 @@ impl RouteClient for TestkitRoute {
     /// workers' ready route work (the in-process workers run only when the testkit runs them), and sends again into the
     /// room that the work made. A full stream keeps the rest in order. True when a byte moved.
     fn progress(&mut self) -> bool {
-        let waiting = self.unsent.len();
-        self.flush();
+        let moved = self.flush();
         self.workers.run_ready();
-        self.flush();
-        self.unsent.len() < waiting
+        moved + self.flush() > 0
     }
 
     fn has_control(&self, op: &str) -> bool {
@@ -616,18 +618,10 @@ mod tests {
         assert_eq!(client.unsent(), 0, "and keeps none");
     }
 
-    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved.
+    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved. Bytes that a
+    /// lost stream discards did not move.
     #[test]
     fn progress_is_true_only_when_a_kept_byte_moves() {
-        let (mut client, mut worker) = route(4);
-        assert!(!client.progress(), "nothing is kept");
-        client.write(b"abcdef");
-        assert_eq!(client.unsent(), 2, "the full stream keeps two bytes");
-        assert!(
-            !client.progress(),
-            "the stream is still full: no byte moves"
-        );
-        assert_eq!(client.unsent(), 2);
         let drain = |worker: &mut StreamEnd| {
             let mut got = Vec::new();
             let mut buf = [0u8; 8];
@@ -639,14 +633,24 @@ mod tests {
             }
             got
         };
-        assert_eq!(
-            drain(&mut worker),
-            b"abcd",
-            "the worker reads the four bytes"
-        );
-        assert!(client.progress(), "the two kept bytes move into the room");
-        assert_eq!(client.unsent(), 0);
-        assert_eq!(drain(&mut worker), b"ef");
+        let (mut client, mut worker) = route(4);
+        assert!(!client.progress(), "nothing is kept");
+        client.write(b"abcdef");
+        assert!(!client.progress(), "the stream is full: no byte moves");
+        assert_eq!(drain(&mut worker), b"abcd", "the stream took four bytes");
+        assert!(client.progress(), "the kept bytes move into the room");
+        assert_eq!(drain(&mut worker), b"ef", "and reach the worker, in order");
         assert!(!client.progress(), "nothing is kept again");
+        // A lost stream discards the kept bytes: none moved.
+        client.write(b"ghijkl");
+        assert_eq!(drain(&mut worker), b"ghij");
+        client
+            .end
+            .end()
+            .control()
+            .fail_next_write(io::ErrorKind::BrokenPipe);
+        assert!(!client.progress(), "the discarded bytes did not move");
+        assert_eq!(drain(&mut worker), b"", "the worker gets none of them");
+        assert!(!client.progress());
     }
 }
