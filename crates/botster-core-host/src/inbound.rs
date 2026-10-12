@@ -512,7 +512,10 @@ impl HostEngine {
                 });
             }
             // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
-            Observation::ClientInputEnded { route } => {
+            // A transaction can end after its route closed, and `RouteClosed` retired the route's key (EV-5): only a
+            // live route of this session raises the edge. The worker's facts keep the record's status update in both
+            // cases.
+            Observation::ClientInputEnded { route } if s.routes.contains(&route) => {
                 self.queue.post_keyed(Event::Activity {
                     id: sid,
                     instance,
@@ -586,7 +589,8 @@ impl HostEngine {
             } => self
                 .queue
                 .post_lost(&sid, &instance, kind, tap_dropped_bytes),
-            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host. A
+            // `ClientInputEnded` of a route that is not live in this session also comes here, and raises nothing.
             _ => {}
         }
     }
