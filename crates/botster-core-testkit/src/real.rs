@@ -195,6 +195,15 @@ struct BreakControl {
     on: bool,
 }
 
+/// `control_queue {session, on = true}` (Core IN-6).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ControlQueueArgs {
+    session: SessionId,
+    #[serde(default = "on")]
+    on: bool,
+}
+
 /// The tap of an open handle, shared with its driver.
 type SharedTap = Arc<Mutex<Tap<RealEdges>>>;
 
@@ -766,6 +775,15 @@ impl RealCoreHarness {
         }
     }
 
+    /// Core IN-6 (steward ruling R-91): the control queue of the session's worker is full (`on: true`, the default), or has
+    /// room again (`on: false`), at the tap's link edge ([`Tap::control_queue`]).
+    fn control_queue(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let ControlQueueArgs { session, on } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        lock(&tap).control_queue(row.instance, on);
+        Ok(Value::Null)
+    }
+
     /// Core OU-9, A5-2: the tap delivers the held hand-over in the next pump ([`Tap::release_handoff`]).
     fn release_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let HandoffHoldArgs {} = parse(args)?;
@@ -1255,6 +1273,7 @@ impl CoreHarness for RealCoreHarness {
                     | "fail_handoff"
                     | "hold_handoff"
                     | "release_handoff"
+                    | "control_queue"
                     | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
@@ -1306,6 +1325,7 @@ impl CoreHarness for RealCoreHarness {
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
+            "control_queue" if self.tapped => self.control_queue(handle, args),
             "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "oracle_encode" if self.tapped => self.oracle_encode(handle, args),
@@ -1617,6 +1637,7 @@ mod slow_controls {
             "fail_handoff",
             "hold_handoff",
             "release_handoff",
+            "control_queue",
             "oracle_resume",
             "oracle_encode",
             "oracle_modes",

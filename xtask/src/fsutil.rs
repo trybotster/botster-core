@@ -296,6 +296,99 @@ pub(crate) fn test_repo(files: &[(&str, &str)]) -> tempfile::TempDir {
     dir
 }
 
+/// The checkout of the contracts repository that `lock` (the text of `Cargo.lock`) pins for `botster-core-contract`,
+/// among `checkouts`: the directories `<CARGO_HOME>/git/checkouts/<repository>-<hash>/<short rev>`. The checkout is the
+/// one directory under `<repository>-*` whose name is a prefix of the pinned rev, at least 7 hexadecimal digits. A
+/// default-tier test uses it in place of `cargo metadata`, which can wait on the shared Cargo home lock (Core lead,
+/// 2026-10-12, #306 re-gate); the slow tier compares it with [`metadata`].
+#[cfg(test)]
+pub(crate) fn pinned_contracts_checkout(
+    lock: &str,
+    checkouts: &[PathBuf],
+) -> Result<PathBuf, String> {
+    let lock: toml::Table = lock
+        .parse()
+        .map_err(|e| format!("Cargo.lock is not TOML: {e}"))?;
+    let source = lock
+        .get("package")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|package| {
+            package.get("name").and_then(toml::Value::as_str) == Some("botster-core-contract")
+        })
+        .ok_or("Cargo.lock has no botster-core-contract")?
+        .get("source")
+        .and_then(toml::Value::as_str)
+        .ok_or("botster-core-contract has no source in Cargo.lock")?;
+    let (url, rev) = source
+        .strip_prefix("git+")
+        .and_then(|rest| rest.rsplit_once('#'))
+        .ok_or_else(|| format!("the source {source:?} is not a git source with a rev"))?;
+    let repository = url
+        .split('?')
+        .next()
+        .and_then(|path| path.trim_end_matches('/').rsplit('/').next())
+        .map(|name| name.trim_end_matches(".git"))
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| format!("the source {source:?} names no repository"))?;
+    let found: Vec<&PathBuf> = checkouts
+        .iter()
+        .filter(|checkout| {
+            let short = checkout
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            let parent = checkout
+                .parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            parent.starts_with(&format!("{repository}-"))
+                && short.len() >= 7
+                && short.chars().all(|c| c.is_ascii_hexdigit())
+                && rev.starts_with(short)
+        })
+        .collect();
+    match found.as_slice() {
+        [one] => Ok(one.to_path_buf()),
+        [] => Err(format!(
+            "no checkout of {repository} at {rev} among {} checkouts",
+            checkouts.len()
+        )),
+        many => Err(format!(
+            "{} checkouts of {repository} at {rev}: {}",
+            many.len(),
+            many.iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// [`pinned_contracts_checkout`] for the workspace at `root`: its `Cargo.lock`, and the checkouts of the Cargo home
+/// (`CARGO_HOME`, or `~/.cargo`). Reads files only; starts no process.
+#[cfg(test)]
+pub(crate) fn contracts_checkout(root: &Path) -> Result<PathBuf> {
+    let lock = std::fs::read_to_string(root.join("Cargo.lock")).context("read Cargo.lock")?;
+    let home = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".cargo")))
+        .context("no CARGO_HOME and no HOME")?;
+    let mut checkouts = Vec::new();
+    let git = home.join("git/checkouts");
+    for repository in std::fs::read_dir(&git).with_context(|| format!("read {}", git.display()))? {
+        let repository = repository?.path();
+        if repository.is_dir() {
+            for checkout in std::fs::read_dir(&repository)? {
+                checkouts.push(checkout?.path());
+            }
+        }
+    }
+    pinned_contracts_checkout(&lock, &checkouts).map_err(anyhow::Error::msg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,5 +519,66 @@ mod tests {
             fork,
             "the run keeps its merge base"
         );
+    }
+
+    /// The pinned checkout from a lock and a list of checkouts, with no cargo call: the one directory under
+    /// `<repository>-*` whose name is a prefix of the pinned rev (7 or more hexadecimal digits).
+    #[test]
+    fn the_pinned_contracts_checkout_comes_from_the_lock_and_the_checkouts() {
+        let rev = "c69a3190b4d66e84401006e9d73788ff0e837f56";
+        let lock = |source: &str| {
+            format!(
+                "version = 4\n\n[[package]]\nname = \"botster-core-contract\"\nversion = \"0.1.0\"\nsource = \"{source}\"\n"
+            )
+        };
+        let pinned = lock(&format!(
+            "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#{rev}"
+        ));
+        let home = Path::new("/h/git/checkouts");
+        let paths =
+            |names: &[&str]| -> Vec<PathBuf> { names.iter().map(|name| home.join(name)).collect() };
+        let checkouts = paths(&[
+            "botster-contracts-4d2a/0389165",
+            "botster-contracts-4d2a/c69a319",
+            "other-repo-1111/c69a319",
+            "botster-contracts-4d2a/c69a31",
+            "botster-contracts-4d2a/c69a31x",
+        ]);
+        assert_eq!(
+            pinned_contracts_checkout(&pinned, &checkouts),
+            Ok(home.join("botster-contracts-4d2a/c69a319"))
+        );
+        // A longer short rev is a prefix too.
+        assert_eq!(
+            pinned_contracts_checkout(&pinned, &paths(&["botster-contracts-4d2a/c69a3190b"])),
+            Ok(home.join("botster-contracts-4d2a/c69a3190b"))
+        );
+        let error = |lock: &str, names: &[&str]| {
+            pinned_contracts_checkout(lock, &paths(names)).unwrap_err()
+        };
+        assert!(error(
+            &pinned,
+            &["botster-contracts-4d2a/0389165", "other-repo-1111/c69a319"]
+        )
+        .starts_with("no checkout of botster-contracts at c69a3190"),);
+        assert!(error(
+            &pinned,
+            &[
+                "botster-contracts-4d2a/c69a319",
+                "botster-contracts-9999/c69a319"
+            ]
+        )
+        .starts_with("2 checkouts of botster-contracts at c69a3190"),);
+        assert_eq!(
+            error("version = 4\n", &[]),
+            "Cargo.lock has no botster-core-contract"
+        );
+        assert!(
+            error(&lock("registry+https://x/y"), &[]).contains("is not a git source with a rev")
+        );
+        assert!(
+            error(&lock("git+https://x/y?tag=t"), &[]).contains("is not a git source with a rev")
+        );
+        assert!(error("[", &[]).starts_with("Cargo.lock is not TOML"));
     }
 }
