@@ -336,3 +336,53 @@ This receipt approves no client code, daemon code, pool gate, or completed story
 
 VERDICT: CLEAN (design interface delta only; 0 open).
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 7: R-122 spawn-flow and final P5 interface delta
+
+Reviewed PC artifact SHA256: `bed83e8fc0ebd7a675d9d24d51c579cb54ee00a441d1e6a577d4810a33105ec2`, revision 8.
+Accepted P5 artifact SHA256: `4ec44c7740df60adb5eb5f497b998c6adee6c0953fdd5303f4b52380724ce16f`.
+Sol's P5 receipt: `2c1092634e21e70ae5409d507676dbc27bb1a042`, Round 8.
+The P5 receipt belongs to Sol, not Sol-B.
+PC supplies the final hash in msg_plugin-w_1791851294_1a1e19 after its initial revision 7 request.
+Scope: section 7, the header, and the section 8 ruling dispositions.
+Sol-B reads the final delta, complete R-122, current R-121 precedence, P5's matching flow and store rules, and Sol's applicable closure.
+
+R-122 corrects the earlier R-120 removal rule accepted in review history.
+Admission is the successful accepted answer after Completed{Create}.
+The starting operation record still becomes durable before Core Create begins.
+U1 and U2 remain pre-admission: forget_spawn(operation_id) durably deletes the unadmitted record before the mapped effect-none answer.
+A failed delete is a store fault. No Start follows a failed Create.
+The final Store API now names forget_spawn alongside create_spawn, finish_spawn, and get_spawn.
+The protocol cites P5's current accepted interface instead of the older three-method interface.
+
+U3 retains the operation with failed{internal} and effect unknown when a pre-admission row exists or may exist.
+P5's durable remove_row marker records the automatic cleanup obligation.
+That marker remains true until Core proves release or authoritative absence, including across Remove refusal, failure, and restart.
+The owner clears it with the existing retained store-update mechanism only after that proof.
+Retention cannot remove a record with remove_row true.
+U3 is the only automatic Hub Remove path in this flow. The corrected rule does not delete admitted failed rows.
+
+A synchronous Start refusal is post-admission and retains the row with failed{internal}.
+U4's other Start errors use the current R-121 evidence precedence; a still-Created row fails internally and remains retained.
+U5 cancellation before ready_reached keeps the row, suppresses an unissued Start, or stops a Start already in flight.
+A stop after the ready point does not roll back a successful spawn.
+The protocol presents a retained failed or cancelled Created row as ended under R-122; the client's explicit delete runs Core Remove.
+
+Live installed status and restored status both require A26's ready_reached and start_failure evidence.
+The design now marks both paths A26-dependent, with a typed stub before the required pin.
+The current R-121 precedence tests recorded start_failure first, then the no-row/Created/interrupted cases, then ready_reached.
+Remaining indeterminate cases stay starting and use the same rule after adoption retry.
+This acceptance does not restore the earlier blanket installed inference from a post-Created state name.
+The required frozen Core pin must carry the applicable A26 start-evidence and adoption rules; no interim Core v1 guess is accepted.
+
+The accepted retention rule remains terminal, remove_row false, and an expired receipt window.
+forget_spawn is the separate pre-admission delete, not an early deletion of an admitted operation.
+P5's finite record bound and store-fault shutdown rules remain the interface dependencies accepted in Round 6.
+The approved minimum remains 127 identifiers; caller-known en_7b identifiers remain deferred.
+
+All six earlier design findings remain closed. The requested interface correction is complete, and no new finding remains open.
+The implementation review must verify the durability order, uncertain result, cancellation, cleanup-marker, and client-delete paths.
+This receipt approves no code, execution proof, completed story, or contract freeze.
+
+VERDICT: CLEAN (R-122 design and interface delta only; 0 open; the required A26 pin remains due).
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
