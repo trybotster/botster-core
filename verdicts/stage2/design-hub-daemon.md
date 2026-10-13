@@ -448,7 +448,8 @@ The reviewer does not claim a full amendment review or amendment acceptance.
 
 The design explicitly requires the Core pin with durable `ready_reached` and `start_failure`.
 It retains the prohibition on an interim Core v1 guess.
-No row ends `failed { interrupted }` without a create retry. Created starts; Starting waits for live completion.
+A record with no Core row ends `failed { interrupted }`, with no create retry.
+Created starts; Starting waits for live completion.
 StartInterrupted ends `failed { interrupted }`.
 The mapping includes both StartupTimeout and WorkerFailed as `worker_failed`.
 Installed requires ready-point evidence; a false ready flag without a failure remains `starting`.
@@ -476,3 +477,43 @@ The reviewer ran no build, test, gate, or reproduction.
 This delta has no CLEAN until the precedence decision is supplied.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 6: R-121 precedence delta — CLEAN
+
+Request: `msg_plugin-w_1791850318_0cc4b3`.
+Exact document SHA-256: `1027b5f57b018e7b292b586f35251f1707ff454f0a586b580178ac4cbfbb5514`.
+Comparison: Round 5 document `85fee173efc1f458d43296628d14c963f3eab26a33dd0a2aa88b31ae2cd4def7`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+Only step 6b changes. Findings 1 through 8 remain closed.
+
+The reviewer reads complete R-121 at contracts commit `a11b61782b1229556e68d44034da8d3a3149d5a9`.
+Its section SHA-256 is `85ed223e538d3a9cc58f4188ba390cc3d3206bb1bed1c6ddf85869fd3fbf0097`.
+That source adds the explicit S2-D7 precedence decision requested in Round 5.
+This read accepts the ruling as the design input. It does not freeze or approve Core A26.
+
+### S2-HD-9 — MEDIUM — CLOSED
+
+R-121 now states four ordered tests. The first match decides.
+The revised design matches each test:
+
+1. Retained `start_failure` produces `failed { mapped reason }`, regardless of the state or Lost reason.
+2. No row produces `failed { interrupted }`. Created begins Start. Lost{StartInterrupted} produces `failed { interrupted }`.
+3. `ready_reached: true` produces `installed`, regardless of the later state.
+4. Every remaining case retains `starting`.
+
+Thus Lost(Other) with WorkerFailed start evidence ends `failed { worker_failed }`.
+An indeterminate Lost row with `ready_reached: true` becomes `installed` under test 3.
+That changes the Round 5 behavior. The supplied steward ruling expressly requires the change.
+The design retains the reason mapping and reapplies the tests after an Adopt retry for cases in test 4.
+No reviewer inference supplies the precedence. The explicit ruling closes the question.
+
+### Final delta scope and limits
+
+All nine findings are closed. No prior closure changes in this delta.
+CLEAN applies to the exact design hash above, including the reviewed recovery delta.
+The required Core A26 pin and applicable freeze prerequisites remain due.
+There is still no interim Core v1 recovery rule.
+GS bootstrap, implementation review, and execution proof remain separate acceptance steps.
+The reviewer runs no build, test, gate, or reproduction and claims no full amendment review.
+
+VERDICT: CLEAN (0 open)
