@@ -708,7 +708,7 @@ mod tests {
         );
     }
 
-    fn limits(n: u64) -> AppliedRouteLimits {
+    fn route_limits(n: u64) -> AppliedRouteLimits {
         let d = Duration::from_millis(n);
         AppliedRouteLimits {
             max_frame_bytes: n,
@@ -731,7 +731,7 @@ mod tests {
             route_tag: tags.map(String::from),
             owner: tags.map(String::from),
             client: ClientId(tags.unwrap_or("c").into()),
-            limits: limits(u64::MAX),
+            limits: route_limits(u64::MAX),
             stalled,
         }
     }
@@ -823,7 +823,7 @@ mod tests {
                 answers_queries: true,
                 input: true,
             },
-            limits: limits(u64::MAX),
+            limits: route_limits(u64::MAX),
             client: ClientId(tags.unwrap_or("c").into()),
         }
     }
