@@ -1,5 +1,38 @@
 # PB-W1: worker process exit status
 
+## Train 12 package delta
+
+Date: 2026-10-12. PR: #330. Tier: HIGH.
+Train head: `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Tree: `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Train base: `131024f3936898a3106af299e6751553c55bbc82`.
+Member head: `99209ea598aec0c182f35a1645b2a938d2f7d8cc`.
+Composition: base, then #330, then #331 `57cb242f5d3dda40e524090239222e4824021798`.
+
+VERDICT: CLEAN
+
+This is a package source delta verdict. The reviewer built nothing locally and ran no execution job.
+The reviewer read the merge result of the ten overlapping host and testkit paths named by the lead.
+The added and removed lines of #330 are identical in all 23 source and API files when compared against the train base.
+The remaining member path, `.cargo/mutants.toml`, retains both PB-W1 exclusion removals and adds #331's separate
+high-tier shell path move to gate-kit. No PB-W1 status fallback or exclusion returns.
+
+The host still receives only a process identity. An exit held for pump budget keeps that identity and sets `more`.
+The handler still drains a running or stopping worker's control link before it classifies the session.
+The Remove teardown still retains its link for the result and bounds its completion with the existing grace.
+The imported due-step and route-stall changes do not add a process status consumer or change those exit branches.
+The drain fixture's new route mark retains the same queue-pressure and exit-order test.
+
+The simulated process queue still ends and wakes once by identity. Both Exit and ExitFailure still call
+`ended(true)`, which drops the payload and closes the worker's resources.
+The imported facts-cost measurement reads LinkSend frames; it does not change the exit queue or cleanup actions.
+The sys reaper still keeps only an operating-system status or None internally, with no invented status.
+The real process edge still discards that status at the identity-only boundary.
+No package finding remains open in this composition.
+
+The lead reports a clean train compile. That report is not a reviewer execution result.
+The lead ordered no member gate. The integration delta and exact-head train gate remain due.
+
 ## Current-base source delta: round 3
 
 Date: 2026-10-12. PR: #330. Tier: HIGH.
