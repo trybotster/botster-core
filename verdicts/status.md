@@ -57,3 +57,9 @@ All member edit sequences remain exact; all eighteen text-set formulas pass.
 The ONE FINAL train-11 receipt is recorded at exact head `131024f3`. All ten gate steps pass.
 All 428 catches match; all 192 held-full trials and six decoder fuzz runs pass.
 Lead equal-tree/remote merge verification remains due. The earlier pending inspection retains its historical scope.
+
+The lead reports train 11 LANDED in `msg_plugin-w_1791850643_e5ca11`: v1 131024f3, fast-forward, equal tree, ls-remote OK, #298/#320 MERGED.
+I retain that as the lead's merge verification report. I performed no merge or remote check myself.
+#331 is CLEAN at 57cb242f, tree 9b1b569b, base 644f632f. Complete package Round 208 at a01e5ccd is checked.
+All four findings close. The exact member gate passes all ten steps; all 118 catches match. The focused renamed-file proof and filter limits are recorded.
+Applicable current-base/train deltas, train-12 merging gate, ONE final receipt, and lead merge verification remain due.
