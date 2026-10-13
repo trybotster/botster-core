@@ -15435,3 +15435,102 @@ F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
 Next package round: 209. All earlier history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 209 — #331 source fit on train 12, 2026-10-12
+
+Exact train head: `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Tree: `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Train base: `131024f3936898a3106af299e6751553c55bbc82`.
+Frozen order: #330 `99209ea598aec0c182f35a1645b2a938d2f7d8cc`, then #331 `57cb242f5d3dda40e524090239222e4824021798`.
+#331 source base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+#331 parent insertion: `848800a3dc44f3b575f4b4ab627d2f022eb13b7f`.
+Package source CLEAN: complete Round 208, `a01e5ccd9a31fcd78de0bc2fa52e2d66e05f07ca`.
+Matching integration CLEAN: complete Round 1, `65aa602f2e7ffa037690c28976b57f1604d89ff5`, read in full.
+Request: Sol-C `msg_plugin-w_1791851169_9c7b33`, under the lead's train-12 assignment.
+Scope: complete applicable #331 package delta. Tier HIGH remains correct.
+Sol-C owns the combined train review and ONE final train receipt.
+
+### Composition and preserved member source
+
+The reviewer verifies both merge commits and their exact parents.
+Insertion 848800a3 has train base 131024f3 and frozen #330 as parents.
+Final 7b37e787 has insertion 848800a3 and frozen #331 as parents.
+The unique common base of the final merge parents is 644f632f.
+The moved base overlaps #331's own paths only in Cargo.lock.
+The earlier member overlaps #331 only in .cargo/mutants.toml.
+Those overlaps require this delta. The reviewer assumes no disjoint carry.
+
+The reviewer compares every added/deleted line of 644f632f -> 57cb242f with 848800a3 -> 7b37e787.
+All edit sequences match across the 22 paths counted without rename detection.
+The insertion has 20 files with rename detection: 1061 additions and 703 deletions.
+Eighteen present own blobs are byte-identical to the accepted member.
+Both old module paths remain absent. No deleted module returns.
+Only Cargo.lock and .cargo/mutants.toml differ from the frozen member through accepted composition.
+
+All six gate-kit modules, library manifest, tooling lint file, Core shells, moved tests, and wrapped design prose remain exact.
+The approved taint scan repair and its positive overlap/equivalence tests therefore retain the complete Round 208 source review.
+The Core policy constants and the library Policy still have the accepted relationship.
+The anchor source, allocator source, testkit manifest, Cargo configuration, and known-flaky data equal the member exactly.
+No member logic, type, timer, wait, test assertion, cleanup, or hook changes in this composition.
+F161/F162/F163/F164 retain their closed scopes. No new package fit finding appears.
+
+### Cargo.lock and shared mutation configuration
+
+The reviewer reads the complete base lockfile delta and the final own insertion.
+The new base adds bolero dependencies to botster-core-host and botster-worker-core.
+The final lockfile preserves both edges and every other base package record.
+Compared with the train base, it adds only the exact accepted botster-gate-kit package record.
+It changes only xtask's existing package record by adding the single botster-gate-kit dependency.
+No dependency package is removed, and no version or source changes.
+This preserves the base's two new decoder harness dependencies and the member's library edge.
+
+The reviewer reads the complete mutation configuration changes from both insertions.
+#330 removes the old exit_status and reap sign exclusions and their reason blocks.
+#331 then applies its exact accepted high_tier path/comment move. The final file preserves both members' edits.
+The parsed configured exclude_re array equals the preceding insertion's array after only that approved path replacement.
+The two #330 removals stay absent. No regex is added or widened.
+All other parsed mutation configuration data equals the preceding insertion.
+These checks establish composition of the shared file. They grant no independent new verdict on #330's process-edge implementation.
+
+### CI, API paths, and lists
+
+The final CI module equals the moved train base's CI module.
+The reviewer reads the complete base CI delta: it adds only ordinal_decoder and receipt_decoder to HARNESSES.
+The final module retains both registrations and the accepted calls to the moved high_tier and mutant_logs modules.
+The gate-kit imports preserve those calls through Core's existing module names.
+The command set, mutation stages, taint calls, and public-api path selection remain unchanged by this member.
+
+The public_api implementation and HIGH-path list equal the accepted #331 member exactly.
+The reviewer reads the final facade snapshot delta. #330 changes poll_process_exit's result from identity/status to identity.
+#331 changes no snapshot line or Core public signature. Its library has no production Core dependency.
+The Core public-api command still checks botster-core against api/botster-core.txt at the exact candidate head.
+The combined reviewer retains the #330 public-interface and combined-train duties.
+
+All ten conformance blobs equal the train base exactly.
+Both members change no conformance list in this train composition. No removed base ID returns through #331.
+Current base counts remain: pending 361, real-pending 45, held seven, ledger 692, minimum 69, and real proofs seven.
+The six counted files have no duplicate whole row. Shared real-proof IDs are not treated as duplicate complete proof rows.
+Byte-identical final list blobs preserve every base row and all applicable no-own-list-change formulas.
+The member's workspace dependency insertion leaves the base's contracts .46 pin unchanged.
+This delta accepts no new pin, removal, control, or failure diagnosis through the package verdict.
+
+### Evidence and disposition
+
+The request supplies no exact-train compile, test, or gate log.
+The reviewer checks exact source, merge parents, line sequences, blobs, parsed lock/config data, and complete list rows.
+The member body and supplied member/focused records retain their original exact heads and limits.
+The filtered focused record still grants no global absence claim for FLAKY or retries.
+The passing 57cb242f member gate is not execution of this train head.
+The source fit is CLEAN at the exact train head. No package finding remains, including LOW.
+
+Sol-C's same-head delta and combined review, the exact merging gate, ONE final train receipt, and lead equal-tree/push verification remain due.
+This source verdict accepts no future-base, train-gate, or merge result.
+The package sends no redundant final receipt when its member is unchanged after the applicable source CLEAN.
+A later head, member, base, pin, or composition change requires its applicable review.
+The reviewer runs no tests, builds, gates, mutants, reversals, measurements, or executable merge-check jobs.
+The reviewer changes no product code and spawns no agent.
+F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
+Next package round: 210. All earlier history remains preserved.
+
+VERDICT: CLEAN
