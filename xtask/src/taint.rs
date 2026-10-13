@@ -25,12 +25,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     tokens.extend(parse_denylist(&additions));
     let files = lossy(read_tracked(root, |_| true)?);
     let (scanned, hits) = scan_files(&files, &tokens);
-    let (hit_lines, summary, verdict) = report(
-        scanned,
-        from_contracts,
-        tokens.len() - from_contracts,
-        &hits,
-    );
+    let (hit_lines, summary, verdict) = report(scanned, from_contracts, tokens.len(), &hits);
     for line in hit_lines {
         eprintln!("{line}");
     }
@@ -38,12 +33,12 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     verdict.map_err(anyhow::Error::msg)
 }
 
-/// The report of a scan of `scanned` files with `from_contracts` names of botster-contracts and `from_core` of Core: a
-/// line for each hit, the summary line, and the verdict, which fails on any hit.
+/// The report of a scan of `scanned` files with `names` names, the first `from_contracts` of them from botster-contracts
+/// and the rest from Core: a line for each hit, the summary line, and the verdict, which fails on any hit.
 fn report(
     scanned: usize,
     from_contracts: usize,
-    from_core: usize,
+    names: usize,
     hits: &[(String, usize, String)],
 ) -> (Vec<String>, String, std::result::Result<(), String>) {
     let lines = hits
@@ -51,7 +46,8 @@ fn report(
         .map(|(file, line, token)| format!("{file}:{line}: banned name '{token}'"))
         .collect();
     let summary = format!(
-        "taint: {scanned} files scanned, {from_contracts} names from botster-contracts, {from_core} from Core"
+        "taint: {scanned} files scanned, {from_contracts} names from botster-contracts, {} from Core",
+        names - from_contracts
     );
     let verdict = if hits.is_empty() {
         Ok(())
@@ -68,10 +64,10 @@ mod tests {
     #[test]
     fn each_hit_is_reported_and_any_hit_fails() {
         assert_eq!(
-            report(3, 2, 1, &[]),
+            report(3, 17, 31, &[]),
             (
                 Vec::new(),
-                "taint: 3 files scanned, 2 names from botster-contracts, 1 from Core".to_string(),
+                "taint: 3 files scanned, 17 names from botster-contracts, 14 from Core".to_string(),
                 Ok(())
             )
         );
@@ -79,7 +75,7 @@ mod tests {
             ("a.rs".to_string(), 4, "old".to_string()),
             ("b.md".to_string(), 1, "older".to_string()),
         ];
-        let (lines, _, verdict) = report(3, 2, 1, &hits);
+        let (lines, _, verdict) = report(3, 17, 31, &hits);
         assert_eq!(
             lines,
             ["a.rs:4: banned name 'old'", "b.md:1: banned name 'older'"]
