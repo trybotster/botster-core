@@ -150,3 +150,42 @@ The reviewer names `65aa602f2e7ffa037690c28976b57f1604d89ff5` and reports that t
 Both reviews match exact head 57cb242f, tree 9b1b569b, base 644f632f, all four closures, body hash, and member gate hash.
 The positive focused catch proof matches. The filtered records establish no global absence of FLAKY or retries.
 No new package round or final receipt follows. Current-base/train reviews, the exact merging gate, and lead merge checks remain due.
+
+## Round 2: train-12 member source delta
+
+Exact train head: `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Tree: `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Train base: `131024f3936898a3106af299e6751553c55bbc82`.
+Frozen order: #330 `99209ea598aec0c182f35a1645b2a938d2f7d8cc`, then #331 `57cb242f5d3dda40e524090239222e4824021798`.
+Lead assignment: `msg_plugin-w_1791851132_a30e77`.
+The #331 insertion follows `848800a3dc44f3b575f4b4ab627d2f022eb13b7f`.
+Its unique merge base is `644f632f194f62ad7fe14e66482ee01083706e30`.
+
+I read complete package Round 209 at `abd067494b7ba5f8ee4a48564d43662483133f4b`, verdicts/p3-worker.md.
+It is CLEAN on these exact identities and this composition. Complete Round 208 remains the prior member record.
+All 22 no-rename own-path added/deleted line sequences survive the insertion exactly.
+Eighteen present own blobs equal the frozen member. Both old module paths remain absent.
+The only different own blobs are the accepted Cargo.lock and mutation-configuration compositions.
+The base move overlaps only Cargo.lock. The preceding member overlaps only .cargo/mutants.toml.
+
+The lockfile retains every base package record except xtask's single added gate-kit edge.
+The only new record is the accepted gate-kit package. The host and worker bolero edges remain present.
+The parsed mutation configuration equals the preceding insertion after the approved high-tier path replacement.
+Both #330 obsolete sign exclusions remain removed. No other configuration value or exclusion changes.
+The final CI module equals the train base. Its ordinal_decoder and receipt_decoder registrations remain present.
+Core's main module still imports high_tier and mutant_logs under their existing names.
+The existing command table and CI calls therefore retain the moved implementations.
+The Core unsafe policy retains its two exceptions and FFI entry. The moved pure parser receives that same Policy.
+The library has no production Core dependency and adds no new check family.
+
+All ten conformance blobs equal the train base, including deferred TOML.
+The final member insertion passes all nine full-row list formulas at its actual merge base.
+The public facade snapshot change belongs only to #330. #331 changes no Core public signature.
+The contracts .46 pin, HIGH-path list, known-flaky data, budgets, and seed counts remain unchanged from the base.
+The source, tests, body corrections, and F161-F164 closures retain Round 1's exact scope.
+The filtered focused records still establish no global absence of FLAKY or retries.
+The supplied member gate is not execution of this train head.
+
+VERDICT: CLEAN (member source delta; 0 open, including LOW).
+The combined review, exact train gate, ONE final receipt, and lead merge checks remain due.
+I ran no build, test, gate, mutation, reversal, measurement, pool job, or executable merge-check job.
