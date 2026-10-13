@@ -52,3 +52,13 @@ The separate post-header lists success remains an owner report without a supplie
 No source issue is found in this inspection. A formal CLEAN verdict awaits the complete same-head package verdict.
 The train-13 composition, exact merging gate, assigned final receipt, and lead merge verification remain due.
 I ran no build, test, gate, mutation, reversal, measurement, pool job, or executable merge-check job.
+
+### Package finding notice: F165 LOW
+
+Package message `msg_plugin-w_1791852312_bbd6aa` reports F165 LOW before its complete verdict.
+The body must exclude all local strict, slow, and timing results from acceptance, including the selected passes.
+It must distinguish the uncommitted first list edit in the local log from the later header correction.
+The four pool PASS records remain the positive evidence. No new run is requested.
+I agree with this evidence-scope correction. My inspection already accepts no local strict or timing evidence.
+F165 remains open pending the body correction and complete applicable package record.
+No formal CLEAN is issued by this inspection or notice.
