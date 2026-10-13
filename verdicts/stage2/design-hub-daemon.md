@@ -652,3 +652,71 @@ The required A26 pin, implementation review, and execution proof remain separate
 The reviewer runs no build, test, gate, or reproduction.
 
 VERDICT: CLEAN (0 open)
+
+## Round 10: session-directory ownership delta — NOT CLEAN
+
+Request: `msg_plugin-w_1791853042_247301`.
+Exact document SHA-256: `1fe36869e8be476cadd920ac724c214a9610207ead66e44453b5cd60ad9afa03`.
+Comparison: accepted Round 9 source `7675c9660de86aa1936680dbcf55a4e46005f0dd917bd472ffe910f97b45c372`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+The delta adds session-directory work to the store and changes the startup orphan sweep.
+
+The reviewer reads HC RT-2 and MC-1c in frozen Hub-client Amendment 2 candidate 6.
+The reviewer reads Core A6-3 in frozen Amendment 6 candidate 3.
+RT-2 assigns sessions/<id>/ and uploads/ to the Hub. The host passes uploads/ as Core's file_directory.
+A6-3 permits the host to delete its directory after removal, regardless of the upload cleanup report.
+MC-1c locates context.json in that session directory; its production remains a later step.
+
+The store-thread ownership and create-before-record-before-Core order follow these boundaries.
+The no-follow path checks and single-component id checks prevent the stated directory job from accepting a symlink path step.
+This review accepts the declared design checks, not a filesystem implementation or race test.
+Forget handles the record before the directory. A leftover directory has an explicit recovery sweep.
+Three new paths remain open. The ten prior review findings stay closed.
+
+### S2-HD-13 — MEDIUM — OPEN: load the store before the orphan predicate
+
+Step 6 deletes a directory only if it has no Core row and no starting operation record.
+Step 6b loads the store index after step 6.
+The stated startup order therefore cannot evaluate the starting-record condition from the loaded index.
+It can delete a directory that an on-disk starting record still names.
+
+Required change: load and validate the store index before the sweep evaluates this predicate.
+Run the sweep only after adoption succeeds and the required store load succeeds.
+Keep the existing rule that failed adoption deletes no orphan directory and advertises no readiness.
+
+### S2-HD-14 — MEDIUM — OPEN: distinguish deferred deletion from an admitted store job
+
+The new release paragraph submits directory deletion to the same store queue used for durable records.
+It says the stop does not wait for that deletion.
+The accepted shutdown rule drains admitted store jobs and joins the store before releasing hub.lock.
+Those statements need one consistent ownership rule.
+
+The paragraph also gives no retained holder when a release deletion has no free store slot.
+Core can release more rows while the store has no capacity, so a request-queue bound alone does not bound deferred cleanup.
+
+Required change: define the holder, bound, and retirement path for a deletion that has not entered the store queue.
+The stop may discard explicitly deferred cleanup for the next orphan sweep.
+An admitted or active store job must finish before store join and singleton-lock release.
+State that distinction in the release and stop rules. No directory write may continue after the lock is released.
+
+### S2-HD-15 — MEDIUM — OPEN: sync the parent of each new directory entry
+
+The create job makes sessions/, sessions/<id>/, and uploads/, then syncs those directories.
+That sequence does not explicitly sync the data-root directory entry for a new sessions/ directory.
+A directory's own sync does not establish durability of its name in its parent.
+The subsequent operation-record sync can therefore preserve a record while a crash loses the sessions/ link.
+That breaks the stated invariant that a durable record never names a missing session directory.
+
+Required change: sync the parent of every new directory entry before the operation record is durable.
+Include the data root when the job creates sessions/.
+Retain the record-after-directory ordering and the existing NotWritten behavior for creation failures.
+This is a durability-order correction, not a new product limit or check family.
+
+### Scope and evidence limits
+
+P5 receives the concrete paths in `msg_plugin-w_1791853109_373031`.
+Sol-B receives the PC boundary notice in `msg_plugin-w_1791853109_9ba6be` and retains that review ownership.
+No implementation, gate, context-file production, or story completion is accepted.
+The reviewer runs no build, test, gate, or reproduction.
+
+VERDICT: NOT CLEAN (3 open)
