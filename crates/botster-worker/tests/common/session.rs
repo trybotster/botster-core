@@ -207,7 +207,7 @@ struct Session {
 
 impl Session {
     /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
-    fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
+    fn launch(root: &Path, script: &str) -> Session {
         let payload_guard = PayloadGuard::new(root);
         let script = format!("{}{script}", payload_guard.prefix());
         let socket = root.join("c");
@@ -251,7 +251,6 @@ impl Session {
             stream,
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
-            stop_grace_ms,
             None,
             CoreLimits::default(),
         );
@@ -291,7 +290,6 @@ fn hello_and_launch(
     stream: UnixStream,
     launch: &WorkerLaunch,
     argv: Vec<String>,
-    stop_grace_ms: u64,
     route: Option<std::os::fd::BorrowedFd<'_>>,
     limits: CoreLimits,
 ) -> (Link, PayloadId) {
@@ -336,8 +334,8 @@ fn hello_and_launch(
         notification_policy: NotificationPolicy::All,
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
-        stop_grace_ms,
         limits: limits.clone(),
+        cursor_ordinal: 1,
     }));
     match route {
         None => link.msg(&launch_msg),
@@ -444,21 +442,22 @@ fn exited(code: Option<i32>, signal: Option<i32>) -> WorkerMsg {
 #[test]
 fn ev_4_a_real_exit_carries_the_code_or_the_signal() {
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "echo out; exit 3", 5000);
+    let mut s = Session::launch(root.path(), "echo out; exit 3");
     assert_eq!(s.link.report(), exited(Some(3), None));
     s.remove();
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "kill -TERM $$", 5000);
+    let mut s = Session::launch(root.path(), "kill -TERM $$");
     assert_eq!(s.link.report(), exited(None, Some(15)));
     s.remove();
 }
 
 /// Core LC-5: `Stop` is the graceful request to the payload group; a payload that ignores it is ended by `Kill`, the group
-/// kill of `stop_grace`; the worker lives on after the payload (it still answers `Remove`, LC-7).
+/// kill that Core sends at the end of its `stop_grace`; the worker lives on after the payload (it still answers `Remove`,
+/// LC-7).
 #[test]
 fn lc_5_stop_asks_then_kill_ends_and_the_worker_survives() {
     let root = temp_root();
-    let mut s = Session::launch(root.path(), "exec sleep 30", 5000);
+    let mut s = Session::launch(root.path(), "exec sleep 30");
     s.link.msg(&HostMsg::Stop);
     assert_eq!(s.link.report(), exited(None, Some(15)));
     s.remove();
@@ -469,7 +468,7 @@ fn lc_5_stop_asks_then_kill_ends_and_the_worker_survives() {
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     // The payload ignores TERM once it has written to the FIFO, so the Stop cannot race the trap.
     assert_eq!(first_line(&ready).1, "up\n");
     s.link.msg(&HostMsg::Stop);
@@ -492,7 +491,7 @@ fn lc_6_signal_reaches_the_whole_group() {
         "exec 3> {}; sleep 30 & /bin/echo up >&3; wait",
         held.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     let (mut reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     s.link.msg(&HostMsg::Op {
@@ -524,23 +523,83 @@ fn lc_6_signal_reaches_the_whole_group() {
     s.remove();
 }
 
-/// Core LC-5 and the P1 interface (F7): `SIGUSR1` on the worker ends its payload without a host request: the graceful
-/// request, then the group kill at `stop_grace`. The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
+/// Core SZ-1, SZ-3: `Resize` sets the real PTY's size. The payload reads its size with `stty` before and after: the launch
+/// size, then the new one. The size report comes before the `Done`, and the same size again changes nothing (SZ-2).
 #[test]
-fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
+fn sz_1_resize_sets_the_real_pty_size() {
+    let root = temp_root();
+    // Every wait is bounded (#311 F146): the test reads `out` by deadlines, and `go` is a blocker whose byte waits in the
+    // FIFO, so the send never blocks, also when the payload has ended before it opens `go`.
+    let mut out = marker_fifo(root.path(), "out");
+    let mut go = Blocker::new(root.path(), "go").unwrap();
+    let script = format!(
+        "exec 3> {out}; /bin/stty size >&3; /usr/bin/head -c 1 {go} > /dev/null; /bin/stty size >&3",
+        out = quoted(&root.path().join("out")),
+        go = quoted(go.path())
+    );
+    let mut s = Session::launch(root.path(), &script);
+    assert_eq!(
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("24 80\n"),
+        "the launch size"
+    );
+    let size = Size {
+        rows: 30,
+        cols: 100,
+        cell_px: None,
+    };
+    let resize = |req| HostMsg::Op {
+        req,
+        op: Op::Resize {
+            session: SessionId("s".into()),
+            size,
+        },
+    };
+    s.link.msg(&resize(1));
+    let WorkerMsg::Observed {
+        observation: Observation::Size { size: reported, .. },
+    } = s.link.report()
+    else {
+        panic!("the size report first");
+    };
+    assert_eq!(reported, size);
+    let applied = |req| WorkerMsg::Done {
+        req,
+        result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
+    };
+    assert_eq!(s.link.report(), applied(1));
+    s.link.msg(&resize(2));
+    assert_eq!(s.link.report(), applied(2), "SZ-2: no size report");
+    // The payload waits on `go`: the test lets it read its size again only after the `Done`.
+    go.send(b"x").unwrap();
+    assert_eq!(
+        out.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("30 100\n"),
+        "the PTY has the new size"
+    );
+    assert_eq!(s.link.report(), exited(Some(0), None));
+    s.remove();
+}
+
+/// Core LC-5 and the P1 interface (F7): the worker-control signals end the payload without a host request: `SIGUSR1` is the
+/// graceful request, and `SIGUSR2` the group kill that Core sends at the end of its `stop_grace` (steward ruling R-97,
+/// follow-up: the worker keeps no grace timer). The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
+#[test]
+fn lc_5_the_worker_control_signals_end_the_payload_and_the_worker_stays() {
     let root = temp_root();
     let ready = fifo(root.path(), "f");
     let script = format!(
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 200);
+    let mut s = Session::launch(root.path(), &script);
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::USR1);
+    s.signal_worker(rustix::process::Signal::USR2);
     assert_eq!(
         s.link.report(),
         exited(None, Some(9)),
-        "TERM is ignored, so the kill of the grace ends it"
+        "TERM is ignored, so the kill of SIGUSR2 ends it"
     );
     s.remove();
 }
@@ -653,7 +712,7 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
         "trap '' TERM; /bin/echo up > {}; exec sleep 30",
         ready.display()
     );
-    let mut s = Session::launch(root.path(), &script, 5000);
+    let mut s = Session::launch(root.path(), &script);
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::TERM);
     assert_eq!(s.link.report(), exited(None, Some(9)));
@@ -668,7 +727,7 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
 fn a_worker_that_does_not_end_fails_the_bounded_wait_with_its_pid() {
     let root = temp_root();
     let hold = Blocker::new(root.path(), "hold").unwrap();
-    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()), 5000);
+    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()));
     let id = s.worker.worker.id();
     // timer: deadline — the proof's own short bound, so that the test does not wait the cleanup bound; not a contract value.
     let deadline = Deadline::after(Duration::from_millis(100));
@@ -717,7 +776,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         "trap '' HUP TERM; exec 3> {}; /bin/echo up >&3; exec sleep 30",
         held.display()
     );
-    let mut session = Session::launch(root.path(), &script, 5000);
+    let mut session = Session::launch(root.path(), &script);
     let (mut reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
     // The graceful group signal must not remove independent test ownership.
@@ -1107,7 +1166,7 @@ fn observer_parent() {
     let Some(root) = std::env::var_os("BOTSTER_DRIVER_PARENT_ROOT") else {
         return;
     };
-    let session = Session::launch(Path::new(&root), "exec sleep 30", 5000);
+    let session = Session::launch(Path::new(&root), "exec sleep 30");
     eprintln!("{}", session.worker.worker.id());
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
@@ -1219,7 +1278,6 @@ impl GuardedSession {
             stream,
             &launch,
             vec![wrapper.display().to_string()],
-            stop_grace_ms,
             route,
             limits,
         );
@@ -1282,9 +1340,10 @@ fn marker_fifo(root: &Path, name: &str) -> Bounded<std::fs::File> {
 
 /// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
 ///
-/// The payload starts through the shared group guard ([`GuardedSession`]). It blocks on fixture children of
-/// `botster-test-process` ([`Blocker`]): one `cat` that waits for the count to read, and one that holds the payload until
-/// the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
+/// The payload starts through the shared group guard ([`GuardedSession`]). It reads the count to read with `head -n 1` from
+/// a FIFO ([`Blocker`]): `head` ends at the line, with no end of file. The test holds both ends of that FIFO until the
+/// next write is done, so the count waits in it even when `head` has not opened it yet. A `cat` of a second FIFO holds the
+/// payload until the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
 #[test]
 fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let root = temp_root();
@@ -1294,9 +1353,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let hold = Blocker::new(root.path(), "hold").unwrap();
     let received = root.path().join("received");
     let script = format!(
-        "stty raw -echo; /bin/echo ready > {}; count=$({}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
+        "stty raw -echo; /bin/echo ready > {}; count=$(/usr/bin/head -n 1 {}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
         quoted(&root.path().join("ready")),
-        release.shell(),
+        quoted(release.path()),
         quoted(&received),
         quoted(&root.path().join("done")),
         hold.shell(),
@@ -1334,8 +1393,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     );
     s.link.msg(&write(2, "b".into()));
     assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    // The test holds both ends of the FIFO until `head` has read the line (the write below is done), so the count waits in
+    // it even when `head` has not opened it yet. A release here could drop it: a FIFO with no open end keeps no bytes.
     release.send(format!("{}\n", count + 1).as_bytes()).unwrap();
-    release.release();
     let WorkerMsg::Done {
         req: 2,
         result: OpResult::Ok(OpOutput::Input(written)),
@@ -1353,6 +1413,7 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
+    release.release();
     // The payload still runs (the `cat` of `hold`): it ends first, so `remove` sees the complete result (LC-7).
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));
@@ -1406,4 +1467,162 @@ fn guarded_parent() {
     eprintln!("{} {}", session.worker.id(), session.payload.pid);
     let _ = Bounded::new(std::io::stdin()).line(Deadline::cleanup());
     drop(session);
+}
+
+/// OU-7, R-107, R-108, R-108-E1 on the real driver (Core A23 candidate 2, mirrored until its transcript): a tail and a title
+/// that the payload wrote before a `Stop` that ends in a kill reach the model and the route before `Exited`. The worker is
+/// stopped (`SIGSTOP`) while the payload, which ignores `TERM`, writes the largest unread tail that its OS holds (on Linux
+/// past the PTY's count; R-108-E1) and the title, so nothing of it is read yet. Then `Stop` and `Kill` wait on the link, and
+/// the worker goes on (`SIGCONT`): the kill races the reads of the tail. In each of 20 runs, the title's observation comes
+/// before `Exited{signal 9}`, and the route gets every byte that the payload wrote.
+#[test]
+fn ou_7_a_tail_written_before_a_stop_that_kills_reaches_the_model_and_the_route_before_exited() {
+    use botster_route_codec::prelude::ToClient;
+    use std::os::fd::AsFd;
+    const TITLE: &[u8] = b"\x1b]0;T\x1b\\";
+    let n = if cfg!(target_os = "linux") {
+        4096
+    } else {
+        1000
+    };
+    for run in 0..20 {
+        let root = temp_root();
+        // The test holds the go FIFO open for reading and writing, and writes its line: the payload's read finds it
+        // whenever it opens the FIFO.
+        let go_path = root.path().join("go");
+        let made = OwnedChild::spawn(Command::new("/usr/bin/mkfifo").arg(&go_path))
+            .unwrap()
+            .status();
+        assert!(made.success());
+        let mut go = std::fs::File::from(
+            rustix::fs::open(
+                &go_path,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap(),
+        );
+        let mut up = marker_fifo(root.path(), "up");
+        let hold = Blocker::new(root.path(), "hold").unwrap();
+        let script = format!(
+            "trap '' TERM; IFS= read -r go < {}; /usr/bin/head -c {n} /dev/zero | /usr/bin/tr '\\0' a; printf '\\033]0;T\\033\\\\'; /bin/echo up > {}; exec {}",
+            quoted(&go_path),
+            quoted(&root.path().join("up")),
+            hold.shell()
+        );
+        let (client, worker_end) = UnixStream::pair().unwrap();
+        let mut s = GuardedSession::launch_with_route(
+            root.path(),
+            &script,
+            5000,
+            Some(worker_end.as_fd()),
+            CoreLimits::default(),
+        );
+        drop(worker_end);
+        let mut client = RouteClient::new(client, &CoreLimits::default());
+        client.read_to_live();
+        let worker = s.worker.id();
+        botster_core_sys::signal::signal_process(worker, rustix::process::Signal::STOP).unwrap();
+        go.write_all(b"go\n").unwrap();
+        assert_eq!(
+            up.line(Deadline::cleanup()).unwrap().as_deref(),
+            Some("up\n"),
+            "run {run}: the payload wrote its tail and title"
+        );
+        s.link.msg(&HostMsg::Stop);
+        s.link.msg(&HostMsg::Kill);
+        botster_core_sys::signal::signal_process(worker, rustix::process::Signal::CONT).unwrap();
+        let mut titled = false;
+        loop {
+            match s.link.report() {
+                WorkerMsg::Observed {
+                    observation: Observation::Title { title, .. },
+                } if title == "T" => titled = true,
+                WorkerMsg::Exited { code, signal } => {
+                    assert_eq!(
+                        (code, signal),
+                        (None, Some(9)),
+                        "run {run}: only the kill ends it"
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(titled, "run {run}: the title is in the model before Exited");
+        let mut expected = vec![b'a'; n];
+        expected.extend_from_slice(TITLE);
+        let mut output = Vec::new();
+        while output.len() < expected.len() {
+            if let ToClient::Output { payload } = client.frame() {
+                output.extend_from_slice(&payload);
+            }
+        }
+        assert_eq!(output, expected, "run {run}: the route got the whole tail");
+        // OU-7: after `Exited`, the route closes once its queue is delivered.
+        loop {
+            if let WorkerMsg::RouteClosed { reason, .. } = s.link.report() {
+                assert!(
+                    matches!(reason, RouteCloseReason::SessionEnded { .. }),
+                    "run {run}: {reason:?}"
+                );
+                break;
+            }
+        }
+        s.remove();
+    }
+}
+
+/// R-108 (1) on the real driver: a silent process that still holds the PTY does not hold the drain. The payload leaves a
+/// background holder in its group, which keeps the PTY as its output, writes nothing to it, and ignores the `SIGHUP` that
+/// the leader's exit sends to the group: the leader ignores `SIGHUP` before it starts the holder, so the holder inherits it. The payload then exits. The holder waits for a byte that the test sends only after
+/// `Exited`, and only then it writes its second marker, so `Exited{code 0}` came while the holder was alive.
+///
+/// On Linux the holder's output is still the terminal then: the PTY had a live writer at `Exited`, so the drain ended at
+/// a quiet read, not at the end of the output after all writers closed. On macOS the holder lives, but after the leader's
+/// exit its output is no terminal (measured: `[ -t 1 ]` is false), so on macOS this test does not prove the quiet read.
+#[test]
+fn a_silent_holder_of_the_pty_does_not_delay_exited() {
+    let root = temp_root();
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let mut held = marker_fifo(root.path(), "held");
+    let mut after = marker_fifo(root.path(), "after");
+    let mut up = marker_fifo(root.path(), "up");
+    let script = format!(
+        "trap '' HUP; (/bin/echo held > {held}; /usr/bin/head -c 1 {release} > /dev/null; if [ -t 1 ]; then /bin/echo tty > {after}; else /bin/echo none > {after}; fi) & /bin/echo up > {up}; exit 0",
+        held = quoted(&root.path().join("held")),
+        release = quoted(release.path()),
+        after = quoted(&root.path().join("after")),
+        up = quoted(&root.path().join("up")),
+    );
+    let mut s = GuardedSession::launch(root.path(), &script, 5000);
+    // The holder's own readiness: it ignores `SIGHUP` from its start, and it writes this marker before it waits.
+    assert_eq!(
+        held.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("held\n")
+    );
+    assert_eq!(
+        up.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("up\n")
+    );
+    loop {
+        if let WorkerMsg::Exited { code, signal } = s.link.report() {
+            assert_eq!((code, signal), (Some(0), None));
+            break;
+        }
+    }
+    // The test holds both ends of the FIFO, so the byte waits in it even when `head` has not opened it yet.
+    release.send(b"x").unwrap();
+    let output = if cfg!(target_os = "linux") {
+        "tty\n"
+    } else {
+        "none\n"
+    };
+    assert_eq!(
+        after.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some(output),
+        "the holder lived through Exited (on Linux with the PTY as its output)"
+    );
+    release.release();
+    s.remove();
 }

@@ -197,9 +197,16 @@ impl Payload {
     /// leader stays unreaped. The thread only waits and calls `on_exit`: it never forks or execs, and `on_exit` must not
     /// either (only the loop's thread does; see the module's text).
     ///
+    /// The watch never invents an exit (EV-4): a wait that fails with any error other than `EINTR`, `ECHILD` included, gives
+    /// [`ExitWatchFailed`] (steward ruling R-106 (a)). The watch signals nothing: it holds only a pid, so it cannot know
+    /// that the leader is still unreaped. The owner of the payload sends the group kill (R-106 (b)).
+    ///
     /// # Errors
     /// The thread could not be started.
-    pub fn watch_exit(&self, on_exit: impl FnOnce(ExitStatus) + Send + 'static) -> io::Result<()> {
+    pub fn watch_exit(
+        &self,
+        on_exit: impl FnOnce(Result<ExitStatus, ExitWatchFailed>) + Send + 'static,
+    ) -> io::Result<()> {
         let pid = Pid::from_raw(i32::try_from(self.pid).unwrap_or(i32::MAX))
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
         std::thread::Builder::new()
@@ -219,6 +226,22 @@ impl Payload {
         };
         // ESRCH: no process of the group is left; nothing remains to signal. A refused group is never signalled.
         let _ = crate::signal::signal_group(self.pid, signal);
+    }
+
+    /// Sets the PTY's window size (`TIOCSWINSZ`): `rows` and `cols`, and the window's pixel size (0 when unknown). The kernel
+    /// sends `SIGWINCH` to the PTY's foreground process group.
+    ///
+    /// # Errors
+    /// The OS error of the `ioctl`.
+    pub fn resize(&self, rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> io::Result<()> {
+        let pty = self.pty.as_ref().expect("the payload master is open");
+        pty.resize(pty_process::Size::new_with_pixel(
+            rows, cols, xpixel, ypixel,
+        ))
+        .map_err(|error| match error {
+            pty_process::Error::Io(e) => e,
+            pty_process::Error::Rustix(e) => io::Error::from_raw_os_error(e.raw_os_error()),
+        })
     }
 
     /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow. It is the drop: the group
@@ -274,8 +297,28 @@ fn pending_output(master: BorrowedFd<'_>) -> io::Result<usize> {
     }
 }
 
-/// Blocks until `pid` can be reaped, and returns its status without reaping it.
-fn wait_unreaped(pid: Pid) -> ExitStatus {
+/// The exit watch could not observe the leader's exit: a wait failed with `errno`, which is not `EINTR` (steward ruling
+/// R-106). No exit status is made for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExitWatchFailed {
+    /// The raw OS error of the failed wait.
+    pub errno: i32,
+}
+
+impl std::fmt::Display for ExitWatchFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the payload's exit watch failed: {}",
+            io::Error::from_raw_os_error(self.errno)
+        )
+    }
+}
+
+impl std::error::Error for ExitWatchFailed {}
+
+/// Blocks until `pid` can be reaped, and returns its status without reaping it, or the failure of the wait.
+fn wait_unreaped(pid: Pid) -> Result<ExitStatus, ExitWatchFailed> {
     wait_unreaped_with(|| {
         waitid(
             WaitId::Pid(pid),
@@ -287,20 +330,24 @@ fn wait_unreaped(pid: Pid) -> ExitStatus {
 /// The exit-watch decision uses an injected wait operation. The production operation leaves the leader unreaped.
 fn wait_unreaped_with(
     mut wait: impl FnMut() -> rustix::io::Result<Option<rustix::process::WaitIdStatus>>,
-) -> ExitStatus {
+) -> Result<ExitStatus, ExitWatchFailed> {
     loop {
         match wait() {
             Ok(Some(status)) => {
                 if let Some(signal) = status.terminating_signal() {
-                    return ExitStatus::Signal(signal);
+                    return Ok(ExitStatus::Signal(signal));
                 }
                 if let Some(code) = status.exit_status() {
-                    return ExitStatus::Code(code);
+                    return Ok(ExitStatus::Code(code));
                 }
             }
             Err(rustix::io::Errno::INTR) | Ok(None) => {}
-            // ECHILD: the child is no longer ours to wait for. It cannot happen while the leader is unreaped.
-            Err(_) => return ExitStatus::Code(-1),
+            // R-106 (a): every other error, ECHILD included, is a failed watch. No exit is invented.
+            Err(errno) => {
+                return Err(ExitWatchFailed {
+                    errno: errno.raw_os_error(),
+                })
+            }
         }
     }
 }
@@ -356,17 +403,31 @@ mod tests {
         );
     }
 
-    /// EV-4: a failed exit watch has an unknown exit code; an interrupted wait retries the same operation.
+    /// R-106 (a): a wait that fails with an error other than `EINTR` gives the error and no exit status, ECHILD included; an
+    /// interrupted wait retries the same operation.
     #[test]
-    fn an_interrupted_watch_retries_and_a_failed_watch_reports_unknown_exit() {
-        let mut outcomes = std::collections::VecDeque::from([
-            Err(rustix::io::Errno::INTR),
-            Err(rustix::io::Errno::CHILD),
-        ]);
+    fn a_failed_watch_gives_its_error_and_no_exit_status() {
+        for errno in [rustix::io::Errno::IO, rustix::io::Errno::CHILD] {
+            let mut outcomes =
+                std::collections::VecDeque::from([Err(rustix::io::Errno::INTR), Err(errno)]);
+            assert_eq!(
+                wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait")),
+                Err(ExitWatchFailed {
+                    errno: errno.raw_os_error()
+                })
+            );
+            assert!(outcomes.is_empty());
+        }
+    }
+
+    #[test]
+    fn a_failed_watch_names_its_error() {
         assert_eq!(
-            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait")),
-            ExitStatus::Code(-1)
+            ExitWatchFailed { errno: 10 }.to_string(),
+            format!(
+                "the payload's exit watch failed: {}",
+                io::Error::from_raw_os_error(10)
+            )
         );
-        assert!(outcomes.is_empty());
     }
 }

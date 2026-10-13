@@ -254,3 +254,6 @@ fn a_second_open_in_this_process_is_refused_also_through_a_hard_link() {
     drop(first);
     assert!(LockFile::try_exclusive(&link).is_ok());
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

@@ -10,7 +10,7 @@ use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{CoreRecord, RefusalHandle, RefusalLayer};
 use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
-use crate::worker::{ProcessTable, TestkitCore, Workers};
+use crate::worker::{ProcessTable, TestkitCore, WorkerClock, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
@@ -19,7 +19,6 @@ use botster_core_host::driver::HostWake;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
 #[derive(Debug)]
@@ -64,6 +63,10 @@ struct HandleEdges {
     reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The wake object of its host: a control that releases held work signals it.
     wake: Arc<dyn HostWake>,
+    /// The ops that `scheduler_hold` holds on its host (Core A5-2, R-88 group E).
+    holds: crate::op_holds::SharedHolds,
+    /// The worker reports that its host's link edge holds (`hold_worker_report`, `scheduler_delay`).
+    report_holds: crate::report_holds::SharedReportHolds,
 }
 
 impl std::fmt::Debug for HandleEdges {
@@ -76,12 +79,11 @@ impl std::fmt::Debug for HandleEdges {
 
 impl TestkitHarness {
     pub fn new(seed: u64) -> TestkitHarness {
-        let start = Instant::now();
         TestkitHarness {
             controls: crate::controls::registered_controls(),
             seed,
             directories: Directories::default(),
-            workers: Workers::new(SchedulerHandle::with_seed(seed), start),
+            workers: Workers::new(SchedulerHandle::with_seed(seed), WorkerClock::real()),
             refusals: BTreeMap::new(),
             records: BTreeMap::new(),
             handles: BTreeMap::new(),
@@ -144,6 +146,26 @@ impl TestkitHarness {
             .map(|h| (Arc::clone(&h.reports), Arc::clone(&h.wake)))
     }
 
+    /// The holds of `scheduler_hold` on the host of `handle`, and its host's wake object, which a release signals.
+    pub(crate) fn holds_of(
+        &self,
+        handle: &str,
+    ) -> Option<(crate::op_holds::SharedHolds, Arc<dyn HostWake>)> {
+        self.handles
+            .get(handle)
+            .map(|h| (Arc::clone(&h.holds), Arc::clone(&h.wake)))
+    }
+
+    /// The report holds of the host of `handle`, and its host's wake object, which a release signals.
+    pub(crate) fn report_holds_of(
+        &self,
+        handle: &str,
+    ) -> Option<(crate::report_holds::SharedReportHolds, Arc<dyn HostWake>)> {
+        self.handles
+            .get(handle)
+            .map(|h| (Arc::clone(&h.report_holds), Arc::clone(&h.wake)))
+    }
+
     /// The process table of the host of `handle`, once `open` built it.
     pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
         self.handles.get(handle).map(|h| &h.processes)
@@ -200,6 +222,7 @@ impl CoreHarness for TestkitHarness {
         )?;
         table.set_wake(Arc::clone(&opened.wake));
         let (faults, reports, wake) = (opened.faults, opened.reports, Arc::clone(&opened.wake));
+        let (holds, report_holds) = (opened.holds, opened.report_holds);
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
@@ -216,6 +239,8 @@ impl CoreHarness for TestkitHarness {
                 faults,
                 reports,
                 wake,
+                holds,
+                report_holds,
             },
         );
         Ok(self.with_refusals(&spec.handle, core))
@@ -359,6 +384,7 @@ mod tests {
     use super::*;
     use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
+    use std::time::Instant;
 
     /// R-87, R-88: `record_of` gives the record that the handle's refusal layer keeps, so the `parked_work` and `op_posted`
     /// controls read what

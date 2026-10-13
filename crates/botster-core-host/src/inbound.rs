@@ -583,10 +583,27 @@ impl HostEngine {
                     size,
                 });
             }
+            // IN-10: the client revision moves in every case. `RouteClosed` retired the route's key (EV-5), and Core
+            // can close a route without the worker (`DetachLocal` while the link is down), so only a live route of this
+            // session raises the edge.
             Observation::ClientInput { route, input_rev } => {
                 if let Some(t) = &mut s.terminal {
                     t.input_rev.client = input_rev;
                 }
+                if s.routes.contains(&route) {
+                    self.queue.post_keyed(Event::Activity {
+                        id: sid,
+                        instance,
+                        source: ActivitySource::Client(route),
+                        at: unix,
+                    });
+                }
+            }
+            // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
+            // A transaction can end after its route closed, and `RouteClosed` retired the route's key (EV-5): only a
+            // live route of this session raises the edge. The worker's facts keep the record's status update in both
+            // cases.
+            Observation::ClientInputEnded { route } if s.routes.contains(&route) => {
                 self.queue.post_keyed(Event::Activity {
                     id: sid,
                     instance,
@@ -660,10 +677,8 @@ impl HostEngine {
             } => self
                 .queue
                 .post_lost(&sid, &instance, kind, tap_dropped_bytes),
-            Observation::Writable => self
-                .queue
-                .post_keyed(Event::SessionWritable { id: sid, instance }),
-            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host. A
+            // `ClientInputEnded` of a route that is not live in this session also comes here, and raises nothing.
             _ => {}
         }
     }
@@ -868,12 +883,16 @@ impl HostEngine {
     /// The driver could not write to `link` (R-78 item 4). Nothing more is sent on it (`send_msg`), and a new op fails at
     /// once (`forward`). The read side stays open: the requests in flight wait for their `Done` or the end of file, and a
     /// stop's grace probes the worker (`kill_payload`).
+    ///
+    /// The control queue takes no message again, so a `cancel` refused `Full` waits for no room: its mark retires, and the
+    /// bytes that the driver dropped are not a drain that posts `SessionWritable` (IN-6, SV-3).
     fn on_link_write_failed(&mut self, link: LinkId) {
         let Some(id) = self.links.get(&link) else {
             return;
         };
         if let Some(s) = self.sessions.get_mut(id) {
             s.worker.write_failed = true;
+            s.worker.refused_full = false;
         }
     }
 

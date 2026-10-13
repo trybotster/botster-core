@@ -40,7 +40,12 @@
 //! not run.
 //!
 //! With `BOTSTER_PENDING_HELD_FULL=1` as well (set by the `slow` step of `cargo xtask ci`), the strict run is the held-full
-//! run: each `budget` held id runs at every seed of the set, one trial a seed, and must pass at each; no other id runs.
+//! run: each `budget` held id runs at every seed of the set, one trial a seed, and must pass at each; no other id runs. The
+//! gate runs it under nextest with the default tier's profile, so each trial has the 2 s limit of a default-tier test.
+//!
+//! A `budget` held id that is not in `core-pending.txt` (plan 23cn) passes by that held-full run: on the testkit tier it is an
+//! ignored trial of kind `budget: held-full` (all seeds in one test are over the budget), and the minimum count counts it
+//! by that run ("of which K budget-held"). The real tier runs it must-pass, as any other id.
 
 use botster_conformance::report::describe;
 pub use botster_conformance::Limits;
@@ -132,7 +137,8 @@ fn named_proofs(
         .iter()
         .filter(|entry| !pending.contains(&entry.id))
         .filter_map(
-            |entry| match pending::non_pending(&entry.id, real_only, proofs) {
+            // A real-only id is never a held-full id, so the held list is not needed here.
+            |entry| match pending::non_pending(&entry.id, real_only, proofs, &[]) {
                 NonPending::ByNamedProof(_, named) | NonPending::ByOwnRealTrial(_, named) => {
                     Some((entry.id.clone(), proof_names(&named)))
                 }
@@ -155,22 +161,36 @@ fn proof_names(named: &[pending::RealProof]) -> String {
 /// on this tier. On the testkit tier: "testkit-passing / N". On the real tier: "real-passing / N - P", where P is the
 /// number of A20-1 testkit-proven minimum ids, which the real tier never runs, and "real-accepted / N" = real-passing plus
 /// the A20-1 minimum ids that are not in `core-pending.txt` (the testkit tier of the same gate proves that they pass). On
-/// both tiers an id of `by_proof` (`named_proofs`) passes too (plan 23s).
+/// both tiers an id of `by_proof` (`named_proofs`) passes too (plan 23s). On the testkit tier an id of `by_held_full` (a
+/// `budget` held id out of `core-pending.txt`) passes too, by the held-full run, and the line counts them: "of which K
+/// budget-held" (plan 23cn).
 fn minimum_report(
     minimum: &BTreeSet<String>,
     passed: &BTreeSet<String>,
     by_proof: &[(String, String)],
+    by_held_full: &BTreeSet<String>,
     pending: &BTreeSet<String>,
     real: bool,
 ) -> String {
     let total = minimum.len();
+    if !real {
+        let held = minimum.intersection(by_held_full).count();
+        let passing = minimum
+            .iter()
+            .filter(|id| {
+                passed.contains(*id)
+                    || by_proof.iter().any(|(p, _)| p == *id)
+                    || by_held_full.contains(*id)
+            })
+            .count();
+        return format!(
+            "minimum: testkit-passing {passing} / {total}, of which {held} budget-held"
+        );
+    }
     let passing = minimum
         .iter()
         .filter(|id| passed.contains(*id) || by_proof.iter().any(|(p, _)| p == *id))
         .count();
-    if !real {
-        return format!("minimum: testkit-passing {passing} / {total}");
-    }
     let proven: Vec<&String> = minimum
         .iter()
         .filter(|id| TESTKIT_PROVEN.contains(&id.as_str()))
@@ -269,14 +289,17 @@ fn strict_trial(make: Factory, limits: Limits, transcript: &Transcript, class: C
 
 /// The held-full run of the gate's slow step (`BOTSTER_PENDING_HELD_FULL=1` with the strict variable; lead, 2026-10-11): each
 /// selected `budget` held id runs at every seed of the set, one trial a seed, and must pass at each. A failed trial names its
-/// seed. No other id runs. The expected result reports itself ignored, as in the strict run. `cargo xtask ci` reads the
-/// report line: without it, the harness ignored the variable; with fewer ids or seeds, a selection narrowed the run.
+/// seed. No other id runs. The expected result reports itself ignored, as in the strict run. An id out of `pending` counts by
+/// this run (plan 23cn). `cargo xtask ci` runs it under nextest with the default tier's profile and reads the JUnit file:
+/// each id at each CI seed must have passed within the default tier's limit. The report line is for a run by hand.
+#[allow(clippy::too_many_arguments)]
 fn held_full(
     name: &str,
     make: Factory,
     limits: Limits,
     args: &Arguments,
     held: &[pending::Held],
+    pending: &BTreeSet<String>,
     transcripts: &[Transcript],
     selection: &Selection,
 ) -> ! {
@@ -297,17 +320,18 @@ fn held_full(
                 Class::Held(entry.clone()),
                 transcript.clone(),
             );
+            let is_pending = pending.contains(&id);
             trials.push(
                 Trial::ignorable_test(format!("{id}@seed_{seed}"), move || {
                     let outcome =
                         outcome_at(make, limits, &transcript, |_| SeedSet { seeds: vec![seed] });
-                    pending::held_full_verdict(&id, seed, &class, outcome.is_pass())
+                    pending::held_full_verdict(&id, seed, &class, is_pending, outcome.is_pass())
                         .map(Completion::ignored_with)
                         .map_err(|error| {
                             Failed::from(format!("{error}: {}", describe(&id, &outcome)))
                         })
                 })
-                .with_kind("pending: held-full"),
+                .with_kind(pending::HELD_FULL_KIND),
             );
         }
     }
@@ -396,12 +420,23 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let proofs = pending::parse_real_proofs(REAL_PROOFS).expect("core-real-proofs.txt parses");
     let held = pending::parse_held(HELD).expect("core-held.txt parses");
     if strict && std::env::var(pending::HELD_FULL_ENV).is_ok_and(|v| v == "1") {
-        held_full(name, make, limits, &args, &held, &transcripts, &selection);
+        held_full(
+            name,
+            make,
+            limits,
+            &args,
+            &held,
+            &pending,
+            &transcripts,
+            &selection,
+        );
     }
     // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
     let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
 
-    let mut trials = Vec::new();
+    // The build-root trial of every test binary (bug catalog B13; `cargo xtask built-in` and the gate's presence check). The
+    // `LINKED` check above already refused a stale binary; the trial puts the name in this binary's list.
+    let mut trials = vec![botster_test_process::built_in_trial!()];
     let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
         (0usize, 0usize, 0usize);
     for id in &ledger {
@@ -409,7 +444,7 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         let treatment = if pending.contains(id) {
             NonPending::MustPass
         } else {
-            pending::non_pending(id, &real_only, &proofs)
+            pending::non_pending(id, &real_only, &proofs, &held)
         };
         if let Some(w) = withdrawn.iter().find(|w| &w.id == id) {
             let replacement = w.replaced_by.as_deref().unwrap_or("nothing");
@@ -437,6 +472,15 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                     "real-only ({}): passes by its named real-process proof {} in the gate's slow step (plan 23s); its transcript does not run",
                     entry.proof,
                     proof_names(named)
+                ),
+            ));
+        } else if let (NonPending::ByHeldFull(entry), None) = (&treatment, plain) {
+            trials.push(never_passes(
+                id,
+                "budget: held-full",
+                format!(
+                    "budget-held (owner {}): passes by the held-full run of the gate's slow step, at every CI seed, one trial a seed within the default tier's limit (plan 23cn); all seeds in one test are over the budget",
+                    entry.owner
                 ),
             ));
         } else if let NonPending::NoNamedProof(entry) = &treatment {
@@ -555,10 +599,32 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         };
         let minimum = minimum_ids(MINIMUM);
         let by_proof = named_proofs(&real_only, &proofs, &pending);
+        let by_held_full: BTreeSet<String> = pending::by_held_full(&held, &pending)
+            .map(|h| h.id.clone())
+            .collect();
         println!(
             "{name}: {}{source}",
-            minimum_report(&minimum, &passed, &by_proof, &pending, plain.is_some())
+            minimum_report(
+                &minimum,
+                &passed,
+                &by_proof,
+                &by_held_full,
+                &pending,
+                plain.is_some()
+            )
         );
+        if plain.is_none() {
+            for id in &by_held_full {
+                let scope = if minimum.contains(id) {
+                    "minimum: "
+                } else {
+                    ""
+                };
+                println!(
+                    "{name}: {scope}{id} counts by the held-full run of the gate's slow step (plan 23cn)"
+                );
+            }
+        }
         for (id, proof) in &by_proof {
             let scope = if minimum.contains(id) {
                 "minimum: "

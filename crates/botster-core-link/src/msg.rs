@@ -39,20 +39,54 @@ pub struct LaunchSpec {
     /// The largest frame payload that the host accepts and sends on this link, in bytes. The worker sizes its decoder with it
     /// (plan section 3: `len` is checked against a bound before any allocation).
     pub link_frame_bound: u32,
-    /// `CoreLimits.stop_grace` in milliseconds. The worker times the kill of its payload's group with it when the host asks
-    /// without its link (`GroupSignal::EndPayload`, LC-5); on the linked path the host sends `Kill` itself. Absent: the
-    /// default of the Core limits table.
-    #[serde(default = "default_stop_grace_ms")]
-    pub stop_grace_ms: u64,
     /// The Core limits that the worker applies itself: the clipboard and notification bound (EV-3, A2-4), the input records
     /// (ST-7), the queries (EV-8) and the tap (TP-1). Absent: the defaults of the Core limits table.
     #[serde(default)]
     pub limits: CoreLimits,
+    /// The ordinal of this instance in the data directory, from the host registry's durable counter (steward ruling R-101
+    /// Q6): the high bits of every input cursor of `ReadFacts` (ST-7). It is required: protocol 1 is not released (R-98).
+    pub cursor_ordinal: u64,
 }
 
-fn default_stop_grace_ms() -> u64 {
-    u64::try_from(CoreLimits::default().stop_grace.as_millis()).unwrap_or(u64::MAX)
+/// The cap of a worker link's frame bound, `u32::MAX / 2`. It is one literal, and a unit test ties it to `u32::MAX`.
+pub const LINK_FRAME_CAP: u32 = 0x7FFF_FFFF;
+
+/// The JSON length that each of the at most four protected entries of `ReadFacts` (ST-7, steward rulings R-116 and
+/// R-117) can take past `input_events_bytes`, apart from its two route tags: a minimal record or a status update with
+/// every number at its largest. A worker-core test measures the largest ones under it.
+pub const PROTECTED_ENTRY_FIXED: u64 = 1024;
+
+/// The largest JSON length of the reply of a `ReadFacts` (ST-7) under `limits`, apart from its fixed part: the record
+/// list (at most `input_events_bytes`, and past it only the protected entries, at most four, each with two route tags
+/// at `max_route_tag_bytes` that JSON can write as six bytes a byte), and the client tail as hex, two bytes a byte.
+pub fn facts_reply_bound(limits: &CoreLimits) -> u64 {
+    let tags = 12 * u64::from(limits.max_route_tag_bytes);
+    let protected = 4 * (PROTECTED_ENTRY_FIXED + tags);
+    let tail = 2 * u64::from(limits.input_tail_bytes);
+    limits
+        .input_events_bytes
+        .saturating_add(protected)
+        .saturating_add(tail)
 }
+
+/// The largest frame payload of a worker link under `limits` (plan section 3), in both directions. A host write travels
+/// in its JSON form and a snapshot as pages, so the bound is six times the largest payload that `CoreLimits` allows: a
+/// `Text` control byte is the six-byte escape `\u00XX` (lead ruling, 2026-10-12). A `ReadFacts` reply travels in one
+/// frame, so the bound also holds the largest one (`facts_reply_bound`; #320 R320-SI-5). 1 MiB more holds every fixed
+/// part. The bound is at most `LINK_FRAME_CAP`.
+pub fn link_frame_bound(limits: &CoreLimits) -> u32 {
+    let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
+    let payload = largest.saturating_mul(6).max(facts_reply_bound(limits));
+    let bound = payload.saturating_add(1 << 20);
+    u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
+}
+
+/// The bits of the cursor ordinal in an input cursor of `ReadFacts` (ST-7; steward ruling R-101, follow-up). The sequence
+/// number of the instance's log is below them; together they stay below 2^53.
+pub const CURSOR_ORDINAL_BITS: u32 = 24;
+/// The largest cursor ordinal of a data directory, 2^24 - 1. The host mints ordinals from 1. It is one literal, and a unit
+/// test ties it to `CURSOR_ORDINAL_BITS`.
+pub const MAX_CURSOR_ORDINAL: u64 = 0xFF_FFFF;
 
 /// A request of the host to a session worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +97,7 @@ pub enum HostMsg {
     Launch(Box<LaunchSpec>),
     /// The graceful request to end the payload (LC-5). The worker answers [`WorkerMsg::Exited`] when it has ended.
     Stop,
-    /// The kill of the payload's process group after `stop_grace` (LC-5).
+    /// The kill of the payload's process group, which Core sends at the end of `stop_grace` (LC-5).
     Kill,
     /// An operation that needs the worker's model or input path (the reads, `WriteInput`, the setters). `req` is the host's
     /// request number, unique on this link. The worker answers with [`WorkerMsg::Done`].
@@ -131,6 +165,11 @@ pub enum Observation {
         route: RouteId,
         input_rev: InputRev,
     },
+    /// The transaction of a client input of `route` ended (ST-7): the record's status update is appended. It changes no
+    /// revision; the host raises the keyed `Activity` edge again (EV-6).
+    ClientInputEnded {
+        route: RouteId,
+    },
     /// The host's write was admitted (IN-10).
     HostInput {
         input_rev: InputRev,
@@ -166,8 +205,6 @@ pub enum Observation {
         #[serde(default)]
         tap_dropped_bytes: u64,
     },
-    /// The control queue has room again after a refusal (IN-6).
-    Writable,
 }
 
 /// A report of a session worker to the host.
@@ -332,6 +369,34 @@ impl HostMsg {
     pub fn decode(payload: &[u8]) -> Result<HostMsg, MsgError> {
         serde_json::from_slice(payload).map_err(|e| MsgError::from_decoder(&e))
     }
+
+    /// The length of [`HostMsg::encode`]'s output: the frame payload of this message. It encodes into a counter, so no buffer
+    /// of the encoded output is kept (steward ruling R-100: a call whose message can never fit the link frame is refused at
+    /// the call). The serializers can still allocate on their own (`HexBytes` makes its hex string).
+    pub fn encoded_len(&self) -> u64 {
+        json_len(self)
+    }
+}
+
+/// The length of `value`'s JSON form, as a host message carries it. It encodes into a counter and keeps no byte.
+pub fn json_len<T: Serialize + ?Sized>(value: &T) -> u64 {
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value).expect("a host message's value is JSON");
+    counter.0
+}
+
+/// A writer that counts the bytes that it is given.
+struct Counter(u64);
+
+impl std::io::Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl WorkerMsg {
@@ -348,6 +413,77 @@ impl WorkerMsg {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn the_largest_cursor_ordinal_fills_its_bits() {
+        assert_eq!(MAX_CURSOR_ORDINAL, (1 << CURSOR_ORDINAL_BITS) - 1);
+        assert_eq!(MAX_CURSOR_ORDINAL, 16_777_215);
+    }
+
+    fn limits(paste: u64, snapshot: u64, events: u64, tail: u32, tag: u32) -> CoreLimits {
+        CoreLimits {
+            max_paste_bytes: paste,
+            max_snapshot_bytes: snapshot,
+            input_events_bytes: events,
+            input_tail_bytes: tail,
+            max_route_tag_bytes: tag,
+            ..CoreLimits::default()
+        }
+    }
+
+    #[test]
+    fn the_link_frame_cap_is_half_of_u32() {
+        assert_eq!(LINK_FRAME_CAP, u32::MAX / 2);
+    }
+
+    /// #320 R320-SI-5: the record bound, four protected entries with their tags at six bytes a byte, and the tail as
+    /// hex.
+    #[test]
+    fn the_facts_reply_bound_counts_records_protected_entries_and_the_tail() {
+        assert_eq!(facts_reply_bound(&limits(0, 0, 0, 0, 0)), 4 * 1024);
+        assert_eq!(
+            facts_reply_bound(&limits(0, 0, 1000, 10, 1)),
+            1000 + 4 * (1024 + 12) + 20
+        );
+        let largest = limits(0, 0, u64::MAX, u32::MAX, u32::MAX);
+        assert_eq!(facts_reply_bound(&largest), u64::MAX);
+    }
+
+    /// Plan section 3, #320 R320-SI-5: the bound is the larger of six times the largest payload and the largest facts
+    /// reply, with 1 MiB more, and at most `LINK_FRAME_CAP`.
+    #[test]
+    fn the_link_frame_bound_holds_the_largest_payload_and_facts_reply() {
+        let mib = 1 << 20;
+        assert_eq!(link_frame_bound(&limits(1000, 10, 0, 0, 0)), 6000 + mib);
+        assert_eq!(link_frame_bound(&limits(10, 1000, 0, 0, 0)), 6000 + mib);
+        assert_eq!(
+            link_frame_bound(&limits(10, 10, 100_000, 0, 0)),
+            100_000 + 4096 + mib
+        );
+        assert_eq!(
+            link_frame_bound(&limits(1 << 20, 1024, 16 << 10, 4 << 20, 256)),
+            (16 << 10) + 4 * (1024 + 12 * 256) + (8 << 20) + mib,
+            "Sol's case: the facts reply binds, not the paste"
+        );
+        let at_cap = u64::from(LINK_FRAME_CAP) - u64::from(mib) - 4096;
+        assert_eq!(
+            link_frame_bound(&limits(0, 0, at_cap, 0, 0)),
+            LINK_FRAME_CAP
+        );
+        assert_eq!(
+            link_frame_bound(&limits(0, 0, at_cap + 1, 0, 0)),
+            LINK_FRAME_CAP
+        );
+        assert_eq!(
+            link_frame_bound(&limits(500_000_000, 0, 0, 0, 0)),
+            LINK_FRAME_CAP,
+            "below u32::MAX, above the cap"
+        );
+        assert_eq!(
+            link_frame_bound(&limits(u64::MAX, 0, 0, 0, 0)),
+            LINK_FRAME_CAP
+        );
+    }
 
     fn size() -> Size {
         Size {
@@ -368,30 +504,53 @@ mod tests {
             notification_policy: NotificationPolicy::All,
             size_policy: SizePolicy::Latest,
             link_frame_bound: 1 << 20,
-            stop_grace_ms: 250,
             limits: CoreLimits {
                 clipboard_bytes: 77,
                 ..CoreLimits::default()
             },
+            cursor_ordinal: 9,
         }));
         let mut bytes = Vec::new();
         msg.encode(&mut bytes);
         assert_eq!(HostMsg::decode(&bytes), Ok(msg));
     }
 
-    /// An older host sends no `stop_grace_ms`: the worker uses the default of the Core limits table (5 s).
+    /// An absent `limits` field is the defaults of the Core limits table.
     #[test]
-    fn an_absent_stop_grace_is_the_default_of_the_limits_table() {
-        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+    fn an_absent_limits_field_is_the_default_of_the_limits_table() {
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"cursor_ordinal":1}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(text.as_bytes()) else {
             panic!("a launch");
         };
-        assert_eq!(spec.stop_grace_ms, 5000);
         assert_eq!(
             spec.limits,
             CoreLimits::default(),
             "an absent limits field is the table's defaults"
         );
+    }
+
+    /// The removed `stop_grace_ms` (steward ruling R-97, follow-up) changes no adoption across versions (A6-2). An older host's
+    /// launch, which carries it, still decodes: `LaunchSpec` takes unknown fields. A launch of this host has no such key, and
+    /// an older worker read it with `#[serde(default)]` as the table's default.
+    #[test]
+    fn the_removed_stop_grace_field_decodes_in_both_directions() {
+        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250,"cursor_ordinal":1}"#;
+        let Ok(HostMsg::Launch(spec)) = HostMsg::decode(older.as_bytes()) else {
+            panic!("an older host's launch decodes");
+        };
+        assert_eq!(spec.link_frame_bound, 1024);
+        let mut bytes = Vec::new();
+        HostMsg::Launch(spec).encode(&mut bytes);
+        let text = String::from_utf8(bytes).expect("a launch is text");
+        assert!(text.contains(r#""t":"launch""#), "{text}");
+        assert!(!text.contains("stop_grace_ms"), "{text}");
+    }
+
+    /// The cursor ordinal is required (steward rulings R-101 Q6 and R-98): a launch without it does not decode.
+    #[test]
+    fn a_launch_without_its_cursor_ordinal_does_not_decode() {
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        assert!(HostMsg::decode(text.as_bytes()).is_err());
     }
 
     #[test]
@@ -410,6 +569,38 @@ mod tests {
             "{text}"
         );
         assert_eq!(HostMsg::decode(&bytes), Ok(msg));
+    }
+
+    /// R-100: the counted length is the encoded length, also for text that JSON escapes (a control byte takes six).
+    #[test]
+    fn the_encoded_len_is_the_length_of_the_encoding() {
+        let msgs = [
+            HostMsg::Stop,
+            HostMsg::Op {
+                req: u64::MAX,
+                op: Op::CaptureSnapshot {
+                    session: SessionId("s".into()),
+                    owner: ClientId("o\u{1}\"\\é".into()),
+                },
+            },
+            HostMsg::Launch(Box::new(LaunchSpec {
+                argv: vec!["/bin/sh".into(), "\u{7}".repeat(100)],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: size(),
+                color_profile: None,
+                notification_policy: NotificationPolicy::All,
+                size_policy: SizePolicy::Latest,
+                link_frame_bound: 1 << 20,
+                limits: CoreLimits::default(),
+                cursor_ordinal: MAX_CURSOR_ORDINAL,
+            })),
+        ];
+        for msg in msgs {
+            let mut bytes = Vec::new();
+            msg.encode(&mut bytes);
+            assert_eq!(msg.encoded_len(), bytes.len() as u64, "{msg:?}");
+        }
     }
 
     #[test]

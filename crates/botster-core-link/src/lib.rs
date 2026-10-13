@@ -1,12 +1,13 @@
 //! # Worker-control signal for P3 (LC-5, AD-6)
 //!
-//! When the control link of a session is broken, the host sends `SIGUSR1` to the worker process only (never to a group), and
-//! only after it verified the worker by pid and start time. The signal is `GroupSignal::EndPayload` in `botster-core-edges`.
-//! - **Meaning:** end your payload. Ask it to stop, then kill its process group after `stop_grace`, from the leader that you
-//!   hold unreaped (`waitid` with `WNOWAIT`), so the group id cannot be reused. Keep running and keep serving the final
-//!   model. The host never kills the worker for a stop.
-//! - **Idempotent:** the host repeats the signal (at the stop and at the grace). A worker that already ends its payload
-//!   ignores it.
+//! When the control link of a session is broken, the host signals the worker process only (never a group), and only after it
+//! verified the worker by pid and start time. The signals are in `botster-core-edges`:
+//! - **`GroupSignal::EndPayload` (`SIGUSR1`), at the stop:** ask your payload to stop (`SIGTERM` to its group). Keep no timer.
+//! - **`GroupSignal::KillPayload` (`SIGUSR2`), at the end of `stop_grace`:** kill your payload's process group now, from the
+//!   leader that you hold unreaped (`waitid` with `WNOWAIT`), so the group id cannot be reused. `stop_grace` is the Core
+//!   library's deadline: Core sends this at its due `pump` (steward ruling R-97, follow-up).
+//! - Keep running and keep serving the final model. The host never kills the worker for a stop.
+//! - **Idempotent:** a worker that already ends its payload ignores a repeat of either signal.
 //! - **After:** when the link returns, or at adoption, the worker reports the exit of the payload, as for any exit.
 //!
 //! The private control-link wire between the host and a worker or a guardian (plan section 3).
@@ -29,7 +30,4 @@ pub mod route;
 pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");
 
 #[cfg(test)]
-#[test]
-fn this_test_binary_was_built_in_this_worktree() {
-    botster_test_process::built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
-}
+botster_test_process::built_in_test!();

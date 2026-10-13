@@ -269,7 +269,8 @@ fn a_paste_over_max_paste_bytes_is_refused_too_large_with_zero_effect() {
 }
 
 /// Codec TS-5d, Core IN-4: an abort before the commit writes nothing and sends no frame, and the route can open its next
-/// paste. Each paste frame is client input on receipt: it advances `input_rev{client}` once.
+/// paste. A paste is one client input, received at its commit (steward ruling R-102): its begin, chunks and abort advance no
+/// `input_rev{client}`.
 #[test]
 fn an_abort_before_the_commit_writes_nothing_and_sends_no_frame() {
     let (mut w, mut client, _) = attached(limits());
@@ -277,7 +278,7 @@ fn an_abort_before_the_commit_writes_nothing_and_sends_no_frame() {
     let all = send(&mut w, &mut client, &[begin(1), chunk(1, b"x"), abort(1)]);
     assert!(writes(&all).is_empty());
     assert_eq!(client.frames.len(), frames, "no frame");
-    assert_eq!(received(&mut w, &all), 3);
+    assert_eq!(received(&mut w, &all), 0);
     let all = send(
         &mut w,
         &mut client,
@@ -413,4 +414,134 @@ fn a_paste_blocked_at_the_payloads_end_is_refused_session_ended_with_its_pty_byt
         Some(ToClient::RouteClosed(_))
     ));
     assert!(refused < client.frames.len() - 1);
+}
+
+/// Steward ruling R-102 item 1: a paste of several chunks is one client input, received at its commit: one `rev` step and
+/// one record, `kind: paste`, with the assembled payload, `pending`.
+#[test]
+fn a_paste_of_several_chunks_is_one_client_input_at_its_commit() {
+    use super::super::read_facts::{read_facts, records};
+    let (mut w, mut client, _) = attached(limits());
+    let parts = send(
+        &mut w,
+        &mut client,
+        &[begin(1), chunk(1, b"ab"), chunk(1, b"cd"), chunk(1, b"e")],
+    );
+    assert_eq!(received(&mut w, &parts), 0);
+    assert!(read_facts(&mut w, None).input.input_records.is_empty());
+    let commit = send(&mut w, &mut client, &[commit(1, None)]);
+    assert_eq!(received(&mut w, &commit), 1);
+    let facts = read_facts(&mut w, None);
+    let recorded = records(&facts);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, InputKind::Paste);
+    assert_eq!(recorded[0].payload, Some(HexBytes(b"abcde".to_vec())));
+    assert_eq!(recorded[0].state, InputRecordState::Pending);
+    assert_eq!(facts.input.client.rev, InputRev(1));
+}
+
+/// R-102 item 2: an aborted paste leaves no trace in the facts.
+#[test]
+fn an_aborted_paste_leaves_no_record() {
+    use super::super::read_facts::read_facts;
+    let (mut w, mut client, _) = attached(limits());
+    send(&mut w, &mut client, &[begin(1), chunk(1, b"x"), abort(1)]);
+    let facts = read_facts(&mut w, None);
+    assert!(facts.input.input_records.is_empty());
+    assert_eq!(facts.input.client.rev, InputRev(0));
+}
+
+/// R-102 follow-up (a): a `paste_commit` refused for a sequencing error is one client input: one `rev` step, one record
+/// (`kind: paste`, empty payload) and its `not_written{refused}` at once.
+#[test]
+fn a_refused_commit_is_recorded_with_an_empty_paste_and_ends_refused() {
+    use super::super::read_facts::{read_facts, records, status_updates};
+    let (mut w, mut client, _) = attached(limits());
+    let all = send(&mut w, &mut client, &[commit(4, None)]);
+    assert_eq!(received(&mut w, &all), 1);
+    let facts = read_facts(&mut w, None);
+    let recorded = records(&facts);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, InputKind::Paste);
+    assert_eq!(recorded[0].payload, Some(HexBytes(Vec::new())));
+    assert_eq!(
+        status_updates(&facts),
+        [(
+            InputRecordState::NotWritten {
+                reason: NotWrittenReason::Refused
+            },
+            Some(0)
+        )]
+    );
+}
+
+/// R-102 item 5: a `reply_terminal_query` that the worker refuses is one client input: one `rev` step, one record at
+/// receipt, and its `not_written{unsupported}` at once. R-103 (1), R-105 Q2: the record is `kind: bytes`, not cut. An
+/// `encoded` reply keeps its decoded terminal bytes; a typed reply keeps the JSON of its `reply` as received.
+#[test]
+fn a_refused_query_reply_is_recorded_and_ends_not_written_unsupported() {
+    use super::super::read_facts::{read_facts, records, status_updates};
+    use botster_route_codec::prelude::QueryReply;
+    let cases = [
+        (QueryReply::Decline, br#""decline""#.to_vec()),
+        (
+            QueryReply::Position { x: 3, y: 4 },
+            br#"{"position":{"x":3,"y":4}}"#.to_vec(),
+        ),
+        (
+            QueryReply::Encoded {
+                bytes_base64: "G1tP".into(),
+            },
+            b"\x1b[O".to_vec(),
+        ),
+    ];
+    for (reply, payload) in cases {
+        let (mut w, mut client, _) = attached(limits());
+        let reply = ToWorker::Input(Wire::ReplyTerminalQuery {
+            op: Some(Op(2)),
+            query_id: "7".into(),
+            reply,
+        });
+        let all = send(&mut w, &mut client, &[reply]);
+        assert_eq!(received(&mut w, &all), 1);
+        let facts = read_facts(&mut w, None);
+        let recorded = records(&facts);
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].kind, InputKind::Bytes);
+        assert_eq!(recorded[0].payload, Some(HexBytes(payload)));
+        assert!(!recorded[0].payload_truncated);
+        assert_eq!(
+            status_updates(&facts),
+            [(
+                InputRecordState::NotWritten {
+                    reason: NotWrittenReason::Unsupported {
+                        what: UnsupportedWhat::Other
+                    }
+                },
+                Some(0)
+            )]
+        );
+    }
+}
+
+/// R-105 Q4: a resize is not a client input (IN-10, ST-7): it advances no `rev`, reports no `ClientInput`, creates no
+/// record and does not reset `age_ms`.
+#[test]
+fn a_resize_leaves_the_rev_the_records_and_the_age_unchanged() {
+    use super::super::read_facts::read_facts;
+    let (mut w, mut client, _) = attached(limits());
+    send(&mut w, &mut client, &[bytes_frame(1, b"x")]);
+    w.now += Duration::from_millis(40);
+    let before = read_facts(&mut w, None);
+    let resize = ToWorker::Input(Wire::Resize {
+        op: Some(Op(2)),
+        rows: 30,
+        cols: 100,
+    });
+    let all = send(&mut w, &mut client, &[resize]);
+    assert_eq!(received(&mut w, &all), 0);
+    let after = read_facts(&mut w, None);
+    assert_eq!(after.input.client, before.input.client);
+    assert_eq!(after.input.client.age_ms, 40);
+    assert_eq!(after.input.input_records, before.input.input_records);
 }

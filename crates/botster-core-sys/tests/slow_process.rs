@@ -276,3 +276,6 @@ fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
         "the anchor killed the child and the production reaper reaped it"
     );
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

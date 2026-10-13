@@ -36,12 +36,15 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         link,
         link_open: true,
         outbound: VecDeque::new(),
+        sent: FrameDecoder::new(u32::MAX),
         written: 0,
         payload: None,
         spawned: None,
         exit: None,
+        watch_failed: false,
         drain: None,
         pty_write: None,
+        pty_resized: None,
         wait_writable: false,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
@@ -94,11 +97,11 @@ fn a_control_link_eof_closes_the_link() {
 }
 
 /// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The edge's
-/// drain is bounded (`Drain`): the count that the program held when it was asked, then one flushing read, then at most
-/// the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
-/// only an asked drain.
+/// drain is the real driver's (`Drain`, R-108 (1)): the count that the program held when it was asked, then a flushing
+/// read, again until a read finds nothing. Output that comes while it drains is read before `PtyDrained` (no byte bound,
+/// R-108 (2)), and `PtyDrained` answers only an asked drain.
 #[test]
-fn the_edge_drain_is_bounded_by_the_asked_count() {
+fn the_edge_drain_reads_until_a_read_finds_nothing() {
     let (mut edges, _peer, worker, now) = fixture(8);
     let script = serde_json::from_value(serde_json::json!({"program": [
         {"print": {"bytes_hex": "616263"}}, {"hold": {}}
@@ -118,8 +121,8 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
     // No drain is asked: the edge reads output while it waits.
     assert_eq!(edges.ready(now, &worker), 1);
     assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
-    // The drain is asked while output waits. Output that comes before the flushing read is found by it; output that comes
-    // after the count measured once after that read waits.
+    // The drain is asked while output waits. Output that comes before a flushing read is found by it, also after the first
+    // flushing read found bytes.
     let held = control.output_unread();
     edges.perform(now, Action::DrainPty);
     control.write_once(b"later");
@@ -139,13 +142,10 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
             other => panic!("{other:?}"),
         }
     }
-    assert_eq!(drained.len(), held + b"later".len());
-    assert_eq!(
-        control.output_unread(),
-        b"more".len(),
-        "a writer cannot extend the drain"
-    );
-    // The rest is read with no drain, and no `PtyDrained` follows it.
+    assert_eq!(drained.len(), held + b"later".len() + b"more".len());
+    assert_eq!(control.output_unread(), 0, "the drain read the whole tail");
+    // Output after the drain is read with no drain, and no `PtyDrained` follows it.
+    control.write_once(b"after");
     while control.output_unread() > 0 {
         assert_eq!(edges.ready(now, &worker), 1);
         assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
@@ -157,7 +157,7 @@ fn the_edge_drain_is_bounded_by_the_asked_count() {
 #[test]
 fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     let (mut edges, mut peer, worker, now) = fixture(8);
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     // The run's process table knows the worker of this fixture, as a spawn would have recorded it.
     lock(&workers.run_processes).insert(
         edges.id,
@@ -168,13 +168,17 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
         dir: edges.key.dir.clone(),
         processes: Arc::clone(&edges.processes),
     };
-    for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
+    for signal in [
+        GroupSignal::EndPayload,
+        GroupSignal::KillPayload,
+        GroupSignal::Term,
+    ] {
         spawner.signal_group(edges.id, signal);
         assert_eq!(edges.ready(now, &worker), 1);
-        let expected = if signal == GroupSignal::Term {
-            Input::Terminate
-        } else {
-            Input::EndPayload
+        let expected = match signal {
+            GroupSignal::Term => Input::Terminate,
+            GroupSignal::KillPayload => Input::KillPayload,
+            _ => Input::EndPayload,
         };
         assert_eq!(edges.take(now, &worker, 0), expected);
         assert_eq!(edges.ready(now, &worker), 0);
@@ -184,18 +188,168 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     assert_eq!(spawner.poll_exit(), Some((edges.id, ExitStatus::Signal(9))));
     assert_eq!(spawner.poll_exit(), None);
     spawner.signal_group(edges.id, GroupSignal::EndPayload);
+    spawner.signal_group(edges.id, GroupSignal::KillPayload);
     spawner.signal_group(edges.id, GroupSignal::Term);
     assert!(!lock(&edges.cell).end_payload);
+    assert!(!lock(&edges.cell).kill_payload);
     assert!(!lock(&edges.cell).terminate);
     edges.perform(now, Action::LinkSend(b"lost".to_vec()));
     assert_eq!(edges.ready(now, &worker), 0);
     assert_eq!(peer.recv(&mut [0]).unwrap(), 0);
 }
 
+/// The workers of one worker with no host and no payload, on a manual clock: its own self-exit deadline (AD-7) is `after`
+/// from the returned start.
+fn workers_with_an_orphan_deadline(
+    after: Duration,
+) -> (Workers, Arc<Mutex<Instant>>, Instant, LinkEnd) {
+    let (edges, peer, _, now) = fixture(1024);
+    let mut config = WorkerConfig::new(InstanceId("1-1".into()), [1; TOKEN_LEN], 1);
+    config.startup = after;
+    let mut worker = SharedWorker(Arc::new(Mutex::new(Worker::new(config))));
+    worker.handle(now, Input::Timer);
+    while worker.poll_action().is_some() {}
+    let (clock, at) = WorkerClock::manual(now);
+    let workers = Workers::new(edges.scheduler.clone(), clock);
+    lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
+    assert_eq!(workers.next_deadline(), Some(now + after));
+    (workers, at, now, peer)
+}
+
+/// A host wake handle that records each wait, moves the workers' clock by it, and gives one answer. A wait that asks it
+/// more than eight times is a defect: the panic ends a loop that never moves the clock.
+struct RecordingWake {
+    waits: Mutex<Vec<Duration>>,
+    clock: Arc<Mutex<Instant>>,
+    answer: Wake,
+}
+
+impl WakeHandle for RecordingWake {
+    fn wait(&self, timeout: Duration) -> Wake {
+        let mut waits = lock(&self.waits);
+        waits.push(timeout);
+        assert!(waits.len() <= 8, "the wait never ends: {waits:?}");
+        *lock(&self.clock) += timeout;
+        self.answer
+    }
+
+    fn fd(&self) -> std::os::fd::RawFd {
+        42
+    }
+}
+
+/// A wait over a manual workers' clock: the host handle's answer is `answer`. Returns the wake, the host's waits and the
+/// workers' deadline after the wait.
+fn wait_with_an_orphan_deadline(
+    after: Duration,
+    timeout: Duration,
+    answer: Wake,
+) -> (Wake, Vec<Duration>, Option<Instant>, Instant) {
+    let (workers, clock, now, _peer) = workers_with_an_orphan_deadline(after);
+    let host = Arc::new(RecordingWake {
+        waits: Mutex::new(Vec::new()),
+        clock,
+        answer,
+    });
+    let wake = WorkerDeadlineWake {
+        host: host.clone(),
+        workers: workers.clone(),
+    };
+    let woke = wake.wait(timeout);
+    let waits = lock(&host.waits).clone();
+    (woke, waits, workers.next_deadline(), now)
+}
+
+/// R-97, the wake: a worker's deadline inside the wait splits it. The host waits until the deadline, the worker acts at it
+/// (its self-exit deadline is gone), and the host waits the rest of the timeout.
+#[test]
+fn a_worker_deadline_inside_the_wait_acts_and_the_wait_goes_on_to_its_timeout() {
+    let ms = Duration::from_millis;
+    let (woke, waits, deadline, _) = wait_with_an_orphan_deadline(ms(100), ms(300), Wake::TimedOut);
+    assert_eq!(woke, Wake::TimedOut);
+    assert_eq!(waits, [ms(100), ms(200)]);
+    assert_eq!(deadline, None, "the worker acted at its deadline");
+}
+
+/// R-97, the wake: a host signal during the wait for a worker's deadline ends the wait `Woken`, and the worker does not run.
+#[test]
+fn a_host_signal_before_the_worker_deadline_ends_the_wait() {
+    let ms = Duration::from_millis;
+    let (woke, waits, deadline, now) = wait_with_an_orphan_deadline(ms(100), ms(300), Wake::Woken);
+    assert_eq!(woke, Wake::Woken);
+    assert_eq!(waits, [ms(100)]);
+    assert_eq!(deadline, Some(now + ms(100)));
+}
+
+/// R-97, the wake: a worker's deadline after the timeout, or at it, does not lengthen or split the wait. The host waits
+/// once, for the timeout, and the next pump runs the deadline.
+#[test]
+fn a_worker_deadline_at_or_after_the_timeout_is_left_to_the_pump() {
+    let ms = Duration::from_millis;
+    for after in [ms(200), ms(500)] {
+        let (woke, waits, deadline, now) =
+            wait_with_an_orphan_deadline(after, ms(200), Wake::TimedOut);
+        assert_eq!(woke, Wake::TimedOut, "{after:?}");
+        assert_eq!(waits, [ms(200)], "{after:?}");
+        assert_eq!(deadline, Some(now + after), "{after:?}");
+    }
+}
+
+/// R-97, the wake: with no worker deadline the host waits once, for the whole timeout; the wake's descriptor is the host's.
+#[test]
+fn a_wait_with_no_worker_deadline_is_one_host_wait_on_the_hosts_descriptor() {
+    let ms = Duration::from_millis;
+    let (workers, clock, _, _peer) = workers_with_an_orphan_deadline(ms(10));
+    *lock(&clock) += ms(10);
+    workers.run_at_clock();
+    assert_eq!(workers.next_deadline(), None);
+    let host = Arc::new(RecordingWake {
+        waits: Mutex::new(Vec::new()),
+        clock,
+        answer: Wake::TimedOut,
+    });
+    let wake = WorkerDeadlineWake {
+        host: host.clone(),
+        workers,
+    };
+    assert_eq!(wake.wait(ms(300)), Wake::TimedOut);
+    assert_eq!(*lock(&host.waits), [ms(300)]);
+    assert_eq!(wake.fd(), 42);
+}
+
+/// R-97 (R303-SI-1): the route data plane's run (`run_ready`, with no host pump) runs the workers at their clock. A deadline
+/// that is due on the workers' clock acts there: the worker ends, and its control link's peer reads the end of file. Before
+/// it is due, the worker and its link stay.
+#[test]
+fn the_route_data_plane_runs_the_workers_at_their_clock() {
+    let ms = Duration::from_millis;
+    let (workers, clock, now, mut peer) = workers_with_an_orphan_deadline(ms(100));
+    *lock(&clock) += ms(99);
+    workers.run_ready();
+    assert_eq!(workers.next_deadline(), Some(now + ms(100)));
+    assert_eq!(
+        peer.recv(&mut [0]).map_err(|e| e.kind()),
+        Err(io::ErrorKind::WouldBlock),
+        "the worker and its link stay before the deadline"
+    );
+    *lock(&clock) += ms(1);
+    workers.run_ready();
+    assert_eq!(
+        workers.next_deadline(),
+        None,
+        "the worker acted at its deadline"
+    );
+    assert_eq!(
+        peer.recv(&mut [0]).unwrap(),
+        0,
+        "the worker's end closes its link"
+    );
+}
+
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
 fn worker_identities_do_not_repeat() {
-    let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
+    let workers = Workers::new(SchedulerHandle::with_seed(2), WorkerClock::real());
     assert!(format!("{workers:?}").contains("Workers"));
     let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
@@ -219,16 +373,30 @@ fn worker_identities_do_not_repeat() {
     }
 }
 
-/// LC-5: the workers expose the grace deadline set by the shared worker machine.
-#[test]
-fn workers_expose_the_payload_grace_deadline() {
-    use botster_core_link::frame::{encode_frame, FrameType};
-    use botster_core_link::hello::Hello;
+/// One host message as the link carries it: a framed `HostMsg`.
+fn host_frame(msg: &botster_core_link::msg::HostMsg) -> Vec<u8> {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    let mut bytes = Vec::new();
+    encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
+    bytes
+}
+
+/// Brings the fixture's worker machine to a running payload: the host's hello, a `Launch` and its spawn. Returns the bytes
+/// of the worker's `LinkSend` actions on the way.
+fn launched(worker: &mut SharedWorker, now: Instant) -> Vec<u8> {
     use botster_core_link::msg::{HostMsg, LaunchSpec};
     use botster_core_link::proof::host_proof;
 
-    let (edges, _peer, mut worker, now) = fixture(1024);
-    while worker.poll_action().is_some() {}
+    let mut sent = Vec::new();
+    let mut drain = |worker: &mut SharedWorker| {
+        while let Some(action) = worker.poll_action() {
+            if let Action::LinkSend(bytes) = action {
+                sent.extend(bytes);
+            }
+        }
+    };
+    drain(worker);
     let hello = Hello {
         protocol: 1,
         instance: InstanceId("1-1".into()),
@@ -259,17 +427,13 @@ fn workers_expose_the_payload_grace_deadline() {
         notification_policy: NotificationPolicy::All,
         size_policy: SizePolicy::Latest,
         link_frame_bound: 65536,
-        stop_grace_ms: 250,
         limits: CoreLimits::default(),
+        cursor_ordinal: 1,
     }));
-    payload.clear();
-    launch.encode(&mut payload);
-    bytes = Vec::new();
-    encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
     worker.handle(
         now,
         Input::LinkBytes {
-            bytes,
+            bytes: host_frame(&launch),
             descriptors: Vec::new(),
         },
     );
@@ -280,14 +444,92 @@ fn workers_expose_the_payload_grace_deadline() {
             start_time: 1,
         })),
     );
+    drain(worker);
+    sent
+}
+
+/// LC-5 (steward ruling R-97, follow-up): after `EndPayload` the workers expose no grace deadline: `stop_grace` is the Core
+/// library's deadline, and the shared worker machine keeps no timer for it.
+#[test]
+fn workers_expose_no_payload_grace_deadline() {
+    let (edges, _peer, mut worker, now) = fixture(1024);
+    launched(&mut worker, now);
     worker.handle(now, Input::EndPayload);
     while worker.poll_action().is_some() {}
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
-    assert_eq!(
-        workers.next_deadline(),
-        Some(now + Duration::from_millis(250))
-    );
+    assert_eq!(workers.next_deadline(), None);
+}
+
+/// `input_records_cost` (Core ST-7, 9B; steward ruling R-14.3): the JSON byte size of the `input_records` list of the last
+/// `ReadFacts` answer that the worker sent, read from its `LinkSend` bytes as the link carries them. A frame that is not a
+/// `ReadFacts` answer changes nothing, and an answer split across two `LinkSend` actions counts once it is whole.
+#[test]
+fn input_records_cost_is_the_size_of_the_last_facts_answer_on_the_link() {
+    use botster_core_link::msg::HostMsg;
+
+    let (mut edges, _peer, mut worker, now) = fixture(1 << 20);
+    let other = launched(&mut worker, now);
+    assert!(!other.is_empty());
+    edges.perform(now, Action::LinkSend(other));
+    assert_eq!(lock(&edges.cell).records_cost, None);
+    let session = SessionId("s".into());
+    for (req, op) in [
+        (
+            1,
+            Op::WriteInput {
+                session: session.clone(),
+                payload: InputPayload::Text { text: "hi".into() },
+                guard: None,
+            },
+        ),
+        (
+            2,
+            Op::ReadFacts {
+                session,
+                after: None,
+            },
+        ),
+    ] {
+        worker.handle(
+            now,
+            Input::LinkBytes {
+                bytes: host_frame(&HostMsg::Op { req, op }),
+                descriptors: Vec::new(),
+            },
+        );
+    }
+    let mut sent = Vec::new();
+    while let Some(action) = worker.poll_action() {
+        if let Action::LinkSend(bytes) = action {
+            sent.extend(bytes);
+        }
+    }
+    let mut decoder = FrameDecoder::new(u32::MAX);
+    let (mut at, mut expected) = (0, None);
+    while at < sent.len() {
+        at += decoder.push(&sent[at..]);
+        while let Some(frame) = decoder.next_frame().unwrap() {
+            if let Ok(WorkerMsg::Done {
+                result: OpResult::Ok(OpOutput::Facts(facts)),
+                ..
+            }) = WorkerMsg::decode(&frame.payload)
+            {
+                assert!(!facts.input.input_records.is_empty());
+                expected = Some(
+                    serde_json::to_vec(&facts.input.input_records)
+                        .unwrap()
+                        .len() as u64,
+                );
+            }
+        }
+    }
+    let expected = expected.expect("the worker answers ReadFacts");
+    let (first, rest) = sent.split_at(sent.len() - 1);
+    edges.perform(now, Action::LinkSend(first.to_vec()));
+    assert_eq!(lock(&edges.cell).records_cost, None);
+    edges.perform(now, Action::LinkSend(rest.to_vec()));
+    assert_eq!(lock(&edges.cell).records_cost, Some(expected));
 }
 
 /// Plan 2.5 rule 7 and A5-2: positive read bounds retain control bytes and complete frames in order.
@@ -364,7 +606,7 @@ fn program_reads_retain_output_at_each_read_bound() {
 #[test]
 #[should_panic(expected = "a worker needs a positive read bound")]
 fn a_worker_refuses_zero_read_bound() {
-    Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
+    Workers::with_read_chunk(SchedulerHandle::with_seed(1), WorkerClock::real(), 0);
 }
 
 /// `edges_quiet` (Core A5-2): each report that the host has not consumed keeps the edges from quiet on its own: a worker's
@@ -372,7 +614,7 @@ fn a_worker_refuses_zero_read_bound() {
 #[test]
 fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     let now = Instant::now();
-    let workers = Workers::new(SchedulerHandle::with_seed(0), now);
+    let workers = Workers::new(SchedulerHandle::with_seed(0), WorkerClock::manual(now).0);
     let mut spawner = workers.spawner("d");
     let table = spawner.table();
     assert!(workers.edges_quiet(&table), "no worker, no report");
@@ -399,7 +641,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(!workers.edges_quiet(&table));
 
     // The hello is on the link and the host has not read it.
-    workers.run(now);
+    workers.run();
     assert!(!workers.has_ready());
     assert!(table.holds_reports());
     assert!(!workers.edges_quiet(&table));
@@ -410,7 +652,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     // The host's end closes first, so the worker's end of file is no report for it; then the worker is killed, and only its
     // exit waits for the host.
     host.end().close();
-    workers.run(now);
+    workers.run();
     assert!(workers.edges_quiet(&table));
     spawner.signal_group(id, GroupSignal::Kill);
     assert!(!workers.has_ready());
@@ -435,7 +677,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     use std::thread;
 
     let (edges, _peer, _worker, now) = fixture(8);
-    let workers = Workers::new(edges.scheduler.clone(), now);
+    let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     lock(&workers.run_processes).insert(
         edges.id,
         (Arc::clone(&edges.cell), Arc::clone(&edges.processes)),

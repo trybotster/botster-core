@@ -227,9 +227,10 @@ impl Children {
         let _ = match signal {
             GroupSignal::Term => signal_group(pid, Signal::TERM),
             GroupSignal::Kill => signal_group(pid, Signal::KILL),
-            // The worker-control signal goes to the worker process alone: its group holds no payload, and a default
-            // `SIGUSR1` would end a descendant of the worker (LC-5).
+            // The worker-control signals go to the worker process alone: its group holds no payload, and a default
+            // `SIGUSR1` or `SIGUSR2` would end a descendant of the worker (LC-5).
             GroupSignal::EndPayload => signal_process(pid, Signal::USR1),
+            GroupSignal::KillPayload => signal_process(pid, Signal::USR2),
         };
     }
 }
@@ -298,26 +299,39 @@ mod tests {
         );
     }
 
+    /// AD-6: a start time of 0 is the worker's record of a payload whose start time could not be read. It fails closed: a
+    /// live process that holds the pid has a start time after boot, so the identity never matches it.
+    #[test]
+    fn a_start_time_of_zero_never_matches_a_live_process() {
+        let unknown = ProcessIdentity {
+            pid: std::process::id(),
+            start_time: 0,
+        };
+        assert_eq!(identity_state(unknown), IdentityState::Reused);
+    }
+
     /// AD-6: a signal goes only to the process that the identity names: a reused pid is never signalled (the test would end
-    /// with `SIGUSR1` otherwise).
+    /// with `SIGUSR1` or `SIGUSR2` otherwise).
     #[test]
     fn a_reused_identity_is_never_signalled() {
         let me = std::process::id();
         let children = Children::new();
-        children.signal_group(
-            ProcessIdentity {
-                pid: me,
-                start_time: start_time(me).unwrap() + 1,
-            },
-            GroupSignal::EndPayload,
-        );
-        children.signal_group(
-            ProcessIdentity {
-                pid: u32::MAX - 1,
-                start_time: 1,
-            },
-            GroupSignal::EndPayload,
-        );
+        for signal in [GroupSignal::EndPayload, GroupSignal::KillPayload] {
+            children.signal_group(
+                ProcessIdentity {
+                    pid: me,
+                    start_time: start_time(me).unwrap() + 1,
+                },
+                signal,
+            );
+            children.signal_group(
+                ProcessIdentity {
+                    pid: u32::MAX - 1,
+                    start_time: 1,
+                },
+                signal,
+            );
+        }
     }
 
     /// The notifier is kept by `with_notify` and not by `new`.

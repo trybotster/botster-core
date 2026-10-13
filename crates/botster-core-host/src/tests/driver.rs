@@ -1,7 +1,9 @@
 //! The driver (plan 2.1, 2.5): framing, the hello, partial writes, the wake flag and the order of a pump, over mock edges.
 
 use super::*;
-use crate::driver::{DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn};
+use crate::driver::{
+    control_bound, DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn,
+};
 use botster_core_edges::edges::GroupSignal;
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Scheduler, Wake as WakeEdge};
@@ -11,10 +13,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod api;
+mod control_term;
 mod deadlines;
 mod drain;
 mod handoff;
+mod holds;
 mod observations;
+mod seeded_trace;
 mod stall;
 
 #[derive(Default)]
@@ -66,6 +71,8 @@ struct MockLink {
     descriptors: Vec<(usize, StreamEndpoint)>,
     /// Errors that the next descriptor sends return, last first.
     fail_descriptor: Vec<DescriptorSendError>,
+    /// The room that the link edge reports for the control stream (`HostEdges::link_room`); `None` sets no bound.
+    link_room: Option<usize>,
 }
 
 struct Mock {
@@ -236,6 +243,16 @@ impl HostEdges for Edges {
         Ok(n)
     }
 
+    fn link_room(&self, link: LinkId) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .links
+            .get(&link)
+            .and_then(|l| l.link_room)
+            .unwrap_or(usize::MAX)
+    }
+
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
         let mut mock = self.0.lock().unwrap();
         let Some(l) = mock.links.get_mut(&link) else {
@@ -392,6 +409,14 @@ impl Rig {
         scheduler: Box<dyn Scheduler + Send>,
         rows: BTreeMap<String, Vec<u8>>,
     ) -> Rig {
+        Rig::try_open(cfg, scheduler, rows).unwrap_or_else(|e| panic!("the registry reads: {e:?}"))
+    }
+
+    fn try_open(
+        cfg: crate::EngineConfig,
+        scheduler: Box<dyn Scheduler + Send>,
+        rows: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Rig, CoreError> {
         let mock = Arc::new(Mutex::new(Mock {
             rows,
             closed_streams: Vec::new(),
@@ -409,13 +434,12 @@ impl Rig {
             endpoints: BTreeMap::new(),
         }));
         let now = crate::tests::real_now();
-        Rig {
-            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))
-                .expect("the registry reads"),
+        Ok(Rig {
+            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))?,
             mock,
             now,
             unix: 10,
-        }
+        })
     }
 
     fn pump(&mut self) -> PumpReport {
@@ -1291,4 +1315,182 @@ fn a_stop_all_reaches_the_worker_with_no_poll_while_a_route_adopted_waits() {
         again.pump();
     }
     assert_eq!(stops_sent(&again, link), 1);
+}
+
+/// Steward ruling R-101 Q6: `open` reads the cursor ordinal counter with the registry. A counter row that is not a number
+/// is a corrupt registry: the open fails `RegistryFailed`, and no ordinal is guessed.
+#[test]
+fn open_refuses_a_cursor_ordinal_counter_that_is_not_a_number() {
+    let rows = BTreeMap::from([(crate::session::ORDINAL_KEY.to_string(), b"seven".to_vec())]);
+    let opened = Rig::try_open(
+        config(CoreLimits::default()),
+        Box::new(Production::new()),
+        rows,
+    );
+    match opened {
+        Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: false }),
+        Ok(_) => panic!("a corrupt counter row opens"),
+    }
+}
+
+/// A text write of session `s1`.
+fn text_write(rig: &mut Rig, text: &str) -> OpId {
+    rig.driver
+        .begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: InputPayload::Text { text: text.into() },
+            guard: None,
+        })
+        .unwrap()
+}
+
+fn writable(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|e| matches!(e, Event::SessionWritable { id, .. } if *id == sid("s1")))
+        .count()
+}
+
+/// IN-6, SV-3, steward ruling R-91: the control queue is the link's unsent bytes. With a real stream that takes nothing
+/// (`WouldBlock`), Core's own count of the unsent bytes leaves no room for one control message, so `cancel` is refused
+/// `Full` with no event and no change. The drain gives the room back: one `SessionWritable`, coalesced over two refusals,
+/// and the cancel is admitted.
+#[test]
+fn a_full_control_stream_refuses_cancel_full_and_its_drain_posts_one_session_writable() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    // The bound is one control message: an empty stream has room, and one unsent byte takes it.
+    rig.driver.control_bound = rig.driver.control_message;
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = Some(0);
+    let first = text_write(&mut rig, "a");
+    rig.pump();
+    let second = text_write(&mut rig, "b");
+    assert_eq!(
+        rig.driver.cancel(second),
+        CancelResult::Refused(CancelRefusal::Full),
+        "the first write's frame is unsent"
+    );
+    assert_eq!(
+        rig.driver.cancel(second),
+        CancelResult::Refused(CancelRefusal::Full),
+        "nothing changed: the op is still cancellable"
+    );
+    assert_eq!(
+        rig.drain_events(),
+        vec![],
+        "a sync refusal posts no event (AM-4)"
+    );
+    rig.pump();
+    assert_eq!(
+        writable(&rig.drain_events()),
+        0,
+        "no room while the link takes nothing"
+    );
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = None;
+    rig.pump();
+    let events = rig.drain_events();
+    assert_eq!(
+        writable(&events),
+        1,
+        "one wake for two refusals: {events:?}"
+    );
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 0, "the mark is cleared");
+    assert_eq!(rig.driver.cancel(second), CancelResult::Admitted);
+    let _ = first;
+}
+
+/// IN-6: `SessionWritable` follows only a refusal. A stream that drains with no refused cancel posts none.
+#[test]
+fn a_drain_with_no_refused_cancel_posts_no_session_writable() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = Some(0);
+    text_write(&mut rig, "a");
+    rig.pump();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = None;
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 0);
+}
+
+/// IN-6, R-91: the link edge can report no room (the testkit's `control_queue`) while Core's own count has room; the room
+/// is the smaller of the two, and the edge's room coming back wakes the host's next pump into the same `SessionWritable`.
+#[test]
+fn the_link_edge_room_bounds_the_control_queue_too() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .link_room = Some(0);
+    let write = text_write(&mut rig, "a");
+    assert_eq!(
+        rig.driver.cancel(write),
+        CancelResult::Refused(CancelRefusal::Full)
+    );
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .link_room = None;
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 1);
+    assert_eq!(rig.driver.cancel(write), CancelResult::Admitted);
+}
+
+/// DESIGN.md "The control queue": the production bound is the input that one session may retain, one largest frame of the
+/// link (its 5-byte header and the frame bound) for each pending op and each input op of a session, and four cancels. The
+/// inputs are public: the engine's frame bound and the encoded length of the largest `Cancel` frame (RC-R100-6).
+#[test]
+fn the_control_queue_bound_is_the_admitted_traffic_and_four_cancels() {
+    let l = CoreLimits::default();
+    let frame_bound = Rig::new(l.clone()).driver.engine().link_frame_bound();
+    assert_eq!(frame_bound, 97 << 20, "6 x max_snapshot_bytes + 1 MiB");
+    let mut payload = Vec::new();
+    HostMsg::Cancel { req: u64::MAX }.encode(&mut payload);
+    let mut frame = Vec::new();
+    encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame).unwrap();
+    let message = frame.len();
+    assert!(message > 0 && message < 64, "{message}");
+    assert_eq!(
+        control_bound(&l, frame_bound, message),
+        l.input_retained_bytes as usize
+            + (l.pending_ops + l.input_ops_per_session) as usize * (5 + frame_bound as usize)
+            + 4 * message
+    );
 }

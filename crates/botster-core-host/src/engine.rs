@@ -13,10 +13,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// The largest link frame payload of any limits: half of `u32`, so a length and its arithmetic never overflow (plan
-/// section 3).
-const LINK_FRAME_CAP: u32 = u32::MAX / 2;
-
 /// How many link closes `diagnostics()` keeps, newest last (LC-10).
 const LINK_CLOSE_RECORDS: usize = 16;
 
@@ -210,6 +206,9 @@ pub struct HostEngine {
     pub(crate) next_capture: u64,
     pub(crate) next_route: u64,
     pub(crate) next_instance: u64,
+    /// The next cursor ordinal (steward ruling R-101 Q6): one above the registry's counter at open, and one above every
+    /// ordinal that this host reserved. It never goes back, whatever a reservation's write result was.
+    pub(crate) next_ordinal: u64,
     pub(crate) next_req: u64,
     /// The monotonic time of the last `pump` (TM-1: the host passes it; Core reads no clock). `None` before the first one.
     pub(crate) now: Option<Instant>,
@@ -256,6 +255,7 @@ impl HostEngine {
             next_capture: 1,
             next_route: 1,
             next_instance: 1,
+            next_ordinal: 1,
             next_req: 1,
             now: None,
             unadopted: registry_ids,
@@ -346,6 +346,31 @@ impl HostEngine {
 
     pub(crate) fn mono(&self) -> Option<Instant> {
         self.now
+    }
+
+    /// The control stream of `link` has room for one control message again (the driver's drain or the link edge, steward
+    /// ruling R-91): when a `cancel` of its session was refused `Full`, `SessionWritable` follows (IN-6, SV-3), keyed per
+    /// instance, so it is coalesced.
+    /// A session on this link had a `cancel` refused `Full` and waits for room (IN-6): only then is the room runnable work.
+    pub(crate) fn waits_for_room(&self, link: LinkId) -> bool {
+        self.links
+            .get(&link)
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|s| s.worker.link == Some(link) && s.worker.refused_full)
+    }
+
+    /// The room of a link whose session waits for it (`waits_for_room`, which the driver checked): the mark clears, and the
+    /// session's `SessionWritable` is posted.
+    pub(crate) fn control_room(&mut self, link: LinkId) {
+        if !self.waits_for_room(link) {
+            return;
+        }
+        let id = self.links[&link].clone();
+        let s = self.sessions.get_mut(&id).expect("waits_for_room found it");
+        s.worker.refused_full = false;
+        let instance = s.instance.clone();
+        self.queue
+            .post_keyed(Event::SessionWritable { id, instance });
     }
 
     pub(crate) fn send_msg(&mut self, session: &SessionId, msg: HostMsg) -> bool {
@@ -513,13 +538,16 @@ impl HostEngine {
         self.cfg.features.clone()
     }
 
-    /// The largest frame payload of a worker link, in bytes (plan section 3). A host write travels in its JSON form and a
-    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows.
+    /// The largest frame payload of a worker link, in bytes (plan section 3;
+    /// `botster_core_link::msg::link_frame_bound`, the one formula that the worker's tests use too). A host write
+    /// travels in its JSON form and a snapshot travels as pages, so the bound is a multiple of the largest payload that
+    /// `CoreLimits` allows. The multiple is the worst JSON form of one payload byte: a `Text` control byte is the
+    /// six-byte escape `\u00XX` (`Bytes` and `Paste` are hex, two bytes a byte), so every write that `max_paste_bytes`
+    /// admits fits (lead ruling, 2026-10-12). A `ReadFacts` reply travels in one frame, so the bound also holds the
+    /// largest one (#320 R320-SI-5). Where the cap binds, `begin` refuses a message that cannot fit (steward ruling
+    /// R-100, `frame_fit`).
     pub fn link_frame_bound(&self) -> u32 {
-        let limits = &self.cfg.limits;
-        let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
-        let bound = largest.saturating_mul(4).saturating_add(1 << 20);
-        u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
+        botster_core_link::msg::link_frame_bound(&self.cfg.limits)
     }
 
     pub fn limits(&self) -> CoreLimits {
@@ -636,6 +664,37 @@ impl HostEngine {
                 .is_some_and(|s| matches!(&s.flow, Flow::Stop(f) if f.end.is_some())),
             _ => false,
         }
+    }
+
+    /// The numbers of the ops whose progress this work makes, for `Scheduler::held` (A5-2: the scheduler defers the progress
+    /// of an operation; steward ruling R-88, group E): the op of an op step; for a session's flow, the flow's op and the ops
+    /// that wait for the flow (the `Stop` ops). Empty when the step makes no op's progress: a session with no flow, a
+    /// deadline, a `Silent`, parked route work.
+    pub fn ops_of(&self, work: &Work) -> Vec<u64> {
+        match work {
+            Work::Op(op) => vec![op.0],
+            Work::Session(id) => self.sessions.get(id).map_or_else(Vec::new, |s| {
+                let own = match &s.flow {
+                    Flow::Idle => return Vec::new(),
+                    Flow::Create(f) => Some(f.op),
+                    Flow::Start(f) => Some(f.op),
+                    Flow::Remove(f) => Some(f.op),
+                    Flow::Adopt(f) => Some(f.op),
+                    Flow::Stop(_) => None,
+                };
+                own.into_iter()
+                    .chain(s.waiters.iter().copied())
+                    .map(|op| op.0)
+                    .collect()
+            }),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Whether a clause fixes the timing of the pending op (R-20), so that the scheduler never defers it. An op that is not
+    /// pending has no timing to fix.
+    pub(crate) fn fixed_timing(&self, op: OpId) -> bool {
+        self.ops.get(&op).is_some_and(|p| p.fixed_timing)
     }
 
     /// The count of events posted since the last call: the `events_posted` of `PumpReport` (A2-7).
@@ -798,6 +857,7 @@ pub(crate) fn new_session(
         row_protocol: None,
         worker_features: None,
         token: None,
+        ordinal: 0,
         worker: no_worker(),
         terminal: None,
         silence: Default::default(),

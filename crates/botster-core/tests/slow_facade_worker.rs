@@ -845,3 +845,6 @@ fn a_worker_lost_while_stopping_ends_worker_gone() {
         peer.join().unwrap();
     }
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

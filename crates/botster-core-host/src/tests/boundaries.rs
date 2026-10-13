@@ -950,6 +950,8 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
+    // A client input raises its `Activity` only on a live route of the session (EV-5, #320 RF-PC-3).
+    let route = super::losses::attach(&mut w);
     w.unix = 5000;
     w.feed(Input::Clock(5000));
     w.engine.poll_events(64);
@@ -1003,17 +1005,17 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
     let events = say(
         &mut w,
         Observation::ClientInput {
-            route: RouteId(4),
+            route,
             input_rev: InputRev(8),
         },
     );
     assert!(matches!(
         &events[..],
         [Event::Activity {
-            source: ActivitySource::Client(RouteId(4)),
+            source: ActivitySource::Client(r),
             at: 5000,
             ..
-        }]
+        }] if *r == route
     ));
     assert_eq!(state(&w).input_rev.client, InputRev(8));
     for (focus, expected) in [
@@ -1072,8 +1074,6 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
         [Event::ClipboardWrite { selection, contents: Some(c), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
             if selection == "c" && c.len() == 1 && c[0].mime == "text/plain" && c[0].bytes.0 == vec![1, 2]
     ));
-    let events = say(&mut w, Observation::Writable);
-    assert!(matches!(&events[..], [Event::SessionWritable { .. }]));
     // A loss marker, with the dropped tap bytes.
     let events = say(
         &mut w,
@@ -1233,7 +1233,7 @@ fn held_capture_bytes_count_each_capture_once() {
 }
 
 /// The launch carries the engine's own limits, so the worker applies the same bounds as the host (EV-3, A2-4, ST-7, EV-8,
-/// TP-1), and stop_grace_ms is the engine's stop_grace.
+/// TP-1). `stop_grace` is the engine's own deadline (steward ruling R-97, follow-up): the worker times nothing with it.
 #[test]
 fn the_launch_carries_the_engines_limits() {
     let limits = limits(|l| {
@@ -1253,5 +1253,21 @@ fn the_launch_carries_the_engines_limits() {
         })
         .expect("the launch");
     assert_eq!(spec.limits, limits);
-    assert_eq!(spec.stop_grace_ms, 7000);
+}
+
+/// #320 R320-SI-5: the engine's frame bound is the link crate's formula, which the worker's tests use too. Under valid
+/// limits with `input_tail_bytes` at 4 MiB (Sol's case), the largest facts reply binds: the bound holds it, and it is
+/// more than six times the largest payload.
+#[test]
+fn the_link_frame_bound_holds_the_largest_facts_reply() {
+    use botster_core_link::msg::{facts_reply_bound, link_frame_bound};
+    let l = limits(|l| {
+        l.max_snapshot_bytes = 1024;
+        l.input_tail_bytes = 4 << 20;
+    });
+    l.validate().expect("valid limits");
+    let bound = World::new(l.clone()).engine.link_frame_bound();
+    assert_eq!(bound, link_frame_bound(&l));
+    assert_eq!(u64::from(bound), facts_reply_bound(&l) + (1 << 20));
+    assert!(u64::from(bound) > 6 * l.max_paste_bytes.max(l.max_snapshot_bytes) + (1 << 20));
 }

@@ -127,7 +127,9 @@ fn exit_of(p: &Payload) -> ExitStatus {
     p.watch_exit(move |status| tx.send(status).unwrap())
         .unwrap();
     // timer: deadline — the limit of a wait for a real process's exit; not a contract value.
-    rx.recv_timeout(Duration::from_secs(10)).expect("an exit")
+    rx.recv_timeout(Duration::from_secs(10))
+        .expect("an exit")
+        .expect("the watch observed the exit")
 }
 
 /// LC-4: a missing directory and a missing program are typed failures.
@@ -418,3 +420,6 @@ impl Drop for Observer {
         }
     }
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

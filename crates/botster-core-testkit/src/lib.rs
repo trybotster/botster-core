@@ -16,8 +16,10 @@ pub mod crash;
 pub mod edge_tap;
 pub mod entropy;
 pub mod every_cut;
+pub mod facts_controls;
 pub mod harness;
 pub mod net;
+pub mod op_holds;
 pub mod oracle;
 pub mod oracle_compare;
 pub mod oracle_controls;
@@ -26,9 +28,11 @@ pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod pty_controls;
+pub mod queue_controls;
 #[cfg(feature = "slow")]
 pub mod real;
 pub mod refusal;
+pub mod report_holds;
 pub mod resume_controls;
 pub mod route_client;
 pub mod route_controls;
@@ -36,6 +40,8 @@ pub mod route_reports;
 pub mod scheduler;
 pub mod sim;
 pub mod snapshot_controls;
+#[doc(hidden)]
+pub mod sock_diag;
 pub mod stand_in;
 pub mod start_controls;
 pub mod statement_runs;
@@ -68,7 +74,4 @@ static ALLOCATOR: PeakAllocator = PeakAllocator;
 pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");
 
 #[cfg(test)]
-#[test]
-fn this_test_binary_was_built_in_this_worktree() {
-    botster_test_process::built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
-}
+botster_test_process::built_in_test!();

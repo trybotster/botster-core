@@ -127,6 +127,7 @@ use std::time::Duration;
 
 mod route;
 mod row_file;
+mod rqueue;
 mod snapshot;
 
 /// The binary that a wrapper execs.
@@ -190,6 +191,15 @@ fn on() -> bool {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BreakControl {
+    session: SessionId,
+    #[serde(default = "on")]
+    on: bool,
+}
+
+/// `control_queue {session, on = true}` (Core IN-6).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ControlQueueArgs {
     session: SessionId,
     #[serde(default = "on")]
     on: bool,
@@ -473,8 +483,32 @@ impl RealCoreHarness {
                 args.session.0
             ))
         })?;
+        // A held report stays unread (`hold_worker_report`, Core A12-1a): the edge drops what it holds of the link.
+        let held = crate::report_holds::lock(&tap.report_holds()).broken(&processes.instance);
         tap.break_link(link);
+        if held {
+            tap.signal_wake();
+        }
         Ok(Value::Null)
+    }
+
+    /// `hold_worker_report`, `release_worker_report`, `held_reports` and `scheduler_delay` (Core A12-1a, A5-2; steward ruling
+    /// R-88, group E) on the tap's report holds, which stand between the tap's take-ahead and the driver.
+    fn report_hold_control(
+        &self,
+        handle: &str,
+        op: &str,
+        args: &Value,
+    ) -> Result<Value, ControlError> {
+        let tap = self.tap(handle)?;
+        let holds = lock(&tap).report_holds();
+        crate::report_holds::control(
+            &holds,
+            op,
+            args,
+            |session| Ok(self.recorded(handle, session)?.1.instance),
+            || lock(&tap).signal_wake(),
+        )
     }
 
     /// The recorded processes of `session` on the host of `handle`, with that host's tap.
@@ -764,6 +798,15 @@ impl RealCoreHarness {
                 "a hand-over is already held (`hold_handoff` twice)".into(),
             ))
         }
+    }
+
+    /// Core IN-6 (steward ruling R-91): the control queue of the session's worker is full (`on: true`, the default), or has
+    /// room again (`on: false`), at the tap's link edge ([`Tap::control_queue`]).
+    fn control_queue(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let ControlQueueArgs { session, on } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        lock(&tap).control_queue(row.instance, on);
+        Ok(Value::Null)
     }
 
     /// Core OU-9, A5-2: the tap delivers the held hand-over in the next pump ([`Tap::release_handoff`]).
@@ -1249,10 +1292,13 @@ impl CoreHarness for RealCoreHarness {
                     | "release_start_at"
                     | "start_held"
                     | "route_reports"
+                    | "scheduler_hold"
+                    | "scheduler_release"
                     | "fail_next"
                     | "fail_handoff"
                     | "hold_handoff"
                     | "release_handoff"
+                    | "control_queue"
                     | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
@@ -1261,6 +1307,7 @@ impl CoreHarness for RealCoreHarness {
                     // `worker: {file_name}` with a wrapper of that name that execs the real worker (`wrapper`).
                     | "worker_file_name"
             ) || program::CONTROLS.contains(&op)
+                || crate::report_holds::CONTROLS.contains(&op)
                 || crate::oracle_controls::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
@@ -1291,9 +1338,20 @@ impl CoreHarness for RealCoreHarness {
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
             "route_reports" if self.tapped => self.route_reports(handle, args),
+            "scheduler_hold" if self.tapped => {
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
+                crate::op_holds::hold(&holds, args)
+            }
+            "scheduler_release" if self.tapped => {
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
+                crate::op_holds::release(&holds, args, || lock(&tap).signal_wake())
+            }
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
+            "control_queue" if self.tapped => self.control_queue(handle, args),
             "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "oracle_encode" if self.tapped => self.oracle_encode(handle, args),
@@ -1307,6 +1365,9 @@ impl CoreHarness for RealCoreHarness {
             "bystander_alive" if self.tapped => self.bystander_alive(args),
             op if self.tapped && program::CONTROLS.contains(&op) => {
                 self.program_control(handle, op, args)
+            }
+            op if self.tapped && crate::report_holds::CONTROLS.contains(&op) => {
+                self.report_hold_control(handle, op, args)
             }
             _ => Err(ControlError::Unsupported),
         }
@@ -1599,10 +1660,17 @@ mod slow_controls {
             "release_start_at",
             "start_held",
             "route_reports",
+            "scheduler_hold",
+            "scheduler_release",
+            "hold_worker_report",
+            "release_worker_report",
+            "held_reports",
+            "scheduler_delay",
             "fail_next",
             "fail_handoff",
             "hold_handoff",
             "release_handoff",
+            "control_queue",
             "oracle_resume",
             "oracle_encode",
             "oracle_modes",
@@ -1771,6 +1839,229 @@ mod slow_controls {
             "the record outlives the Remove"
         );
         assert!(bad(ready(&mut harness, "s2")), "removed");
+        drop(core);
+    }
+
+    /// `scheduler_hold` and `scheduler_release` on the real tier (Core A5-2; steward ruling R-88, group E):
+    /// - A `Resize` of a running session to its own size has fixed timing (SZ-2, R-20), so its hold is refused.
+    /// - A held `Stop` makes no progress: the pump ends with the session `Running`, and the wake stays quiet.
+    /// - The release signals the wake, and the next pumps run the `Stop` to its end.
+    #[test]
+    fn a_held_stop_waits_for_its_release_and_the_release_wakes_the_host() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        running(&harness, core.as_mut(), "s1");
+        let same = Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        };
+        let resize = core
+            .begin(Op::Resize {
+                session: sid("s1"),
+                size: same,
+            })
+            .expect("resize");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": resize.0 })),
+            Err(ControlError::Refused(json!({ "reason": "fixed_timing" })))
+        );
+        pump_until(core.as_mut(), |_| true);
+
+        let stop = core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        pump_until(core.as_mut(), |_| true);
+        assert_eq!(state(core.as_ref(), "s1"), SessionState::Running);
+        let wake = core.wake_handle();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        assert_eq!(
+            harness.control("a", "scheduler_release", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        assert_eq!(
+            wake.wait(Duration::ZERO),
+            Wake::Woken,
+            "the release signals the wake"
+        );
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s1"), SessionState::Exited { .. })
+        });
+        drop(core);
+    }
+
+    /// Pumps `core` until `op` completes and returns its result, by the cleanup deadline. The host pumps after a wake (TM-6).
+    fn completion(core: &mut dyn CoreApi, op: OpId) -> OpResult {
+        let deadline = Deadline::cleanup();
+        let wake = core.wake_handle();
+        loop {
+            let report = core.pump(Now {
+                monotonic: Instant::now(),
+                unix: 1_000_000,
+            });
+            for event in core.poll_events(64) {
+                if let Event::Completed { op: o, result } = event {
+                    if o == op {
+                        return result;
+                    }
+                }
+            }
+            // The bound holds for a host that keeps reporting more work too.
+            assert!(!deadline.expired(), "the op {op:?} never completed");
+            if !report.more {
+                // timer: deadline — the cleanup bound ends a host that never completes the op.
+                wake.wait(deadline.remaining());
+            }
+        }
+    }
+
+    /// A real session stopped and its payload gone, on the tapped harness: the worker's next report is a `Remove` result.
+    fn stopped_real() -> (RealCoreHarness, Box<dyn CoreApi>) {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        running(&harness, core.as_mut(), "s1");
+        let stop = core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        assert!(matches!(completion(core.as_mut(), stop), OpResult::Ok(_)));
+        (harness, core)
+    }
+
+    fn uploads(result: &OpResult) -> Option<UploadsOutcome> {
+        match result {
+            OpResult::Ok(OpOutput::RemoveReport(r)) => Some(r.uploads.clone()),
+            _ => None,
+        }
+    }
+
+    /// `hold_worker_report` on the real tier (Core A12-1a; steward ruling R-88, group E): the tap holds the real worker's
+    /// cleanup result before Core reads it. The worker ends after it, and its exit waits too, so Core does not drain the link
+    /// past the held report. After the release, the `Remove` completes as with no hold.
+    #[test]
+    fn a_held_cleanup_result_waits_at_the_tap_until_the_release() {
+        let (mut harness, mut core) = stopped_real();
+        let of_s1 = json!({ "session": "s1" });
+        assert_eq!(
+            harness.control("a", "hold_worker_report", &of_s1),
+            Ok(Value::Null)
+        );
+        let remove = core.begin(Op::Remove { id: sid("s1") }).expect("remove");
+        pump_until(core.as_mut(), |_| {
+            harness.control("a", "held_reports", &of_s1) == Ok(json!({ "count": 1 }))
+        });
+        assert!(core.get(&sid("s1")).is_ok(), "the Remove waits");
+        assert_eq!(
+            harness.control("a", "release_worker_report", &of_s1),
+            Ok(Value::Null)
+        );
+        let result = completion(core.as_mut(), remove);
+        assert_eq!(
+            uploads(&result),
+            Some(UploadsOutcome::Deleted),
+            "{result:?}"
+        );
+        drop(core);
+    }
+
+    /// `break_control` on a held report (Core A12-1a, A6-3): the link breaks with the report unread, so the outcome of the
+    /// cleanup is unknown to Core.
+    #[test]
+    fn a_break_leaves_the_held_cleanup_result_unread() {
+        let (mut harness, mut core) = stopped_real();
+        let of_s1 = json!({ "session": "s1" });
+        harness
+            .control("a", "hold_worker_report", &of_s1)
+            .expect("hold");
+        let remove = core.begin(Op::Remove { id: sid("s1") }).expect("remove");
+        pump_until(core.as_mut(), |_| {
+            harness.control("a", "held_reports", &of_s1) == Ok(json!({ "count": 1 }))
+        });
+        assert_eq!(
+            harness.control("a", "break_control", &of_s1),
+            Ok(Value::Null)
+        );
+        let result = completion(core.as_mut(), remove);
+        assert_eq!(
+            uploads(&result),
+            Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)),
+            "{result:?}"
+        );
+        drop(core);
+    }
+
+    /// `scheduler_delay {point: running, pumps: 2}` on the real tier (Core A5-2, R-88 (E)): the pump that holds the real
+    /// worker's ready report is pump 1; pump 2 still holds it; the tap gives it out at the start of pump 3, which reads it.
+    #[test]
+    fn a_delayed_ready_report_is_read_in_pump_pumps_plus_one() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        created(&harness, core.as_mut(), "s1");
+        let of_s1 = json!({ "session": "s1" });
+        assert_eq!(
+            harness.control(
+                "a",
+                "scheduler_delay",
+                &json!({ "session": "s1", "point": "running", "pumps": 2 })
+            ),
+            Ok(Value::Null)
+        );
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        // The pumps of this test drop their events: the proof is the count, then the state.
+        let pump = |core: &mut dyn CoreApi| {
+            core.pump(Now {
+                monotonic: Instant::now(),
+                unix: 1_000_000,
+            });
+            core.poll_events(64);
+        };
+        let deadline = Deadline::cleanup();
+        let wake = core.wake_handle();
+        while harness.control("a", "held_reports", &of_s1) != Ok(json!({ "count": 1 })) {
+            assert!(!deadline.expired(), "the ready report never came");
+            pump(core.as_mut());
+            if harness.control("a", "held_reports", &of_s1) == Ok(json!({ "count": 0 })) {
+                // timer: deadline — the cleanup bound ends a worker that never reports.
+                wake.wait(deadline.remaining());
+            }
+        }
+        assert_ne!(state(core.as_ref(), "s1"), SessionState::Running);
+        pump(core.as_mut());
+        assert_eq!(
+            harness.control("a", "held_reports", &of_s1),
+            Ok(json!({ "count": 1 })),
+            "pump 2 still holds it"
+        );
+        pump(core.as_mut());
+        assert_eq!(
+            harness.control("a", "held_reports", &of_s1),
+            Ok(json!({ "count": 0 })),
+            "pump 3 read it"
+        );
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
         drop(core);
     }
 

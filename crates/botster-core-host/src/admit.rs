@@ -7,6 +7,7 @@
 
 use crate::engine::{new_session, HostEngine, Next, PendingOp, Step, Wait};
 use crate::flow::*;
+use crate::io::LinkId;
 use crate::session::Admit;
 use botster_core_contract::prelude::*;
 use std::collections::BTreeSet;
@@ -468,6 +469,8 @@ impl HostEngine {
             Op::WriteInput { payload, .. } => self.payload_size(payload)?,
             _ => 0,
         };
+        // R-100: after `PayloadTooLarge`, so a write over `max_paste_bytes` keeps that code.
+        self.check_frame_fit(&op)?;
         if self.ops.len() >= self.cfg.limits.pending_ops as usize {
             return Err(err(
                 ErrorCode::PendingLimit,
@@ -813,8 +816,18 @@ impl HostEngine {
             .expect("an ended session shows its end")
     }
 
-    /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled.
+    /// `cancel` (IN-6, A2-1) with a control stream that always has room.
     pub fn cancel(&mut self, op: OpId) -> CancelResult {
+        self.cancel_with_room(op, |_| true)
+    }
+
+    /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled. `room` tells whether the control stream of a link has
+    /// room for one control message (the driver's count and the link edge, steward ruling R-91).
+    pub fn cancel_with_room(
+        &mut self,
+        op: OpId,
+        room: impl FnOnce(LinkId) -> bool,
+    ) -> CancelResult {
         // An id that this handle never minted is `UnknownOp` (IN-6).
         if op.0 == 0 || op.0 >= self.next_op {
             return CancelResult::UnknownOp;
@@ -839,6 +852,16 @@ impl HostEngine {
         }
         let req = pending.req;
         let session = pending.session.clone();
+        // IN-6: a full control queue refuses the cancel before its sent or not-sent branch, and nothing changes (steward
+        // ruling R-91 Q2). The mark makes the drain that gives the stream room post `SessionWritable`. A link whose write
+        // side failed has no control queue (R-78 item 4): no room would come back, so the cancel is admitted, and a sent
+        // op completes through the link's end (IN-7).
+        if let Some(s) = session.as_ref().and_then(|id| self.sessions.get_mut(id)) {
+            if !s.worker.write_failed && s.worker.link.is_some_and(|link| !room(link)) {
+                s.worker.refused_full = true;
+                return CancelResult::Refused(CancelRefusal::Full);
+            }
+        }
         let sent = req.is_some();
         self.ops.get_mut(&op).expect("read above").cancelled = true;
         match (sent, session, req) {
@@ -924,6 +947,7 @@ impl HostEngine {
             return Err(invalid("attach takes a connected stream (DP-2, A17-1)"));
         }
         let limits = self.applied_route_limits(options)?;
+        self.check_attach_fit(options, &limits)?;
         let s = self.sessions.get(session).expect("checked");
         if s.routes.len() >= self.cfg.limits.routes_per_session as usize {
             return Err(err(

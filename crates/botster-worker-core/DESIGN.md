@@ -4,13 +4,21 @@ Package P3 (session worker, PTY and terminal) of Stage 1. Plan pin `c43693ff` (a
 note covers milestone M1 (plan 6.2): the hello, the payload launch after the durable identity, and the exit with code and signal.
 It is stacked on P1's head `2016886` (the control-link messages of `botster-core-link`).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/read-facts.md`](design/read-facts.md): ReadFacts (ST-7; P5; steward rulings R-101, R-102, R-103, R-105).
+- [`design/read-reply-order.md`](design/read-reply-order.md): A read's reply follows the observations of the output
+  before it (R-114).
+
 ## Shape
 
 - `Worker` (`src/worker.rs`) is a sans-IO machine (plan 2.1): `handle(now, Input)`, `poll_action()`, `next_deadline()`. It reads
   no clock, starts no thread and does no I/O.
 - Two drivers run the same machine (plan 2.1, A5-1):
-  - the `botster-worker` binary, role `session`: one `mio` loop over the control socket, the PTY master, `SIGUSR1`
-    (`signal-hook-mio`) and a `mio::Waker` for the exit watch; the control link is served first in each turn (plan 2.4);
+  - the `botster-worker` binary, role `session`: one `mio` loop over the control socket, the PTY master, `SIGUSR1` and
+    `SIGUSR2` (`signal-hook-mio`) and a `mio::Waker` for the exit watch; the control link is served first in each turn (plan 2.4);
   - the testkit (`botster-core-testkit/src/worker.rs`): the `Sim` steps the machine on the test thread, with the scripted
     program as the `Program` edge and an in-memory link. `TestkitCore::pump` runs the workers' ready work, then the host's pump.
 - The real `Program` edge is `botster-core-sys/src/payload.rs`.
@@ -25,10 +33,18 @@ It is stacked on P1's head `2016886` (the control-link messages of `botster-core
 | `Kill` (LC-5, at `stop_grace`) | `SIGKILL` to the payload group |
 | `Op{Signal}` (LC-6) | the signal to the group, then `Done{Ok(Unit)}`; no live group: `SessionEnded` |
 | `Remove` (LC-7 step 3) | `SIGKILL` to the group if it is unreaped, reap, `RemoveResult{Deleted}`, close, end |
-| `SIGUSR1` (`GroupSignal::EndPayload`, LC-5, P1 F7) | `SIGTERM`, then `SIGKILL` at `stop_grace` (`LaunchSpec.stop_grace_ms`); a repeat changes nothing |
+| `SIGUSR1` (`GroupSignal::EndPayload`, LC-5, P1 F7) | `SIGTERM`, and no timer; a repeat changes nothing |
+| `SIGUSR2` (`GroupSignal::KillPayload`, LC-5; steward ruling R-97, follow-up) | `SIGKILL` to the group, now; a repeat changes nothing. Core sends it at the end of its `stop_grace` |
 
 The payload's exit is `Exited{code}` or `Exited{signal}` (EV-4), sent after one drain of the PTY that follows the exit, so the
 output written before the exit is read first (the final model holds it, ST-5).
+
+The drain (`Drain`, both drivers; A31, R-108) repeats a counted part and then a flushing read, and it ends only when a read
+finds nothing or the output ends (`EIO` or EOF). It has no byte bound: a count is only the size of the next reads (OU-7
+"lossless"; R-12). **Known contract gap (R-108 (3), Core Amendment 24):** a process that holds the PTY and keeps writing
+after the payload's exit (one that left the group after `Stop`'s kill, or a group member after the leader's own exit) keeps
+the drain going, and with it `Exited` and a `Stop`'s completion. Until Amendment 24 states when that tail ends, the drain
+does not stop it early, and no transcript asserts this case.
 
 ## Choices where the contract is silent (each is reviewable)
 
@@ -40,7 +56,7 @@ output written before the exit is read first (the final model holds it, ST-5).
 | `Launched.terminal` is a placeholder (the launch size, default flags, revisions 0) and `formats` is empty. | The terminal model is M2 (libghostty through P2). No terminal-state id leaves `core-pending.txt` in M1. |
 | A host message that the worker cannot decode is ignored; a frame above the bound closes the link. | Plan section 3: additive messages keep N−1 compatible; a bad length ends a stream. |
 | A closed link leaves the payload running, and the exit is kept unreported. | DP-8. Reconnection and the report after adoption are P5's (AD-1). |
-| `LaunchSpec.stop_grace_ms` (additive, serde default from the Core limits table) carries `CoreLimits.stop_grace`. | The worker times the grace of `EndPayload` itself; agreed with P1. |
+| The worker keeps no grace timer: `stop_grace` is the Core library's deadline, and Core sends `KillPayload` at its due `pump`. `LaunchSpec.stop_grace_ms` is removed. | Steward ruling R-97, follow-up (TM-3, E3-1 item 1): a worker timer on the worker's clock could kill before Core's due `pump`. The removal is compatible both ways (`LaunchSpec` takes unknown fields; an older worker's field has a serde default). |
 | `Remove` while the spawn is out waits for the spawn's answer, then ends the payload. | LC-7: no payload outlives its session. |
 
 Not in M1: the worker's own exit when no host attaches within `startup` (AD-7, P5's id `ad_7_crash_between_steps_...`); the
@@ -67,7 +83,7 @@ worker needs `startup` on its command line for it.
   - `pty-process` 0.5.3: opens the PTY with `rustix`, starts the payload as a session leader with the PTY as its controlling
     terminal (`setsid`, `TIOCSCTTY`), and exposes the master descriptor. It is not the PTY crate that plan 7.1 rejects: the master is ours. Its
     `pre_exec` `unsafe` is inside the library, so our crates keep `unsafe_code = "forbid"`.
-  - `signal-hook` 0.3 and `signal-hook-mio` 0.2: the `SIGUSR1` handler as a readiness source of the `mio` loop.
+  - `signal-hook` 0.3 and `signal-hook-mio` 0.2: the `SIGUSR1` and `SIGUSR2` handlers as a readiness source of the `mio` loop.
   - `mio` (already in the workspace, P1), `rustix` (`event` feature added, for the slow tests' readiness waits).
 - **Hand-rolled, with reasons:** the `Worker` machine (it is the contract); the testkit bindings (they connect the machine to
   P6's in-memory edges).
@@ -245,8 +261,9 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
 - **No feature gate.** An older worker never sends `RouteProgress`, so the host never arms a deadline for its routes and
   sends no due message; an older worker also ignores an unknown host message. The two messages need no negotiated
   feature (a deviation from the design note's feature gate).
-- **No affected query yet.** The worker sends no `terminal_query` and no `modes` frame on a route yet, so a stall discard
-  retires no query today. When those frames come, the stall applies EV-8(i) as below.
+- **No affected query yet.** The worker sends no `terminal_query` frame on a route yet, so a stall discard retires no query
+  today. When that frame comes, the stall applies EV-8(i) as below. A `modes` frame (DP-6) is droppable: a stall drops it
+  when it is not started, and the new baseline's `baseline_begin` carries the modes and the size again.
 
 ### Route adoption (DP-8; design note `st-dp8-route-adoption-design.md`, revision 5)
 
@@ -288,7 +305,7 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
 
 Each queued frame has a class:
 
-- **droppable**: `output` and the baseline frames (`baseline_begin`, `screen`, `history`, `baseline_end`, `live`);
+- **droppable**: `output`, `modes` and the baseline frames (`baseline_begin`, `screen`, `history`, `baseline_end`, `live`);
 - **kept**: `input_refused`, `input_done` and `route_closed`. A stall or a resync never drops them;
 - **bounded**: `modes` and `terminal_query`, as DP-5 defines their bound.
 
@@ -359,6 +376,11 @@ The resync sequence (at `Stalled → Open`, OU-9):
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
   fire-and-forget: only `input_refused` and the `input_done` of DP-5 are written back. `Observation::ClientInput{route,
   input_rev}` reports the admission to the host.
+- **Report order (steward ruling on a5_2 s74/s75, R-88 group E).** The worker writes a client frame's `ClientInput` report
+  on the control link before it gives any byte of that frame to the PTY. The worker reports each complete frame when it
+  receives it, and the frame reaches the PTY only later, at the admission point. The link is FIFO, so every PTY output that
+  the frame causes reaches the host after its report. A transcript can fence the report with that output. Proof:
+  `worker/tests/routes/report_order.rs`.
 - Exit (OU-7): the PTY tail is queued on every `Open` route before `Exited`; a `Stalled` route is skipped.
 
 ### Testkit
@@ -371,6 +393,13 @@ The resync sequence (at `Stalled → Open`, OU-9):
   `fail_handoff` (fail_next_handoff), `client_close` (close), `input_blocked` (the admission point is full). New:
   `route_stream_holders`, `alloc_window`/`alloc_peak`, `hold_handoff`/`release_handoff`, `route_stream_written`,
   `oracle_screen`, `oracle_screen_payload`, and a route-transport term in `edges_quiet`.
+- `route_frames_taken` (Core AM-2; steward ruling R-93 Q1): the client's complete frames whose last byte the worker read
+  from the stream. The client counts its own frame boundaries (`FrameEnds`, the 4-byte length prefixes). The testkit reads
+  the taken bytes at the in-memory stream (`EndControl::taken`). The real tier subtracts the worker end's unread bytes from
+  the bytes that the client's stream accepted, by a read-only kernel query (`real/rqueue.rs`: `unix_diag` on Linux,
+  `netstat` on macOS). A failed query is a harness error. The fence holds only under the premise of R-93 (a): no
+  `route_gate` or `route_accept` limit in force on the route from its first frame to the fence, and `route_queue_bytes` at
+  the Core default. A reviewer checks the premise (checklist item 6, R-115); no lint checks it.
 
 ### Real-only (not in the P4a testkit PRs)
 
@@ -434,6 +463,11 @@ Rejected:
   - Each sequencing error (R-5: no open paste, or another op) is refused `refused` with zero effect, and the open paste
     stays as it is.
   - A closing route applies no input, so a paste that is open at the close writes nothing.
+- **A paste is one client input, received at its commit** (steward ruling R-102). Only the commit advances
+  `input_rev{client}`, reports `ClientInput` and makes the input record (`receipt.rs`). `paste_begin`, `paste_chunk` and
+  `paste_abort`, applied or refused, do none of these: an aborted paste leaves no trace in the facts. A commit that is
+  refused for a sequencing error is one client input too: its record has `kind: paste`, an empty payload and
+  `not_written{refused}` at once. A file (DP-5b) follows the same rule at `file_commit`.
 - **The open paste is outside the route's input bound.** `max_paste_bytes` bounds it. Its bytes count in the read
   allowance from the commit, when they wait at the admission point.
 - **The commit is one transaction** (AM-2, TS-5d: contiguous). A route input carries an `InputPayload`. At its start, the

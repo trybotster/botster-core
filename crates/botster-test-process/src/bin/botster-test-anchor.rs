@@ -306,3 +306,7 @@ fn main() {
         std::process::exit(1);
     }
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+#[cfg(test)]
+botster_test_process::built_in_test!();

@@ -21,6 +21,18 @@ pub fn row_key(id: &SessionId) -> String {
 
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
+/// The key of the cursor ordinal counter (steward ruling R-101 Q6): the highest ordinal that a `Start` reserved in this data
+/// directory, in decimal. It is outside `ROW_PREFIX`, as the host epoch's row is (`design/cursor-ordinal.md`).
+pub const ORDINAL_KEY: &str = "meta/cursor-ordinal";
+
+/// The next cursor ordinal after the counter row `counter` (1 with no row), or `None` when the row is not a number.
+pub fn next_ordinal(counter: Option<&[u8]>) -> Option<u64> {
+    let Some(bytes) = counter else {
+        return Some(1);
+    };
+    let last: u64 = std::str::from_utf8(bytes).ok()?.parse().ok()?;
+    Some(last.saturating_add(1))
+}
 
 /// How a session ended: one of the two ends that Core reaches. A type of this crate, so that every match on it is total and
 /// no fallback is needed: Core never posts `Lost(Other)` (AD-2; steward ruling R-35, correction `c3ed727`).
@@ -238,6 +250,9 @@ pub struct WorkerHandle {
     /// This host spawned the worker, so its exit watch reports the worker's end. An adopted worker has none (A21). Not
     /// durable: a new handle adopts the worker.
     pub spawned: bool,
+    /// A `cancel` was refused `Full` because this worker's control stream had no room: `SessionWritable` follows when a
+    /// drain gives the stream room for one control message again (IN-6, SV-3, steward ruling R-91).
+    pub refused_full: bool,
 }
 
 /// A live session: the row, the two states, and the machines that work on it.
@@ -259,6 +274,8 @@ pub struct Session {
     pub row_protocol: Option<u8>,
     pub worker_features: Option<BTreeSet<Feature>>,
     pub token: Option<[u8; TOKEN_LEN]>,
+    /// The cursor ordinal of the instance (steward ruling R-101 Q6), reserved in the registry before the launch.
+    pub ordinal: u64,
     pub worker: WorkerHandle,
     /// The payload's identity, from the launch report (LC-5, LC-6).
     pub payload: Option<ProcessIdentity>,

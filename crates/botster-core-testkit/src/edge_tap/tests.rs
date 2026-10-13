@@ -432,6 +432,47 @@ fn bytes_taken_ahead_are_not_quiet_and_reach_the_driver_in_order() {
     assert!(rig.with(Tap::quiet));
 }
 
+/// A held report and the link's end behind it are no report (#315 B315-I1): the edges are quiet before the release, and
+/// the probe of `quiet` never takes the end, which an inner edge such as `RealEdges` gives again at every read. After the
+/// release, the report and the end are not quiet, and the driver reads them in order.
+#[test]
+fn a_held_report_and_the_end_behind_it_are_quiet_until_the_release() {
+    let exited = worker_frame(&WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    });
+    let mut rig = rig(fake_with_link(vec![Read::Data(
+        [hello_frame("1-7"), exited.clone()].concat(),
+    )]));
+    let instance = InstanceId("1-7".into());
+    let holds = rig.with(|t| t.report_holds());
+    crate::report_holds::lock(&holds)
+        .hold_worker_report(instance.clone())
+        .unwrap();
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert_eq!(rig.recv(A, 4096).unwrap(), hello_frame("1-7"));
+    rig.with(|t| t.inner.closed.insert(A));
+    for _ in 0..2 {
+        assert_eq!(
+            rig.recv(A, 4096).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "the report and the end wait"
+        );
+        assert!(rig.with(Tap::quiet), "a held report is no report");
+    }
+    assert_eq!(rig.signals(), 0);
+    assert_eq!(
+        crate::report_holds::lock(&holds).release_worker_report(&instance),
+        Ok(true)
+    );
+    assert!(!rig.with(Tap::quiet), "the released report");
+    assert_eq!(rig.recv(A, 4096).unwrap(), exited);
+    assert!(!rig.with(Tap::quiet), "the end with no hold before it");
+    assert_eq!(rig.recv(A, 4096).unwrap(), b"", "the peer closed");
+    rig.edges.link_close(A);
+    assert!(rig.with(Tap::quiet));
+}
+
 #[test]
 fn an_end_taken_ahead_reaches_the_driver_once() {
     let mut rig = rig(fake_with_link(vec![Read::Eof]));
@@ -1050,8 +1091,8 @@ mod held_starts {
             notification_policy: NotificationPolicy::default(),
             size_policy: SizePolicy::default(),
             link_frame_bound: DEFAULT_MAX_PAYLOAD,
-            stop_grace_ms: 250,
             limits: CoreLimits::default(),
+            cursor_ordinal: 1,
         })))
     }
 
