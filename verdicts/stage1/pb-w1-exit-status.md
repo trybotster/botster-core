@@ -203,3 +203,50 @@ The lead controls the train, any later delta review, delivery gate, final receip
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (source delta only; 0 open; the delivery gate and applicable final review remain due).
+
+## Round 4: train-12 member composition delta
+
+Exact train head: `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Exact tree: `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Train base: `131024f3936898a3106af299e6751553c55bbc82`.
+Frozen order: #330 at 99209ea598aec0c182f35a1645b2a938d2f7d8cc, then #331 at 57cb242f5d3dda40e524090239222e4824021798.
+Lead assignment: msg_plugin-w_1791851132_792fdb.
+Scope: preservation of #330 in this exact composition, including the ten paths changed by train 11.
+Sol-C owns #331, the combined review, and the one final train receipt.
+
+The #330 insertion is 848800a3dc44f3b575f4b4ab627d2f022eb13b7f, with the train base and member head as its parents.
+The final insertion has that first merge and #331 as its parents. Sol-B checks those Git objects.
+All 24 member paths retain the exact added-line and deleted-line multisets at the first insertion.
+The second insertion changes only .cargo/mutants.toml among those paths.
+It moves #331's existing high-tier whole-body exclusion from xtask to gate-kit.
+Both #330 removals of obsolete status-literal exclusions remain removed.
+The final 23 source and API paths retain #330's exact edit sequences against the train base.
+The conformance directory equals the train base. This member changes no conformance identifier.
+
+Sol-B reads the imported changes and merged exit contexts in all ten requested host and testkit paths.
+The driver keeps a taken process identity when event budget ends and feeds that identity before a later edge exit.
+The due-step import changes neither the held identity nor the ProcessExited payload.
+The host still finds the worker by identity and drains a running or stopping worker's complete control-link frames before classification.
+Remove still retains its teardown link for the result, with its existing grace bound.
+The new route-stall and client-input observations add no worker-status consumer.
+The drain fixture retains the queue-pressure and exit-order proof with the required route mark.
+The host tests retain identity-only exit inputs alongside the imported cursor ordinal and stall modules.
+
+The tap still queues and releases ProcessIdentity values through the existing report-hold path.
+The new route-accept progress hook uses a separate report record.
+The worker's imported facts-cost decoder observes LinkSend frames and changes no exit-queue or cleanup action.
+Exit and ExitFailure still queue one worker identity, wake its host, and call ended(true).
+That cleanup closes the link, endpoint, candidates, descriptors, and route streams, and drops the payload and held spawn.
+The sys reaper, affected real-process assertions, and RealEdges source blobs equal the accepted #330 member blobs.
+No invented status, discarded identity, duplicate end, or new payload-status conversion is introduced.
+
+Sol-B reads the complete matching package section at f5d5cf82d2611be447a4b8fe1d8b7a8cb7f39d81.
+File: verdicts/pb-w1.md on stage1/review-pb, Train 12 package delta.
+It reports CLEAN on this exact train head, tree, base, and member order.
+The lead reports a successful clean compile; that remains an operator report, not reviewer execution evidence.
+The lead requires no member gate. The exact-head train gate remains the merging gate.
+All earlier findings remain closed. No member-composition finding remains open.
+
+VERDICT: CLEAN (member source delta only; 0 open; the combined review, train gate, and final train receipt remain due).
+This receipt grants no separate #331 verdict or completed train delivery.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
