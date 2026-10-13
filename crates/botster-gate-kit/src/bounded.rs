@@ -484,4 +484,31 @@ mod slow_tests {
         .to_string();
         assert!(error.contains("processes left behind"), "{error}");
     }
+
+    /// A leftover that holds no output pipe still fails the run, and the run ends when its own output closes, not at the
+    /// deadline: `clean_up` alone reports it. (The focused job at 5ee8c82e: `clean_up -> None` timed out in the test above,
+    /// whose leftover holds the pipe until the deadline; this test fails at once under that mutant.)
+    #[test]
+    fn a_leftover_that_holds_no_output_still_fails_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
+        let blocker = botster_test_process::Blocker::new(dir.path(), "quiet").unwrap();
+        let error = bounded_report(
+            sh(&format!(
+                "{} >/dev/null 2>&1 & echo 'real conformance: passed 1'",
+                blocker.shell()
+            )),
+            SLOW_DEADLINE,
+            &pids,
+            "start sh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("processes left behind"), "{error}");
+    }
 }
