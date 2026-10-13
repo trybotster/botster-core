@@ -720,3 +720,54 @@ No implementation, gate, context-file production, or story completion is accepte
 The reviewer runs no build, test, gate, or reproduction.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Round 11: session-directory corrections — CLEAN
+
+Request: `msg_plugin-w_1791853291_d00268`.
+Exact document SHA-256: `03b1d3336ef21ebea98eccf05826c9e1609ad825914b2a4d247c6b945633ce1a`.
+Comparison: Round 10 source `1fe36869e8be476cadd920ac724c214a9610207ead66e44453b5cd60ad9afa03`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+The delta corrects the directory create/release rules and startup order. No new finding is added.
+
+### S2-HD-13 — MEDIUM — CLOSED
+
+New step 5b loads and validates the store index before adoption and before the sweep.
+A failed load exits with data_root_unusable and runs no adoption, sweep, or bind.
+Step 6 completes adoption, then runs restore in 6b and the orphan sweep in 6c.
+The sweep uses the loaded index and removes only a directory with no Core row and no starting record.
+It uses no-follow checks and runs before the socket binds.
+Failed adoption still runs no sweep and advertises no readiness.
+This closes the use-before-load predicate in Round 10.
+
+### S2-HD-14 — MEDIUM — CLOSED
+
+The release rule now separates deferred deletion from a sent store job.
+The owner's store handle owns deferred deletions, bounded by max_operation_records.
+Over-bound or unsent-at-stop deletions are dropped from memory and remain for the next startup orphan sweep.
+No store job exists for a discarded deferred deletion.
+A sent deletion drains with the other admitted store jobs before store termination and join.
+OwnerDone and singleton-lock release remain after that join.
+The rule therefore loses no stated recovery path and permits no admitted store write after lock release.
+
+### S2-HD-15 — MEDIUM — CLOSED
+
+The create job now explicitly syncs the parent of each new directory entry.
+The named parents are sessions/<id>/ for uploads/, sessions/ for the session directory, and the data root for sessions/.
+The durable operation-record write follows those syncs.
+The path checks, mode 0700 requirement, and NotWritten behavior remain intact.
+This closes the missing data-root entry sync in the stated durability order.
+
+### Final scope and evidence limits
+
+All thirteen review findings are closed: S2-HD-1 through S2-HD-9, S2-HD-11, and S2-HD-13 through S2-HD-15.
+S2-HD-10 and S2-HD-12 are steward question labels, not additional review findings.
+The directory design is CLEAN at the exact hash above. Prior mapping, retention, readiness, and cleanup closures remain intact.
+PC passes the uploads path to Core and performs no directory filesystem work.
+Sol-B retains the PC-side interface review.
+
+P5 supplies local code head da36fe6aaec8fca8596391ca28a9cd25c82de9ba and reports directory/daemon tests.
+This design round does not read or accept that code or those test reports as execution evidence.
+Context-file production remains a later step. The A26 pin, implementation review, and execution proof remain due.
+The reviewer runs no build, test, gate, or reproduction.
+
+VERDICT: CLEAN (0 open)
