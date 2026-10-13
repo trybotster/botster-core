@@ -15534,3 +15534,150 @@ F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
 Next package round: 210. All earlier history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 210 — #332 minimum Core list, 2026-10-12
+
+Exact head: `6875eeb063f8d9cc7ca568f499bb6a0906e7288c`.
+Tree: `1153978a085efe93f3213296c5df06b94348ea6c`.
+Base: `131024f3936898a3106af299e6751553c55bbc82`.
+Initial submitted head: `987d8f76ed3f5e2a1e6363fb137f31e71b0de49e`.
+Initial tree: `15096964cd70b5977c156dca28107ea9674e6bbe`.
+The current head adds only the lead's header reference correction to the initial head.
+The lead requests the same review round for that correction.
+READY records: `msg_plugin-w_1791851914_e4345d` and `msg_plugin-w_1791852032_f23a08`.
+Tier HIGH: the canonical minimum Core list changes.
+The lead assigns #332 to train 13, outside frozen train 12.
+The lead requires no member gate. Sol-C owns the integration review.
+
+### Source, approval, and list preservation
+
+The reviewer reads the complete base-to-head diff and the initial-to-current header delta.
+Only conformance/minimum-core.txt changes. The contracts .46 pin and all test/product source stay unchanged.
+The minimum list grows from 69 unique IDs to 71 unique IDs.
+Every original ID remains in its original relative order. No original row changes or disappears.
+The existing list order is preserved; this review asserts no whole-list sorting requirement.
+All nine other conformance files remain byte-identical to the base.
+The reviewer checks these two exact new rows:
+
+| ID | Clause | Package |
+|---|---|---|
+| conf::lc_9_update_metadata_is_durable | LC-9 | p1-lifecycle |
+| conf::ev_1_metadata_reaches_host | EV-1 | p3-worker |
+
+Both IDs exist in core-ledger-ids.txt.
+Neither ID occurs in core-pending.txt, core-real-pending.txt, core-real-only.txt, core-held.txt, or core-deferred.toml.
+Neither ID occurs in contracts-deferred.txt or contracts-withdrawn.txt.
+The PR removes no pending ID and introduces no new trial, proof row, or mutation exclusion.
+
+The reviewer reads the minimum Hub pin 26c2c795 and the package table in plan pin a3333ad4.
+The minimum Hub pin names both exact IDs for the approved labels story.
+The plan assigns LC-9 to P1 and EV-1 to P3. Both new rows match those owners.
+The shared lead handoff records approval for this exact two-ID addition and assigns both HIGH reviews.
+The header records that approval and the 69-to-71 change.
+The reviewer reads the cited plan document at 596082d435ba30bfb0b6521e4566b2af6d97cbf1.
+The corrected header names branch stage1/plan and commit 596082d4 because the document is absent on v1.
+That document explains the earlier 69-ID selection. The approved minimum Hub supplies the reason for these two additions.
+The corrected body makes that distinction explicit. The header correction changes no non-comment row.
+
+The reviewer reads the minimum_ids parser and minimum_report in tests/suite/mod.rs at the exact base.
+The parser reads the first tab-separated field and ignores comments.
+The runner uses MINIMUM to produce the minimum report after trial results exist.
+The minimum list does not select the ordinary trial execution set.
+These two IDs already run as must-pass trials in both gate tiers at the base.
+This source change therefore changes the minimum report scope, while preserving the trials and their execution policy.
+
+### Pinned transcripts and real-tier fences
+
+The reviewer reads both complete transcripts at contracts-v0.1.46, peeled commit 7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1.
+LC-9 transcript SHA256: 4393491bfb556687abbc9771ee2c21680a879e8d210bf30709ca1c62e08e7aa7.
+EV-1 transcript SHA256: bc72deff61b50e56f1178872b6cb61f6b968d64a41e986b97e62e9fa0c602dba.
+The reviewer also reads the corresponding LC-9 and EV-1 clauses, pinned fence exceptions, and shared real-tier audit scope.
+Neither ID has an open pinned fence exception or an open shared audit row.
+
+The LC-9 transcript has eleven steps.
+It creates a held payload, waits for Completed, updates labels, and waits for Completed and MetadataChanged.
+It reads the labels only after those effect fences.
+It then drops the Core, opens another Core, adopts the instance, waits for Completed, and reads the durable labels.
+The transcript covers label MetadataChanged and label durability through the public path.
+
+The EV-1 transcript has nine steps and records the structural fake under R12.
+The payload emits OSC titles and Bell events only after input 31.
+The transcript waits for Create and Start completions, writes that input, pumps, and expects Bell followed by the latest TitleChanged value.
+Those expected events provide the effect fences. No dependent immediate fact read relies only on a quiet period.
+The literal OSC bytes are test input. They are not hand-written expected terminal-encoded bytes.
+The transcript covers terminal metadata and event ordering. It does not prove label MetadataChanged or a new per-key A26 rule.
+The LC-9 transcript provides the label-event proof. The approved addition names the existing EV-1 ID explicitly.
+The PR introduces no production hook, private Driver test, timer, sleep, polling loop, or real-process guard change.
+The source therefore retains the existing BUILD rule 5 and real-process test scope without creating a new exception.
+
+### Base pool evidence and its limits
+
+Pool log: gates/botster-core-detached-131024f3-131024f3-pool-20261012-164112-3401.log.
+SHA256: fd60a82b322478830a6f87d098ea096d04fb019c8b44925443dd6117a8497e94.
+The reviewer verifies the hash, header, selected normal PASS lines, and final step/exit summary.
+The header names Linux pool msa1, exact head 131024f3936898a3106af299e6751553c55bbc82, and gate base 644f632f194f62ad7fe14e66482ee01083706e30.
+The command sets CARGO_BUILD_JOBS=4 and NEXTEST_TEST_THREADS=4 before cargo xtask ci.
+
+| ID | Default/testkit normal PASS | Slow/real normal PASS |
+|---|---|---|
+| conf::lc_9_update_metadata_is_durable | line 533, 0.077 s | line 5016, 0.131 s |
+| conf::ev_1_metadata_reaches_host | line 424, 0.141 s | line 4925, 0.129 s |
+
+The reviewer reads the exact base seed policy: default seeds 0-31 and slow seed 0.
+The ordinary trial reports Passed only after its selected seed set passes.
+Both default times are under the two-second budget. Both slow results pass at the pool's configured real-tier seed.
+The log summary reports all ten steps PASS, CI total 1773.6 seconds, and job/wrapper exit zero after 1874 seconds.
+The reviewer does not audit every gate stage, mutation record, fuzz result, or unrelated ID for this package review.
+This is targeted evidence for the two unchanged trials at the PR base.
+It is not a gate of 6875eeb0, a new train-11 final receipt, or acceptance of a future train.
+The base still has minimum 69. A future minimum-71 report requires its own train execution.
+
+### F165 LOW — evidence description CLOSED
+
+The original body excluded the failed full Mac run but presented selected local strict/real passes and times as acceptance evidence.
+The pair rule excludes all local Mac strict, slow, and budget results from acceptance, including passes.
+The local log also predates the current header correction.
+The reviewer sends F165 directly to P3 and Sol-C and requests a body-only correction. The reviewer requests no new run.
+P3 confirms the correction in msg_plugin-w_1791852341_86bead.
+The reviewer reads the complete corrected body with exact current head and base.
+Corrected UTF-8 body SHA256: b26bbf5bfb01852e9e8bc8aee36e3d3cafeb1cc78f195453c26404d731929756.
+The body now labels the base pool gate as the acceptance record.
+It places all local strict/slow/timing observations under an explicit non-evidence heading and cites the pair rule.
+It names the dirty-base scope and distinguishes the unlogged post-header lists report.
+F165 is CLOSED. No package finding remains, including LOW.
+
+Local script: shared/core-stage1/evidence/p3-min71/check.sh, read in full.
+Local log: shared/core-stage1/evidence/p3-min71/check-131024f3.log.
+SHA256: 0a0e45f45a6964eeca619164fafb505d6b1cff75fcd9d90585dc9e046673835e.
+The log names base 131024f3 with the uncommitted first list edit, equivalent to the content of 987d8f76.
+The log predates 6875eeb0. It cannot provide exact-current-head execution evidence.
+The script cleans the target but prints no numeric clean exit and supplies no independent target-writer history.
+The preworker build reports exit zero.
+Selected testkit trials report two passes, at 0.294 and 0.327 seconds.
+Selected real trials report two passes, at 5.887 and 22.525 seconds.
+The full strict run reports 579 trials: 545 passed, 34 timeouts, 114 skipped, and exit 100.
+The review accepts none of those local strict, slow, or timing results.
+The body reports Mac load 85 on twelve CPUs. This review establishes no cause for the timeouts.
+The reviewer does not verify the body's statement about every unrelated timeout passing in the pool log.
+
+The dirty-base lists command reports minimum 71, one budget-held ID, and exit zero.
+The dirty-base taint job reports PASS and exit zero.
+Those static results retain their dirty-base scope and do not close any strict/slow/budget duty.
+P3 reports lists passing after the header correction without a retained log. The review records that as a producer report only.
+
+### Disposition
+
+The complete current source and body are CLEAN at 6875eeb063f8d9cc7ca568f499bb6a0906e7288c.
+The reviewer sends the complete verdict to P3 and Sol-C. The lead receives CLEAN with the exact head and verdict commit.
+Sol-C's matching same-head integration CLEAN remains due.
+The train-13 composition, applicable delta/combined reviews, exact merging gate, ONE final train receipt, and lead merge verification remain due.
+This verdict grants no future-base, train-gate, or merge acceptance.
+Train 12 retains its separate frozen membership and final duties.
+The reviewer runs no tests, builds, gates, mutants, reversals, measurements, or executable merge-check jobs.
+The reviewer changes no product code and spawns no agent.
+F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
+The later seven pending-input IDs require the lead's plan-first assignment. This PR does not authorize their removal.
+Next package round: 211. All earlier history remains preserved.
+
+VERDICT: CLEAN
