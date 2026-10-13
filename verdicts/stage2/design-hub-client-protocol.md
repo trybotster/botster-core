@@ -386,3 +386,29 @@ This receipt approves no code, execution proof, completed story, or contract fre
 
 VERDICT: CLEAN (R-122 design and interface delta only; 0 open; the required A26 pin remains due).
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 8: S2-HD-12 failure-reason mapping
+
+Reviewed PC artifact SHA256: `4ae72c8f588f4e46bd3e4230b7bcae32f4eb9aa5a28ab1da29e6c10e2505fc7a`, revision 9.
+Comparison receipt: Round 7, revision 8, `bed83e8fc0ebd7a675d9d24d51c579cb54ee00a441d1e6a577d4810a33105ec2`.
+Matching P5 artifact SHA256: `7675c9660de86aa1936680dbcf55a4e46005f0dd917bd472ffe910f97b45c372`.
+Sol's P5 design receipt: `e53ca7e83ee0d412130f0072c76d2ba67c6d2a73`, Round 9.
+Request: msg_plugin-w_1791852149_fb7a23. Sol confirms P5 acceptance in msg_plugin-w_1791852211_e200fd.
+Scope: the revision header, section 7's StartFailed mapping, and section 8's ruling reference.
+Sol-B verifies both document hashes and reads the complete PC document, P5's matching mapping, Sol's complete Round 9 receipt, and complete R-121 at contracts `16721c1cb873479e2874e3e4f9554d85f631f5cd`.
+
+The live StartFailed mapping matches S2-HD-12.
+ExecFailed gives exec_failed. CwdMissing gives cwd_missing.
+WorkerFailed, StartupTimeout, and GuardianFailed give worker_failed.
+An unknown Core reason gives start_failed, and the Hub logs the raw Core value.
+The open A.7b reason set permits start_failed. The internal reason still identifies a Hub fault.
+The same mapping applies to recorded start_failure through P5's one restore rule.
+GuardianFailed compatibility adds no Core v1 readiness or recovery rule.
+
+The store API, ready_reached prerequisite, R-121 precedence, R-122 row retention, and U3 cleanup obligation remain the accepted dependencies.
+All six prior design findings remain closed. No new finding remains open on this exact artifact.
+The required A26 pin, implementation review, and execution evidence remain due.
+This receipt approves no code, completed story, gate, or contract freeze.
+
+VERDICT: CLEAN (failure-reason design delta only; 0 open).
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
