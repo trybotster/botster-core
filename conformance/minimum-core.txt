@@ -1,6 +1,7 @@
-# The minimum Core: 69 ids (plan revision 23, approved by the orchestrator and the user on 2026-10-09; one id moved out in
-# revision 23v).
-# Columns: id, clause, owning package. The reasons, by session step, are in docs/stage1-minimum-core.md.
+# The minimum Core: 71 ids (plan revision 23, approved by the orchestrator and the user on 2026-10-09; one id moved out in
+# revision 23v; on 2026-10-12 the orchestrator added lc_9_update_metadata_is_durable and ev_1_metadata_reaches_host, which
+# the approved minimum Hub needs).
+# Columns: id, clause, owning package. The reasons, by session step, are in docs/stage1-minimum-core.md on branch stage1/plan (596082d4).
 conf::a10_1_wrong_instance_is_never_signalled	A10-1	p5-adoption
 conf::a10_1_wrong_token_is_never_signalled	A10-1	p5-adoption
 conf::a10_2_corrupted_row_is_lost_registry_corrupt	A10-2	p5-adoption
@@ -34,6 +35,7 @@ conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops	DP-5	p4a-rou
 conf::e1_1_worker_found_by_host_supplied_path	E1-1	p0-skeleton
 conf::er_0_async_errors_arrive_as_completions	ER-0	p1-lifecycle
 conf::er_0_sync_errors_allocate_no_op	ER-0	p1-lifecycle
+conf::ev_1_metadata_reaches_host	EV-1	p3-worker
 conf::ev_4_exit_has_signal	EV-4	p3-worker
 conf::ev_5_no_mandatory_event_lost_or_replaced	EV-5	p1-lifecycle
 conf::ev_8_no_route_shadow_answers_at_once	EV-8	p4b-queries-files
@@ -49,6 +51,7 @@ conf::lc_5_stop_with_broken_control	LC-5	p1-lifecycle
 conf::lc_7_remove_order_and_completion	LC-7	p1-lifecycle
 conf::lc_7_remove_running_is_wrong_state	LC-7	p1-lifecycle
 conf::lc_9_get_list	LC-9	p1-lifecycle
+conf::lc_9_update_metadata_is_durable	LC-9	p1-lifecycle
 conf::lm_1_zero_limit_is_invalid_config	9B	p1-lifecycle
 conf::or_1_begin_does_not_complete	OR-1	p1-lifecycle
 conf::or_1_no_progress_outside_pump	TM-2	p1-lifecycle
