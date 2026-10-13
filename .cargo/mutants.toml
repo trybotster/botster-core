@@ -73,14 +73,14 @@ exclude_re = [
     # an_entry_that_matches_no_tracked_file_is_a_problem among them), and the derivation is the tested derived_exclusions
     # (each_gate_os_excludes_the_adapters_of_the_other_os).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask high_tier.rs command -> Ok(()): the I/O shell reads ci/high-tier-paths.txt and runs `git ls-files`; a test that
+    # gate-kit high_tier.rs command -> Ok(()): the I/O shell reads ci/high-tier-paths.txt and runs `git ls-files`; a test that
     # reads the repo cannot use git (the mutants copy has no .git). Only this whole-body replacement is excluded. The decisions
     # are verdict (an_entry_that_matches_a_file_with_a_reason_passes, an_entry_that_matches_no_tracked_file_is_a_problem,
     # a_directory_entry_matches_only_files_under_that_directory, an_entry_without_a_reason_is_a_problem,
     # a_glob_other_than_a_trailing_directory_wildcard_is_a_problem, every_problem_is_reported_with_its_line,
     # the_repository_list_has_no_problem) and outcome (a_list_with_a_problem_fails_the_step_and_one_without_passes); the last
     # proof of verdict checks the real list against the walked tree.
-    'xtask/src/high_tier\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    'crates/botster-gate-kit/src/high_tier\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
     # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
     # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested

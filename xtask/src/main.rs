@@ -6,10 +6,8 @@ mod caps;
 mod ci;
 mod fsutil;
 mod gate_decisions;
-mod high_tier;
 mod known_flaky;
 mod lists;
-mod mutant_logs;
 mod mutants_cited;
 mod mutants_stale;
 mod platform_code;
@@ -28,6 +26,7 @@ mod tools;
 mod unsafe_exception;
 
 use anyhow::Result;
+use botster_gate_kit::{high_tier, mutant_logs};
 use std::path::Path;
 
 const USAGE: &str = "usage: cargo xtask <command>
