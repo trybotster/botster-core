@@ -43,7 +43,50 @@ pub struct LaunchSpec {
     /// (ST-7), the queries (EV-8) and the tap (TP-1). Absent: the defaults of the Core limits table.
     #[serde(default)]
     pub limits: CoreLimits,
+    /// The ordinal of this instance in the data directory, from the host registry's durable counter (steward ruling R-101
+    /// Q6): the high bits of every input cursor of `ReadFacts` (ST-7). It is required: protocol 1 is not released (R-98).
+    pub cursor_ordinal: u64,
 }
+
+/// The cap of a worker link's frame bound, `u32::MAX / 2`. It is one literal, and a unit test ties it to `u32::MAX`.
+pub const LINK_FRAME_CAP: u32 = 0x7FFF_FFFF;
+
+/// The JSON length that each of the at most four protected entries of `ReadFacts` (ST-7, steward rulings R-116 and
+/// R-117) can take past `input_events_bytes`, apart from its two route tags: a minimal record or a status update with
+/// every number at its largest. A worker-core test measures the largest ones under it.
+pub const PROTECTED_ENTRY_FIXED: u64 = 1024;
+
+/// The largest JSON length of the reply of a `ReadFacts` (ST-7) under `limits`, apart from its fixed part: the record
+/// list (at most `input_events_bytes`, and past it only the protected entries, at most four, each with two route tags
+/// at `max_route_tag_bytes` that JSON can write as six bytes a byte), and the client tail as hex, two bytes a byte.
+pub fn facts_reply_bound(limits: &CoreLimits) -> u64 {
+    let tags = 12 * u64::from(limits.max_route_tag_bytes);
+    let protected = 4 * (PROTECTED_ENTRY_FIXED + tags);
+    let tail = 2 * u64::from(limits.input_tail_bytes);
+    limits
+        .input_events_bytes
+        .saturating_add(protected)
+        .saturating_add(tail)
+}
+
+/// The largest frame payload of a worker link under `limits` (plan section 3), in both directions. A host write travels
+/// in its JSON form and a snapshot as pages, so the bound is six times the largest payload that `CoreLimits` allows: a
+/// `Text` control byte is the six-byte escape `\u00XX` (lead ruling, 2026-10-12). A `ReadFacts` reply travels in one
+/// frame, so the bound also holds the largest one (`facts_reply_bound`; #320 R320-SI-5). 1 MiB more holds every fixed
+/// part. The bound is at most `LINK_FRAME_CAP`.
+pub fn link_frame_bound(limits: &CoreLimits) -> u32 {
+    let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
+    let payload = largest.saturating_mul(6).max(facts_reply_bound(limits));
+    let bound = payload.saturating_add(1 << 20);
+    u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
+}
+
+/// The bits of the cursor ordinal in an input cursor of `ReadFacts` (ST-7; steward ruling R-101, follow-up). The sequence
+/// number of the instance's log is below them; together they stay below 2^53.
+pub const CURSOR_ORDINAL_BITS: u32 = 24;
+/// The largest cursor ordinal of a data directory, 2^24 - 1. The host mints ordinals from 1. It is one literal, and a unit
+/// test ties it to `CURSOR_ORDINAL_BITS`.
+pub const MAX_CURSOR_ORDINAL: u64 = 0xFF_FFFF;
 
 /// A request of the host to a session worker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +119,13 @@ pub enum HostMsg {
         route: RouteId,
         reason: DetachReason,
     },
+    /// The route's `stall_deadline` is due, measured from the worker's [`WorkerMsg::RouteProgress`] with this `mark` (R-90,
+    /// OU-3b). The worker makes the route `Stalled` only while it is `Open`, its frames wait, and its mark is still `mark`;
+    /// otherwise its newer report is already on the link, and it does nothing.
+    RouteStallDue { route: RouteId, mark: u64 },
+    /// The route's `stall_close_after` is due for the stall that began at this `mark` (R-90, OU-2). The worker closes the
+    /// route only while it is still `Stalled` at that mark.
+    RouteCloseDue { route: RouteId, mark: u64 },
 }
 
 /// What a worker observed in its model or on its input path. The host adds the instance and the time (TM-1, EV-9).
@@ -109,6 +159,11 @@ pub enum Observation {
     ClientInput {
         route: RouteId,
         input_rev: InputRev,
+    },
+    /// The transaction of a client input of `route` ended (ST-7): the record's status update is appended. It changes no
+    /// revision; the host raises the keyed `Activity` edge again (EV-6).
+    ClientInputEnded {
+        route: RouteId,
     },
     /// The host's write was admitted (IN-10).
     HostInput {
@@ -165,9 +220,7 @@ pub enum WorkerMsg {
         payload: PayloadId,
     },
     /// The payload did not start (LC-4).
-    LaunchFailed {
-        reason: StartFailReason,
-    },
+    LaunchFailed { reason: StartFailReason },
     /// The payload ended (EV-4). The host decides the `cause` (LC-5), because it knows what it asked for.
     Exited {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -176,27 +229,17 @@ pub enum WorkerMsg {
         signal: Option<i32>,
     },
     /// The answer to `HostMsg::Op` with this request number.
-    Done {
-        req: u64,
-        result: OpResult,
-    },
+    Done { req: u64, result: OpResult },
     /// The pages of the snapshot that answers request `req` (ST-6). A `Done` with `Capture` follows. The host mints the
     /// `CaptureId` and keeps the pages.
-    Pages {
-        req: u64,
-        pages: Vec<Page>,
-    },
+    Pages { req: u64, pages: Vec<Page> },
     /// A change that the worker saw. The worker sends none before `Launched` (every observation comes from the payload's
     /// output, its input or its resize). The host reads none while the session's start is not through: the frame stays unread
     /// on the link, so the observations keep their order and follow `Running` (OR-2, ST-4).
-    Observed {
-        observation: Observation,
-    },
+    Observed { observation: Observation },
     /// The worker holds its own copy of the route's stream: its `AttachRoute` frame bound the descriptor that came with it
     /// (DP-2, steward ruling R-65). The host closes its copy only now: a copy in flight is not the worker's own.
-    RouteReceived {
-        route: RouteId,
-    },
+    RouteReceived { route: RouteId },
     /// A route reached `Closed` (OU-2): the host posts `RouteClosed` and frees the route.
     RouteClosed {
         route: RouteId,
@@ -204,21 +247,31 @@ pub enum WorkerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         route_tag: Option<String>,
     },
+    /// The route became `Stalled` at `mark`, in answer to [`HostMsg::RouteStallDue`] (OU-2, R-90).
     RouteStalled {
         route: RouteId,
+        #[serde(default)]
+        mark: u64,
     },
+    /// The route is `Open` again at `mark` (OU-2): the transport accepted bytes, and the resync is queued.
     RouteResumed {
         route: RouteId,
+        #[serde(default)]
+        mark: u64,
+    },
+    /// The progress report of a route (R-90, OU-3a). `mark` counts the writes of the route that the transport accepted
+    /// bytes of. `waiting` is true while the route is `Open` and holds bytes that the transport has not accepted. The host
+    /// measures the route's `stall_deadline` from the report that it consumes with `waiting: true`.
+    RouteProgress {
+        route: RouteId,
+        mark: u64,
+        waiting: bool,
     },
     /// The complete result of the upload cleanup (A6-3): after it the worker ends.
-    RemoveResult {
-        uploads: UploadsOutcome,
-    },
+    RemoveResult { uploads: UploadsOutcome },
     /// The worker's live state, sent once right after its hello in an adoption (AD-1, AD-3; steward ruling R-35). Every value
     /// is read from the worker's live state, never remembered from the spawn.
-    Adopted {
-        report: Box<AdoptReport>,
-    },
+    Adopted { report: Box<AdoptReport> },
 }
 
 /// What an adopted worker reports about itself (AD-1, AD-3, DP-12, R-35).
@@ -331,6 +384,77 @@ impl WorkerMsg {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_largest_cursor_ordinal_fills_its_bits() {
+        assert_eq!(MAX_CURSOR_ORDINAL, (1 << CURSOR_ORDINAL_BITS) - 1);
+        assert_eq!(MAX_CURSOR_ORDINAL, 16_777_215);
+    }
+
+    fn limits(paste: u64, snapshot: u64, events: u64, tail: u32, tag: u32) -> CoreLimits {
+        CoreLimits {
+            max_paste_bytes: paste,
+            max_snapshot_bytes: snapshot,
+            input_events_bytes: events,
+            input_tail_bytes: tail,
+            max_route_tag_bytes: tag,
+            ..CoreLimits::default()
+        }
+    }
+
+    #[test]
+    fn the_link_frame_cap_is_half_of_u32() {
+        assert_eq!(LINK_FRAME_CAP, u32::MAX / 2);
+    }
+
+    /// #320 R320-SI-5: the record bound, four protected entries with their tags at six bytes a byte, and the tail as
+    /// hex.
+    #[test]
+    fn the_facts_reply_bound_counts_records_protected_entries_and_the_tail() {
+        assert_eq!(facts_reply_bound(&limits(0, 0, 0, 0, 0)), 4 * 1024);
+        assert_eq!(
+            facts_reply_bound(&limits(0, 0, 1000, 10, 1)),
+            1000 + 4 * (1024 + 12) + 20
+        );
+        let largest = limits(0, 0, u64::MAX, u32::MAX, u32::MAX);
+        assert_eq!(facts_reply_bound(&largest), u64::MAX);
+    }
+
+    /// Plan section 3, #320 R320-SI-5: the bound is the larger of six times the largest payload and the largest facts
+    /// reply, with 1 MiB more, and at most `LINK_FRAME_CAP`.
+    #[test]
+    fn the_link_frame_bound_holds_the_largest_payload_and_facts_reply() {
+        let mib = 1 << 20;
+        assert_eq!(link_frame_bound(&limits(1000, 10, 0, 0, 0)), 6000 + mib);
+        assert_eq!(link_frame_bound(&limits(10, 1000, 0, 0, 0)), 6000 + mib);
+        assert_eq!(
+            link_frame_bound(&limits(10, 10, 100_000, 0, 0)),
+            100_000 + 4096 + mib
+        );
+        assert_eq!(
+            link_frame_bound(&limits(1 << 20, 1024, 16 << 10, 4 << 20, 256)),
+            (16 << 10) + 4 * (1024 + 12 * 256) + (8 << 20) + mib,
+            "Sol's case: the facts reply binds, not the paste"
+        );
+        let at_cap = u64::from(LINK_FRAME_CAP) - u64::from(mib) - 4096;
+        assert_eq!(
+            link_frame_bound(&limits(0, 0, at_cap, 0, 0)),
+            LINK_FRAME_CAP
+        );
+        assert_eq!(
+            link_frame_bound(&limits(0, 0, at_cap + 1, 0, 0)),
+            LINK_FRAME_CAP
+        );
+        assert_eq!(
+            link_frame_bound(&limits(500_000_000, 0, 0, 0, 0)),
+            LINK_FRAME_CAP,
+            "below u32::MAX, above the cap"
+        );
+        assert_eq!(
+            link_frame_bound(&limits(u64::MAX, 0, 0, 0, 0)),
+            LINK_FRAME_CAP
+        );
+    }
+
     fn size() -> Size {
         Size {
             rows: 24,
@@ -354,6 +478,7 @@ mod tests {
                 clipboard_bytes: 77,
                 ..CoreLimits::default()
             },
+            cursor_ordinal: 9,
         }));
         let mut bytes = Vec::new();
         msg.encode(&mut bytes);
@@ -363,7 +488,7 @@ mod tests {
     /// An absent `limits` field is the defaults of the Core limits table.
     #[test]
     fn an_absent_limits_field_is_the_default_of_the_limits_table() {
-        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"cursor_ordinal":1}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(text.as_bytes()) else {
             panic!("a launch");
         };
@@ -379,7 +504,7 @@ mod tests {
     /// an older worker read it with `#[serde(default)]` as the table's default.
     #[test]
     fn the_removed_stop_grace_field_decodes_in_both_directions() {
-        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250}"#;
+        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250,"cursor_ordinal":1}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(older.as_bytes()) else {
             panic!("an older host's launch decodes");
         };
@@ -389,6 +514,13 @@ mod tests {
         let text = String::from_utf8(bytes).expect("a launch is text");
         assert!(text.contains(r#""t":"launch""#), "{text}");
         assert!(!text.contains("stop_grace_ms"), "{text}");
+    }
+
+    /// The cursor ordinal is required (steward rulings R-101 Q6 and R-98): a launch without it does not decode.
+    #[test]
+    fn a_launch_without_its_cursor_ordinal_does_not_decode() {
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        assert!(HostMsg::decode(text.as_bytes()).is_err());
     }
 
     #[test]
@@ -431,6 +563,7 @@ mod tests {
                 size_policy: SizePolicy::Latest,
                 link_frame_bound: 1 << 20,
                 limits: CoreLimits::default(),
+                cursor_ordinal: MAX_CURSOR_ORDINAL,
             })),
         ];
         for msg in msgs {
@@ -471,6 +604,19 @@ mod tests {
             WorkerMsg::RemoveResult {
                 uploads: UploadsOutcome::Deleted,
             },
+            WorkerMsg::RouteProgress {
+                route: RouteId(4),
+                mark: 9,
+                waiting: true,
+            },
+            WorkerMsg::RouteStalled {
+                route: RouteId(4),
+                mark: 9,
+            },
+            WorkerMsg::RouteResumed {
+                route: RouteId(4),
+                mark: 10,
+            },
         ];
         let adopted = [
             AdoptedPayload::NotLaunched,
@@ -503,6 +649,32 @@ mod tests {
             msg.encode(&mut bytes);
             assert_eq!(WorkerMsg::decode(&bytes), Ok(msg.clone()), "{msg:?}");
         }
+    }
+
+    /// R-90: the two due messages round-trip, and a stall report of an older worker (no `mark`) reads as mark 0.
+    #[test]
+    fn the_stall_messages_round_trip_and_an_absent_mark_is_zero() {
+        for msg in [
+            HostMsg::RouteStallDue {
+                route: RouteId(1),
+                mark: 3,
+            },
+            HostMsg::RouteCloseDue {
+                route: RouteId(1),
+                mark: 3,
+            },
+        ] {
+            let mut bytes = Vec::new();
+            msg.encode(&mut bytes);
+            assert_eq!(HostMsg::decode(&bytes), Ok(msg.clone()), "{msg:?}");
+        }
+        assert_eq!(
+            WorkerMsg::decode(br#"{"t":"route_stalled","route":1}"#),
+            Ok(WorkerMsg::RouteStalled {
+                route: RouteId(1),
+                mark: 0
+            })
+        );
     }
 
     /// Plan section 3: an unknown field of a known message is ignored, so a newer worker may add fields.

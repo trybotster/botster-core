@@ -5,9 +5,7 @@
 use crate::io::{Action, Input, LinkId, Work};
 use crate::{EngineConfig, HostEngine};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{
-    ExitStatus, IdentityState, ProcessIdentity, SpawnError, StorageError,
-};
+use botster_core_edges::edges::{IdentityState, ProcessIdentity, SpawnError, StorageError};
 use botster_core_edges::Machine;
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, Observation, WorkerMsg};
@@ -192,8 +190,13 @@ impl World {
             .filter_map(|key| key.strip_prefix(crate::session::ROW_PREFIX))
             .map(sid)
             .collect();
+        let mut engine = HostEngine::new(cfg, registry_ids);
+        // As `HostDriver::open` does.
+        engine.next_ordinal =
+            crate::session::next_ordinal(rows.get(crate::session::ORDINAL_KEY).map(Vec::as_slice))
+                .expect("the counter row is a number");
         World {
-            engine: HostEngine::new(cfg, registry_ids),
+            engine,
             now: start,
             unix: 1_000_000,
             rows,
@@ -240,7 +243,7 @@ impl World {
 
     /// A process whose exit the engine is told of is no longer running.
     fn end_exited(&mut self, input: &Input) {
-        if let Input::ProcessExited { identity, .. } = input {
+        if let Input::ProcessExited { identity } = input {
             self.alive.remove(identity);
         }
     }
@@ -385,10 +388,7 @@ impl World {
                     // The worker ends after its teardown (LC-7 step 3).
                     if matches!(msg, HostMsg::Remove) {
                         if let Some(identity) = self.identities.get(&link).copied() {
-                            self.inject.push(Input::ProcessExited {
-                                identity,
-                                status: ExitStatus::Code(0),
-                            });
+                            self.inject.push(Input::ProcessExited { identity });
                         }
                     }
                 }
@@ -673,10 +673,7 @@ impl World {
 
     pub fn exited(&mut self, session: &str) {
         let identity = self.identity_of(session);
-        self.feed(Input::ProcessExited {
-            identity,
-            status: ExitStatus::Code(0),
-        });
+        self.feed(Input::ProcessExited { identity });
     }
 
     /// The worker of `session` ends, with no word on its link: the exit watch reports it, and the driver's drain of an open
@@ -745,8 +742,10 @@ mod frame_fit;
 mod lifecycle;
 mod losses;
 mod queue_pressure;
+mod read_facts;
 mod ready;
 mod registry;
 mod remove;
+mod stall;
 mod stop_drain;
 mod worker_link;

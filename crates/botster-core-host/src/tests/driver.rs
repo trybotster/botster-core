@@ -20,6 +20,7 @@ mod handoff;
 mod holds;
 mod observations;
 mod seeded_trace;
+mod stall;
 
 #[derive(Default)]
 struct TestWake {
@@ -85,12 +86,12 @@ struct Mock {
     spawns: Vec<WorkerSpawn>,
     send_cap: Option<usize>,
     /// The exits that the process edge reports, first first.
-    exits: Vec<(ProcessIdentity, ExitStatus)>,
+    exits: Vec<ProcessIdentity>,
     /// Bytes that arrive on a link when the pump settles the wake: the readiness that the poll reports late.
     late: Vec<(LinkId, Vec<u8>)>,
     /// Exits that the process edge reports when the pump settles the wake: a reaper that queued an exit after the pump took
     /// the exits, and whose wake the settle consumed.
-    late_exits: Vec<(ProcessIdentity, ExitStatus)>,
+    late_exits: Vec<ProcessIdentity>,
     /// The processes whose exit the process edge reported.
     ended: Vec<ProcessIdentity>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
@@ -174,13 +175,13 @@ impl HostEdges for Edges {
 
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
 
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
         let mut mock = self.0.lock().unwrap();
         if mock.exits.is_empty() {
             None
         } else {
             let exit = mock.exits.remove(0);
-            mock.ended.push(exit.0);
+            mock.ended.push(exit);
             Some(exit)
         }
     }
@@ -403,6 +404,14 @@ impl Rig {
         scheduler: Box<dyn Scheduler + Send>,
         rows: BTreeMap<String, Vec<u8>>,
     ) -> Rig {
+        Rig::try_open(cfg, scheduler, rows).unwrap_or_else(|e| panic!("the registry reads: {e:?}"))
+    }
+
+    fn try_open(
+        cfg: crate::EngineConfig,
+        scheduler: Box<dyn Scheduler + Send>,
+        rows: BTreeMap<String, Vec<u8>>,
+    ) -> Result<Rig, CoreError> {
         let mock = Arc::new(Mutex::new(Mock {
             rows,
             closed_streams: Vec::new(),
@@ -420,13 +429,12 @@ impl Rig {
             endpoints: BTreeMap::new(),
         }));
         let now = crate::tests::real_now();
-        Rig {
-            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))
-                .expect("the registry reads"),
+        Ok(Rig {
+            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))?,
             mock,
             now,
             unix: 10,
-        }
+        })
     }
 
     fn pump(&mut self) -> PumpReport {
@@ -685,7 +693,13 @@ fn parked_work_alone_does_not_signal_the_wake() {
     let mut rig = Rig::new(limits(|l| l.mandatory_events = 3));
     start_session(&mut rig, "s1", LinkId(1));
     // `Created`, `Starting`, `Running` fill the queue of three; the route event waits for room on its link.
-    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteStalled {
+            route: RouteId(1),
+            mark: 0,
+        },
+    );
     let report = rig.pump();
     assert!(!report.more, "parked work does not set more");
     assert!(!rig.wake_set());
@@ -846,7 +860,13 @@ fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
     start_session(&mut rig, "s1", LinkId(1));
     // `Created`, `Starting`, `Running` fill the queue of three.
     for _ in 0..5 {
-        rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::RouteStalled {
+                route: RouteId(1),
+                mark: 0,
+            },
+        );
     }
     rig.pump();
     {
@@ -1124,6 +1144,22 @@ fn an_end_read_with_the_retry_report_follows_running() {
         e,
         Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
     )));
+}
+
+/// Steward ruling R-101 Q6: `open` reads the cursor ordinal counter with the registry. A counter row that is not a number
+/// is a corrupt registry: the open fails `RegistryFailed`, and no ordinal is guessed.
+#[test]
+fn open_refuses_a_cursor_ordinal_counter_that_is_not_a_number() {
+    let rows = BTreeMap::from([(crate::session::ORDINAL_KEY.to_string(), b"seven".to_vec())]);
+    let opened = Rig::try_open(
+        config(CoreLimits::default()),
+        Box::new(Production::new()),
+        rows,
+    );
+    match opened {
+        Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: false }),
+        Ok(_) => panic!("a corrupt counter row opens"),
+    }
 }
 
 /// A text write of session `s1`.

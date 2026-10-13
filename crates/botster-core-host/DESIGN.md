@@ -2,6 +2,13 @@
 
 Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, contracts `contracts-v0.1.2` (manifest final14).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/cursor-ordinal.md`](design/cursor-ordinal.md): The cursor ordinal (ST-7; P5; steward ruling R-101 Q6 and its
+  follow-up).
+
 ## Shape
 
 - `HostEngine` is a sans-IO machine (plan 2.1). Time enters only through `pump(now)` (TM-1): edge results are fed with no new
@@ -18,7 +25,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
   mandatory event is not ready work while the queue has no room: it is parked, `PumpReport.more` stays false, and the poll that
   frees room makes it ready again (EV-5d, TM-6).
 - The queue (`queue.rs`) has the four classes of 6.2: M never dropped (`Completed` has a reserved slot; the others share
-  `mandatory_events`), K keyed and coalesced to the newer position (EV-1, EV-6), D bounded with drop-oldest and one marker per
+  `mandatory_events`, less the slots that route due steps hold for their answers, R-90), K keyed and coalesced to the newer position (EV-1, EV-6), D bounded with drop-oldest and one marker per
   instance (EV-2), L the marker. `Released` retires the unpolled K, L and D events of its instance, with no marker (EV-5).
 
 ## Choices where the contract is silent (each is reviewable)
@@ -414,11 +421,81 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 ## Round 3 decisions
 
 - **One event per step (9B).** `complete` posts at once only when the current input has posted no event. Otherwise it sets `Next::Complete` and the op completes in a step of its own. `UpdateMetadata` posts `Completed`, then `MetadataChanged` in the next session step (`metadata_pending`). A local `Detach` posts `RouteClosed`, then `Completed` in the next step.
-- **Deadlines (erratum 3, E3-1).** `Work::Deadline` is the earliest due effect without an event (capture expiry, the kills, the startup and remove grace). It runs whatever the budget. `Work::Silent` is the earliest due `Silent`, a step atomic with its event. It needs budget, and the driver carries it with `more` otherwise. `ready()` lists `Deadline`, then `Silent`, then other work. A step parked on mandatory room is absent from `ready()`, so it never blocks a runnable step. At the bound the driver lets only `Work::Deadline` run.
+- **Deadlines (erratum 3, E3-1).** `Work::Deadline` is the earliest due effect without an event (capture expiry, the kills, the startup and remove grace). It runs whatever the budget. `Work::DueStep` is the earliest due step that is atomic with its event: a session's `Silent`, or a route's stall step (R-90, below). It needs budget, and the driver carries it with `more` otherwise. `ready()` lists `Deadline`, then `DueStep`, then other work. A step parked on mandatory room is absent from `ready()`, so it never blocks a runnable step. At the bound the driver lets only `Work::Deadline` run.
 - **Write bound.** `begin` computes a write's size once (`payload_size`): the payload bytes, or for `Key`, `Mouse` and `Focus` the worst case over every mode from libghostty's encoders, once for each repeat or notch (5.1A). The pending op keeps it as `held_bytes`. `PayloadTooLarge`, the lane bound (IN-5) and `Unknown` (IN-7) all use that one value.
 - **SetNotificationPolicy retirement.** The registry path (`RegistryFailed`) is only for an op admitted in `Created` (`created_path`). Other states end `WorkerLinkFailed`.
 - **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone at the stop, and `GroupSignal::KillPayload` (`SIGUSR2`) at the due `pump` of `stop_grace` (steward ruling R-97, follow-up, contracts `12ebec28`). The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
-- **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+- **Carried due steps first; failed handoffs.** The driver runs a due step (`Silent` or a route's stall step) before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+
+## The stall clock (OU-2, OU-3; steward ruling R-90 and its follow-up; `stall.rs`)
+
+The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadline` (per route, default
+`reader_progress_deadline`, OU-1) and `stall_close_after`. The worker owns the route machine and decides each transition
+(its `DESIGN.md`, "The stall clock").
+
+- **Arming.** `RouteProgress{route, mark, waiting: true}` arms the stall step at the pump that consumes it plus
+  `stall_deadline`. A report of the same mark keeps the instant; a new mark restarts it; `waiting: false` disarms it.
+  `RouteStalled{route, mark}` arms the close step at the pump that posts its event plus `stall_close_after`, with the
+  worker's mark; `RouteResumed` disarms it at the pump that consumes it. No report arms nothing: an older worker never
+  sends `RouteProgress`, so its routes have no stall clock.
+- **The clock at the post (0181's ST298-R5; lead decision 2026-10-12, steward: no objection).** The rule is "add at
+  post, remove at consume". A clock change that adds a deadline applies at the pump that posts its event: otherwise the
+  deadline can run before the event. A clock change that only removes a deadline applies at the pump that consumes the
+  report: it cannot put a step before an event, and a step after a known resume is wrong. A `RouteStalled` whose event waits behind older parked route events
+  (EV-6) has no close step yet: the parked event (`ParkedRoute::Stalled`) keeps the worker's mark, and the close step arms
+  only when the event posts (`route_stall_posted`). So `next_deadline()` never shows a close step before the host has
+  `RouteStalled`, and a late poll never lets `RouteCloseDue` go first (R-90 Q1 condition 1). A resume or close of the
+  route that waits behind the parked stall event arms nothing at its post: the stall already ended in the worker. A
+  `RouteResumed` ends the close step when Core consumes it, also when its event waits: the worker left the stall, so a
+  close step after it would send a `RouteCloseDue` that the worker declines with no answer, and hold its slot for ever. With
+  one slot, `RouteResumed` could then never post. Tests: `tests/driver/stall.rs` (a stall event and a resume behind an
+  older parked close, a resume consumed before its close step, each with a late poll).
+- **The due step (R-90 Q1, E3-1 items 2 to 5).** `DeadlineKind::Route` is atomic with its event, as `Silent` is: it runs
+  as `Work::DueStep` and needs event budget; with no budget it is carried (`more: true`). A step that runs checks the
+  mandatory room. With room, it sends `RouteStallDue{route, mark}` (or `RouteCloseDue{route, mark}` for the stall's
+  mark) and reserves one mandatory slot for the answer (`EventQueue::reserve`). With no room, it is parked: it sends
+  nothing, its instant leaves `deadlines()` and `next_deadline()`, and the pump reports no `more`; a poll that frees room
+  makes it due again (EV-5d, TM-6). Only a step that ran is parked, so a step with no budget is carried first.
+- **No host-visible change at the due step.** The route's state, `route_reports` and every event change when the worker's
+  answer is consumed and posted, not at the due step. The answer's event posts in the reserved slot, so it never waits
+  for room, unless an earlier frame of the same link took that slot over (below). It counts against the budget of the
+  pump that posts it.
+- **Takeover (R-90 follow-up, contracts `main` `1798a65d`; 0181's ST298-R1).** Frames are in order on a link, so a
+  mandatory frame (EV-5(b)) that the worker sent before its answer must be read first. When the queue has no room for
+  it, it takes over the slot of a due step of the same link (`take_over_slot`, the first such route in id order): the
+  reservation ends there, and that frame's event posts in it. The step still waits for its answer, which is then an
+  ordinary route report: with no room it is parked (EV-5(b)), `parked_work` names its session, and a poll that frees
+  room wakes the host (EV-5(d)). Without this, a frame ahead of the answer (a `RouteResumed` that declines a close step,
+  a close of another route, `Exited`) waited for room that only the answer could free, and with an empty queue no poll
+  could free any. The queue never holds more than `mandatory_events`, and each link keeps its order. Tests:
+  `tests/driver/stall.rs` (a resume ahead of a due close; a frame ahead of the answer, with the parked answer and its
+  post after a poll; several routes due at once).
+- **Release.** The slot is released when the host consumes the worker's answer: `RouteStalled` or `RouteClosed` (the
+  event takes the slot), or, when the worker declines, a newer `RouteProgress` that is not the asked mark waiting, or a
+  `RouteResumed` that answers a close step. A route that closes for another reason releases its slot first.
+- **While a step waits for its answer** (`asked`), the route has no deadline. While it also holds its slot (`slot`),
+  `can_accept` takes a `RouteClosed` or a `RouteStalled` of that route although the queue looks full, because the slot is
+  its, and every other mandatory frame of the same link, which takes the slot over.
+- **No host, no clock (R-90 Q3).** A due message that cannot be sent (no worker link) disarms both steps; the route
+  closes with its session's loss. After an adoption, the new host arms from the pump that consumes the worker's new
+  report, as A18 does for silence.
+- **Whose report (ID-2).** The clock takes a route report (`RouteProgress`, `RouteStalled`, `RouteResumed`) only from the
+  worker of the route's session, and only after the host consumed that route's `RouteReceived`; `RouteStalled` and
+  `RouteResumed` post their events under the same rule. A route that survived a host restart keeps its id in the worker,
+  and this host numbers its routes from 1, so before the receipt a report with the new route's id can be the old route's.
+  The worker sends `RouteReceived` before any report of the route that it binds, and the link is in order. Without this
+  rule a stale waiting report armed the new route's clock, the worker declined the due step with no newer report, and the
+  slot was never released. Test: `a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing`.
+- **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: a route that survives a host restart
+  is unknown to the new host, which drops its reports (`route_progress` and the other route reports find no entry). So
+  that route has no stall clock, and its stuck reader holds PTY output (OU-3d) until it closes for another reason. The DP-8
+  PR (ST's next) adds the route's stall state to the per-route adoption record and the restore rule: `RouteAdopted` only,
+  and the stall step or the close step armed from the pump that consumes the record (the worker's `DESIGN.md`).
+- **A new step is not parked.** A report that replaces the armed step (a new waiting mark, the end of waiting, a stall or
+  a resume) clears the parked flag: only a step that ran can be parked (0181's ST298-R3). Test:
+  `new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked`.
+- Tests: `tests/stall.rs` (arming, the slot and its release on a decline, the stall and the close step, the resume, a
+  parked step); the carried step is the driver's (`e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room`).
 
 ## R-100: a message that cannot fit the link frame is refused at the call (2026-10-12)
 
@@ -431,12 +508,14 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   A3-1). `attach` checks the route's `AttachRoute` after the applied limits and before `RouteLimit`. The `Launch` comes
   from one constructor, `launch_spec_for`, for the send and for the check.
 - **Worst case (lead ruling).** The check measures the message with the worst case of each value that is assigned after
-  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
-  the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
-  `Created` session can store them after the check of `Start` (RC-R100-3). A call that passes never fails at the send. The
-  cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
-  size), and for a `Launch` up to several kilobytes, because a full palette is about 6.7 KB of JSON (RC-R100-5). Assigning
-  the request number at `begin` would change the op-number order, so it is not done.
+  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also
+  has the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on
+  a `Created` session can store them after the check of `Start` (RC-R100-3). It also has the largest cursor ordinal
+  (`MAX_CURSOR_ORDINAL`): `Start` reserves the ordinal after the call (ST-7, `design/cursor-ordinal.md`). A call that
+  passes never fails at the send. The cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op`
+  or an `AttachRoute` (the numbers and the size), and for a `Launch` up to several kilobytes, because a full palette is
+  about 6.7 KB of JSON (RC-R100-5). Assigning the request number at `begin` would change the op-number order, so it is
+  not done.
 - **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
   `DEFAULT_MAX_PAYLOAD` (1 MiB), and learns `link_frame_bound` from the `Launch` itself. So a `Launch` is checked at
   `DEFAULT_MAX_PAYLOAD`, and every other message at `link_frame_bound`. A bound sent before the `Launch` would change worker
@@ -450,9 +529,18 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, which keeps no buffer of the
   encoded output. The slow path still allocates: it builds the message (a clone of the request or the op, the worst
   palette), and a serializer can allocate (`HexBytes` makes its hex string). No claim of an allocation-free check is made.
-- **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
-  `max_snapshot_bytes`) + 1 MiB, capped at `u32::MAX / 2`: a `Text` control byte is the six-byte escape `\u00XX`, so every
-  write that `max_paste_bytes` admits fits. Only where the cap binds can a write be refused `InvalidInput{payload.text}`.
+- **The bound holds the largest payload and the largest facts reply (lead ruling; #320 R320-SI-5).** The one formula is
+  `botster_core_link::msg::link_frame_bound`, which the worker's tests use too: max(6 × max(`max_paste_bytes`,
+  `max_snapshot_bytes`), `facts_reply_bound`) + 1 MiB, capped at `LINK_FRAME_CAP = u32::MAX / 2`.
+  - A `Text` control byte is the six-byte escape `\u00XX`, so every write that `max_paste_bytes` admits fits. Only where
+    the cap binds can a write be refused `InvalidInput{payload.text}`.
+  - A `ReadFacts` reply travels in one worker frame. `facts_reply_bound` is `input_events_bytes`, four protected entries
+    past it (R-116, R-117; each `PROTECTED_ENTRY_FIXED` = 1 KiB and two route tags at six bytes a byte), and the client
+    tail as hex (2 × `input_tail_bytes`). The 1 MiB holds the fixed part (revisions, modes, size, cursor, the envelope).
+    With the defaults the payload term binds (97 MiB).
+  - Above the cap a facts reply can still be larger than a frame: 9B states no ceiling for `input_tail_bytes` or
+    `input_events_bytes`. The steward's answer to R320-Q4 is ceilings in 9B through the amendment path (candidate A26);
+    until then that case is unchanged.
 
 ## The control queue (IN-6, steward ruling R-91; PC, 2026-10-11)
 
@@ -462,7 +550,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
   the link's frame bound `F` (`HostEngine::link_frame_bound`:
-  `min(6 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  `min(max(6 × max(L.max_paste_bytes, L.max_snapshot_bytes), facts_reply_bound(L)) + 1 MiB, LINK_FRAME_CAP)`,
+  computed with saturating arithmetic,
   where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
   - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame

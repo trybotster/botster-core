@@ -5,7 +5,7 @@ use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
+use botster_core_edges::edges::{GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_core_link::proof::{host_proof, token_proof};
@@ -43,6 +43,13 @@ impl HostEngine {
             Input::LinkHello { link, hello } => self.on_hello(link, hello),
             Input::LinkMsg { link, msg } => {
                 if let Some(id) = self.links.get(&link).cloned() {
+                    // A mandatory frame ahead of a due step's answer that waits only for room takes the step's slot over.
+                    if !self.has_room()
+                        && crate::engine::needs_room(&msg)
+                        && !self.answer_has_slot(&msg)
+                    {
+                        self.take_over_slot(link);
+                    }
                     self.on_worker_msg(&id, msg);
                 }
             }
@@ -52,7 +59,7 @@ impl HostEngine {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::HandoffLost { route } => self.on_handoff_lost(route),
-            Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
+            Input::ProcessExited { identity } => self.on_process_exited(identity),
             Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
                 Some(Owner::Session(id)) => self.adopt_connected(&id, link),
                 // No adoption waits for this link: it is closed, and nothing is read from it.
@@ -297,18 +304,36 @@ impl HostEngine {
                 route,
                 reason,
                 route_tag: _,
-            } => match reason {
-                // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
-                // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
-                RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
-                _ => self.route_close(route, reason),
-            },
-            WorkerMsg::RouteStalled { route } => self.route_event(route, true),
-            WorkerMsg::RouteResumed { route } => self.route_event(route, false),
+            } => {
+                self.route_closed_report(route);
+                match reason {
+                    // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
+                    // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
+                    RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
+                    _ => self.route_close(route, reason),
+                }
+            }
+            WorkerMsg::RouteStalled { route, mark } => {
+                if self.route_stalled(id, route) {
+                    self.route_event(ParkedRoute::Stalled(route, mark));
+                }
+            }
+            WorkerMsg::RouteResumed { route, .. } => {
+                if self.route_resumed(id, route) {
+                    self.route_event(ParkedRoute::Resumed(route));
+                }
+            }
+            WorkerMsg::RouteProgress {
+                route,
+                mark,
+                waiting,
+            } => self.route_progress(id, route, mark, waiting),
+            // The driver closed the host's copy of the stream when it fed the report (DP-2, R-65). The route's stall clock
+            // takes the worker's reports from now on (`stall.rs`).
+            WorkerMsg::RouteReceived { route } => self.route_received(id, route),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
-            // `RouteReceived` changes no state here: the driver closed the host's copy of the stream when it fed the
-            // report (DP-2, R-65). The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
     }
@@ -332,24 +357,32 @@ impl HostEngine {
         }
     }
 
-    fn route_event(&mut self, route: RouteId, stalled: bool) {
+    /// `event` is `RouteStalled` or `RouteResumed`.
+    fn route_event(&mut self, event: ParkedRoute) {
         // An event waits behind the ones parked before it, so the worker's order holds (EV-6).
-        if !self.parked.is_empty() || !self.post_route_progress(route, stalled) {
-            self.parked.push_back(ParkedRoute::Progress(route, stalled));
+        if !self.parked.is_empty() || !self.post_route_progress(&event) {
+            self.parked.push_back(event);
         }
     }
 
-    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room.
-    fn post_route_progress(&mut self, route: RouteId, stalled: bool) -> bool {
+    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room. A posted
+    /// `RouteStalled` arms the route's close deadline from this pump (`route_stall_posted`).
+    fn post_route_progress(&mut self, event: &ParkedRoute) -> bool {
+        let route = event.route();
         if !self.routes.contains_key(&route) {
             return true;
         }
-        let event = if stalled {
-            Event::RouteStalled { route }
-        } else {
-            Event::RouteResumed { route }
+        let posted = match *event {
+            ParkedRoute::Stalled(..) => Event::RouteStalled { route },
+            _ => Event::RouteResumed { route },
         };
-        self.queue.post_mandatory(event).is_ok()
+        if self.queue.post_mandatory(posted).is_err() {
+            return false;
+        }
+        if let ParkedRoute::Stalled(_, mark) = *event {
+            self.route_stall_posted(route, mark);
+        }
+        true
     }
 
     fn on_done(&mut self, id: &SessionId, req: u64, result: OpResult) {
@@ -500,10 +533,27 @@ impl HostEngine {
                     size,
                 });
             }
+            // IN-10: the client revision moves in every case. `RouteClosed` retired the route's key (EV-5), and Core
+            // can close a route without the worker (`DetachLocal` while the link is down), so only a live route of this
+            // session raises the edge.
             Observation::ClientInput { route, input_rev } => {
                 if let Some(t) = &mut s.terminal {
                     t.input_rev.client = input_rev;
                 }
+                if s.routes.contains(&route) {
+                    self.queue.post_keyed(Event::Activity {
+                        id: sid,
+                        instance,
+                        source: ActivitySource::Client(route),
+                        at: unix,
+                    });
+                }
+            }
+            // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
+            // A transaction can end after its route closed, and `RouteClosed` retired the route's key (EV-5): only a
+            // live route of this session raises the edge. The worker's facts keep the record's status update in both
+            // cases.
+            Observation::ClientInputEnded { route } if s.routes.contains(&route) => {
                 self.queue.post_keyed(Event::Activity {
                     id: sid,
                     instance,
@@ -577,7 +627,8 @@ impl HostEngine {
             } => self
                 .queue
                 .post_lost(&sid, &instance, kind, tap_dropped_bytes),
-            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
+            // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host. A
+            // `ClientInputEnded` of a route that is not live in this session also comes here, and raises nothing.
             _ => {}
         }
     }
@@ -689,7 +740,7 @@ impl HostEngine {
         self.fail_inflight(&id);
     }
 
-    fn on_process_exited(&mut self, identity: ProcessIdentity, _status: ExitStatus) {
+    fn on_process_exited(&mut self, identity: ProcessIdentity) {
         let found = self
             .sessions
             .iter()
@@ -798,7 +849,7 @@ impl HostEngine {
             ParkedRoute::Close(route, reason) => {
                 !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
-            ParkedRoute::Progress(route, stalled) => self.post_route_progress(route, stalled),
+            ParkedRoute::Stalled(..) | ParkedRoute::Resumed(_) => self.post_route_progress(&next),
         };
         if !posted {
             self.parked.push_front(next);

@@ -94,6 +94,9 @@ struct ProcessCell {
     model_log: ModelLog,
     /// The worker machine itself, for reading its live model between pumps (`oracle_resume`).
     worker: Option<SharedWorker>,
+    /// The JSON byte size of the `input_records` list of the last `ReadFacts` answer that the worker sent on its link
+    /// (`input_records_cost`, Core ST-7, 9B). It is measured at the link boundary, never in the worker (steward ruling R-14.3).
+    records_cost: Option<u64>,
 }
 
 /// The worker machine, shared with its process cell. The sim is its only writer; a control reads it between pumps.
@@ -122,7 +125,7 @@ impl Machine for SharedWorker {
 struct Processes {
     /// The workers that this host spawned: it reaps them (their exits come to it only).
     cells: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
     /// The workers whose control link this host holds: the ones that it spawned and did not lose to an adoption, and the
     /// ones that it adopted (`edges_quiet` reads their links).
     links: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
@@ -172,12 +175,12 @@ impl ProcessTable {
 impl Processes {
     /// Ends the process `id` once and queues its exit for the host. The exit wakes that host, as a real exit does (TM-6): a
     /// worker can end by its own deadline while the host waits (R-97).
-    fn end(&mut self, id: ProcessIdentity, status: ExitStatus) {
+    fn end(&mut self, id: ProcessIdentity) {
         if let Some(cell) = self.cells.get(&id) {
             let mut cell = lock(cell);
             if !cell.ended {
                 cell.ended = true;
-                self.exits.push_back((id, status));
+                self.exits.push_back(id);
                 if let Some(wake) = &self.wake {
                     wake.signal();
                 }
@@ -689,7 +692,7 @@ impl Workers {
         let control = control_wake(&cell);
         let spawner = {
             let mut owner = lock(&owner);
-            owner.end(identity, ExitStatus::Signal(9));
+            owner.end(identity);
             owner.wake.clone()
         };
         for wake in [spawner, control].into_iter().flatten() {
@@ -802,6 +805,21 @@ impl Workers {
         lock(&self.run_processes)
             .get(&identity)
             .is_some_and(|(cell, _)| !lock(cell).ended)
+    }
+
+    /// The JSON byte size of the `input_records` list of the last `ReadFacts` answer that the worker process `identity` sent
+    /// on its link (`input_records_cost`), or `None` before any.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run.
+    pub(crate) fn input_records_cost(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<Option<u64>, String> {
+        lock(&self.run_processes)
+            .get(&identity)
+            .map(|(cell, _)| lock(cell).records_cost)
+            .ok_or_else(|| format!("the process {identity:?} is not a worker of this run"))
     }
 
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
@@ -966,6 +984,7 @@ impl Spawner for WorkerSpawner {
             link,
             link_open: true,
             outbound: VecDeque::new(),
+            sent: FrameDecoder::new(u32::MAX),
             written: 0,
             payload: None,
             spawned: None,
@@ -1030,7 +1049,7 @@ impl Spawner for WorkerSpawner {
                     cell.terminate = true;
                 }
             }
-            GroupSignal::Kill => lock(&owner).end(identity, ExitStatus::Signal(9)),
+            GroupSignal::Kill => lock(&owner).end(identity),
         }
     }
 
@@ -1042,7 +1061,7 @@ impl Spawner for WorkerSpawner {
         }
     }
 
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_exit(&mut self) -> Option<ProcessIdentity> {
         lock(&self.processes).exits.pop_front()
     }
 
@@ -1167,6 +1186,8 @@ struct WorkerEdges {
     link_open: bool,
     /// Bytes of `LinkSend` that the link has not taken yet, in order.
     outbound: VecDeque<u8>,
+    /// The frames of `LinkSend`, read for `input_records_cost` only.
+    sent: FrameDecoder,
     /// The bytes of `LinkSend` written so far (`Input::LinkWritten`).
     written: u64,
     payload: Option<ScriptedProgram>,
@@ -1199,6 +1220,33 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
+    /// Reads the frames of a `LinkSend` as the link carries them, and keeps the JSON size of the `input_records` list of each
+    /// `ReadFacts` answer (`input_records_cost`). It changes nothing that the link carries and adds no wait.
+    fn measure_sent(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while !rest.is_empty() {
+            let took = self.sent.push(rest);
+            // The decoder takes bytes up to the end of a frame, and each complete frame is taken below; after a refusal it
+            // takes everything. So every push takes a byte, and the loop ends.
+            assert_ne!(took, 0, "the frame decoder took no byte of a LinkSend");
+            rest = &rest[took..];
+            while let Ok(Some(frame)) = self.sent.next_frame() {
+                if frame.kind != FrameType::WORKER_MSG {
+                    continue;
+                }
+                if let Ok(WorkerMsg::Done {
+                    result: OpResult::Ok(OpOutput::Facts(facts)),
+                    ..
+                }) = WorkerMsg::decode(&frame.payload)
+                {
+                    let cost = serde_json::to_vec(&facts.input.input_records)
+                        .map_or(0, |v| v.len() as u64);
+                    lock(&self.cell).records_cost = Some(cost);
+                }
+            }
+        }
+    }
+
     /// Keeps a route stream that the link delivered, under a new id for the machine.
     fn keep_descriptor(&mut self, descriptor: crate::net::Descriptor) -> DescriptorId {
         let end = descriptor
@@ -1641,6 +1689,7 @@ impl Binding<SharedWorker> for WorkerEdges {
             // Queued; the write is its own input (`Ready::Flush`), as the real driver writes when the socket takes bytes.
             Action::LinkSend(bytes) => {
                 if self.link_open {
+                    self.measure_sent(&bytes);
                     self.outbound.extend(bytes);
                 }
             }
@@ -1695,13 +1744,13 @@ impl Binding<SharedWorker> for WorkerEdges {
                 cell.program = None;
             }
             Action::Exit => {
-                lock(&self.processes).end(self.id, ExitStatus::Code(0));
+                lock(&self.processes).end(self.id);
                 self.ended(true);
             }
-            // As the real driver's failed run: exit status 1 (`ExitCode::FAILURE`), and the end drops the payload, as the real
-            // payload's drop kills its group and reaps it.
+            // As the real driver's failed run: the worker process ends (the host reads no exit status, finding PB-W1), and the
+            // end drops the payload, as the real payload's drop kills its group and reaps it.
             Action::ExitFailure { .. } => {
-                lock(&self.processes).end(self.id, ExitStatus::Code(1));
+                lock(&self.processes).end(self.id);
                 self.ended(true);
             }
             Action::CandidateClose(id) => {

@@ -224,6 +224,7 @@ impl HostEngine {
                 });
                 self.await_ticket(id, ticket);
             }
+            StartPhase::RowOrdinal => self.reserve_ordinal(id, f.op),
             StartPhase::RowStarting => self.write_session_row(id, SessionState::Starting),
             StartPhase::PostStarting => {
                 if self.post_state(id, SessionState::Starting) {
@@ -817,7 +818,50 @@ impl HostEngine {
         let n = token.len().min(bytes.len());
         token[..n].copy_from_slice(&bytes[..n]);
         s.token = Some(token);
-        self.set_start_phase(id, StartPhase::RowStarting);
+        self.set_start_phase(id, StartPhase::RowOrdinal);
+    }
+
+    /// Reserves the next cursor ordinal for the instance (steward ruling R-101 Q6): the counter row is written with it, and
+    /// the ordinal reaches the worker only after that write is `Ok`. Memory moves past it at once, so a failed or uncertain
+    /// write never yields the same ordinal again. Past the largest ordinal the `Start` fails `RegistryFailed{uncertain:
+    /// false}`, with nothing written: that is permanent for the data directory (R-101, follow-up).
+    fn reserve_ordinal(&mut self, id: &SessionId, op: OpId) {
+        let ordinal = self.next_ordinal;
+        if ordinal > botster_core_link::msg::MAX_CURSOR_ORDINAL {
+            let error = CoreError::new(
+                ErrorCode::RegistryFailed { uncertain: false },
+                "the cursor ordinals of this data directory are used up",
+            );
+            self.start_not_run(id, op, error);
+            return;
+        }
+        self.next_ordinal = ordinal + 1;
+        self.sessions
+            .get_mut(id)
+            .expect("a flow has a session")
+            .ordinal = ordinal;
+        let ticket = self.write_raw(
+            Owner::Session(id.clone()),
+            crate::session::ORDINAL_KEY,
+            ordinal.to_string().into_bytes(),
+        );
+        self.await_ticket(id, ticket);
+    }
+
+    /// A `Start` that ran nothing ends with `error`: the session is `Created` again, and the stops that waited for it end
+    /// with the same error.
+    fn start_not_run(&mut self, id: &SessionId, op: OpId, error: CoreError) {
+        let s = self.sessions.get_mut(id).expect("kept");
+        s.admit = Admit::Created;
+        s.token = None;
+        let waiters = std::mem::take(&mut s.waiters);
+        s.stop_after_start = false;
+        self.flow_done(id);
+        self.complete(op, OpResult::Err(error.clone()));
+        // A2-1: `RegistryFailed` is the only asynchronous error of `Stop`. The stop waited for this row write.
+        for waiter in waiters {
+            self.complete_later(waiter, OpResult::Err(error.clone()));
+        }
     }
 
     pub(crate) fn flow_row(&mut self, id: &SessionId, result: Result<(), StorageError>) {
@@ -847,22 +891,15 @@ impl HostEngine {
                 self.complete(f.op, OpResult::Err(error));
             }
             (Flow::Start(f), result) => match (f.phase, result) {
+                (StartPhase::RowOrdinal, Ok(())) => {
+                    self.set_start_phase(id, StartPhase::RowStarting)
+                }
                 (StartPhase::RowStarting, Ok(())) => {
                     self.set_start_phase(id, StartPhase::PostStarting)
                 }
-                (StartPhase::RowStarting, Err(e)) => {
-                    // Nothing ran: the session is `Created` again.
-                    let s = self.sessions.get_mut(id).expect("kept");
-                    s.admit = Admit::Created;
-                    s.token = None;
-                    let waiters = std::mem::take(&mut s.waiters);
-                    s.stop_after_start = false;
-                    self.flow_done(id);
-                    self.complete(f.op, OpResult::Err(registry_failed(e)));
-                    // A2-1: `RegistryFailed` is the only asynchronous error of `Stop`. The stop waited for this row write.
-                    for op in waiters {
-                        self.complete_later(op, OpResult::Err(registry_failed(e)));
-                    }
+                // Nothing ran: the session is `Created` again.
+                (StartPhase::RowOrdinal | StartPhase::RowStarting, Err(e)) => {
+                    self.start_not_run(id, f.op, registry_failed(e))
                 }
                 (StartPhase::RowIdentity, Ok(())) => {
                     let phase = if f.hello_seen {

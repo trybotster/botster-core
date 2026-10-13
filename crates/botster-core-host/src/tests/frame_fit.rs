@@ -7,7 +7,7 @@ use crate::frame_fit::{
     WORST_SIZE,
 };
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
-use botster_core_link::msg::json_len;
+use botster_core_link::msg::{json_len, MAX_CURSOR_ORDINAL};
 use botster_route_codec::prelude::{HexBytes, Modifier};
 
 /// A handle with the smallest link frame bound: one byte of paste and of snapshot, so the bound is 1 MiB and six bytes.
@@ -444,7 +444,11 @@ fn the_fast_path_never_admits_a_message_that_cannot_fit() {
         }),
     });
     request.size_policy = Some(SizePolicy::Latest);
-    let launch = HostMsg::Launch(Box::new(w.engine.launch_spec_for(&request, WORST_SIZE)));
+    let launch = HostMsg::Launch(Box::new(w.engine.launch_spec_for(
+        &request,
+        WORST_SIZE,
+        MAX_CURSOR_ORDINAL,
+    )));
     assert!(launch_fields(&request, "p").iter().all(|f| f.exact() <= 2));
     let handoff = HostMsg::AttachRoute {
         route: RouteId(u64::MAX),
@@ -690,10 +694,11 @@ fn each_field_of_a_write_is_named() {
 fn worst_launch_len(w: &World, filler: usize) -> u64 {
     let mut r = request();
     r.argv.push("a".repeat(filler));
-    HostMsg::Launch(Box::new(
-        w.engine
-            .launch_spec_for(&worst_launch_request(&r), WORST_SIZE),
-    ))
+    HostMsg::Launch(Box::new(w.engine.launch_spec_for(
+        &worst_launch_request(&r),
+        WORST_SIZE,
+        MAX_CURSOR_ORDINAL,
+    )))
     .encoded_len()
 }
 

@@ -36,6 +36,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         link,
         link_open: true,
         outbound: VecDeque::new(),
+        sent: FrameDecoder::new(u32::MAX),
         written: 0,
         payload: None,
         spawned: None,
@@ -184,7 +185,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     }
     spawner.signal_group(edges.id, GroupSignal::Kill);
     spawner.signal_group(edges.id, GroupSignal::Kill);
-    assert_eq!(spawner.poll_exit(), Some((edges.id, ExitStatus::Signal(9))));
+    assert_eq!(spawner.poll_exit(), Some(edges.id));
     assert_eq!(spawner.poll_exit(), None);
     spawner.signal_group(edges.id, GroupSignal::EndPayload);
     spawner.signal_group(edges.id, GroupSignal::KillPayload);
@@ -372,17 +373,30 @@ fn worker_identities_do_not_repeat() {
     }
 }
 
-/// LC-5 (steward ruling R-97, follow-up): after `EndPayload` the workers expose no grace deadline: `stop_grace` is the Core
-/// library's deadline, and the shared worker machine keeps no timer for it.
-#[test]
-fn workers_expose_no_payload_grace_deadline() {
-    use botster_core_link::frame::{encode_frame, FrameType};
-    use botster_core_link::hello::Hello;
+/// One host message as the link carries it: a framed `HostMsg`.
+fn host_frame(msg: &botster_core_link::msg::HostMsg) -> Vec<u8> {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    let mut bytes = Vec::new();
+    encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
+    bytes
+}
+
+/// Brings the fixture's worker machine to a running payload: the host's hello, a `Launch` and its spawn. Returns the bytes
+/// of the worker's `LinkSend` actions on the way.
+fn launched(worker: &mut SharedWorker, now: Instant) -> Vec<u8> {
     use botster_core_link::msg::{HostMsg, LaunchSpec};
     use botster_core_link::proof::host_proof;
 
-    let (edges, _peer, mut worker, now) = fixture(1024);
-    while worker.poll_action().is_some() {}
+    let mut sent = Vec::new();
+    let mut drain = |worker: &mut SharedWorker| {
+        while let Some(action) = worker.poll_action() {
+            if let Action::LinkSend(bytes) = action {
+                sent.extend(bytes);
+            }
+        }
+    };
+    drain(worker);
     let hello = Hello {
         protocol: 1,
         instance: InstanceId("1-1".into()),
@@ -414,15 +428,12 @@ fn workers_expose_no_payload_grace_deadline() {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 65536,
         limits: CoreLimits::default(),
+        cursor_ordinal: 1,
     }));
-    payload.clear();
-    launch.encode(&mut payload);
-    bytes = Vec::new();
-    encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
     worker.handle(
         now,
         Input::LinkBytes {
-            bytes,
+            bytes: host_frame(&launch),
             descriptors: Vec::new(),
         },
     );
@@ -433,11 +444,92 @@ fn workers_expose_no_payload_grace_deadline() {
             start_time: 1,
         })),
     );
+    drain(worker);
+    sent
+}
+
+/// LC-5 (steward ruling R-97, follow-up): after `EndPayload` the workers expose no grace deadline: `stop_grace` is the Core
+/// library's deadline, and the shared worker machine keeps no timer for it.
+#[test]
+fn workers_expose_no_payload_grace_deadline() {
+    let (edges, _peer, mut worker, now) = fixture(1024);
+    launched(&mut worker, now);
     worker.handle(now, Input::EndPayload);
     while worker.poll_action().is_some() {}
     let workers = Workers::new(edges.scheduler.clone(), WorkerClock::manual(now).0);
     lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
     assert_eq!(workers.next_deadline(), None);
+}
+
+/// `input_records_cost` (Core ST-7, 9B; steward ruling R-14.3): the JSON byte size of the `input_records` list of the last
+/// `ReadFacts` answer that the worker sent, read from its `LinkSend` bytes as the link carries them. A frame that is not a
+/// `ReadFacts` answer changes nothing, and an answer split across two `LinkSend` actions counts once it is whole.
+#[test]
+fn input_records_cost_is_the_size_of_the_last_facts_answer_on_the_link() {
+    use botster_core_link::msg::HostMsg;
+
+    let (mut edges, _peer, mut worker, now) = fixture(1 << 20);
+    let other = launched(&mut worker, now);
+    assert!(!other.is_empty());
+    edges.perform(now, Action::LinkSend(other));
+    assert_eq!(lock(&edges.cell).records_cost, None);
+    let session = SessionId("s".into());
+    for (req, op) in [
+        (
+            1,
+            Op::WriteInput {
+                session: session.clone(),
+                payload: InputPayload::Text { text: "hi".into() },
+                guard: None,
+            },
+        ),
+        (
+            2,
+            Op::ReadFacts {
+                session,
+                after: None,
+            },
+        ),
+    ] {
+        worker.handle(
+            now,
+            Input::LinkBytes {
+                bytes: host_frame(&HostMsg::Op { req, op }),
+                descriptors: Vec::new(),
+            },
+        );
+    }
+    let mut sent = Vec::new();
+    while let Some(action) = worker.poll_action() {
+        if let Action::LinkSend(bytes) = action {
+            sent.extend(bytes);
+        }
+    }
+    let mut decoder = FrameDecoder::new(u32::MAX);
+    let (mut at, mut expected) = (0, None);
+    while at < sent.len() {
+        at += decoder.push(&sent[at..]);
+        while let Some(frame) = decoder.next_frame().unwrap() {
+            if let Ok(WorkerMsg::Done {
+                result: OpResult::Ok(OpOutput::Facts(facts)),
+                ..
+            }) = WorkerMsg::decode(&frame.payload)
+            {
+                assert!(!facts.input.input_records.is_empty());
+                expected = Some(
+                    serde_json::to_vec(&facts.input.input_records)
+                        .unwrap()
+                        .len() as u64,
+                );
+            }
+        }
+    }
+    let expected = expected.expect("the worker answers ReadFacts");
+    let (first, rest) = sent.split_at(sent.len() - 1);
+    edges.perform(now, Action::LinkSend(first.to_vec()));
+    assert_eq!(lock(&edges.cell).records_cost, None);
+    edges.perform(now, Action::LinkSend(rest.to_vec()));
+    assert_eq!(lock(&edges.cell).records_cost, Some(expected));
 }
 
 /// Plan 2.5 rule 7 and A5-2: positive read bounds retain control bytes and complete frames in order.
@@ -566,7 +658,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(!workers.has_ready());
     assert!(table.holds_reports());
     assert!(!workers.edges_quiet(&table));
-    assert_eq!(spawner.poll_exit(), Some((id, ExitStatus::Signal(9))));
+    assert_eq!(spawner.poll_exit(), Some(id));
     assert!(workers.edges_quiet(&table));
 }
 
@@ -617,7 +709,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     let ender = thread::spawn(move || {
         let mut owner = lock(&processes);
         owner_held_tx.send(()).unwrap();
-        owner.end(id, ExitStatus::Signal(9));
+        owner.end(id);
         drop(owner);
         done_tx.send("end").unwrap();
     });
@@ -642,10 +734,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
         Ok(()),
         "the control read the cell before the end"
     );
-    assert_eq!(
-        lock(&edges.processes).exits.pop_front(),
-        Some((id, ExitStatus::Signal(9)))
-    );
+    assert_eq!(lock(&edges.processes).exits.pop_front(), Some(id));
     assert!(workers.program_edge(id).is_err(), "the process has ended");
 }
 

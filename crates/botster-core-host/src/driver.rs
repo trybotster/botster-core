@@ -13,8 +13,7 @@ use crate::run::registry_failed;
 use crate::session::ROW_PREFIX;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
-    Wake as WakeEdge,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError, Wake as WakeEdge,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
@@ -72,7 +71,7 @@ pub trait HostEdges: Send {
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
     /// What `identity` matches now (AD-6).
     fn identity_state(&self, identity: ProcessIdentity) -> IdentityState;
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity>;
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
     fn accept_link(&mut self) -> Option<LinkId>;
@@ -191,7 +190,7 @@ pub struct HostDriver<E: HostEdges> {
     failed_handoffs: std::collections::VecDeque<Input>,
     /// An exit that the process edge reaped when the pump had no budget left: the next pump feeds it first (9B). It is how
     /// the driver knows that an exit waits, so that `PumpReport.more` is true only then (TM-6).
-    next_exit: Option<(ProcessIdentity, ExitStatus)>,
+    next_exit: Option<ProcessIdentity>,
     /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
     /// closes the link for it, after the frames that came before it (9B, TM-6).
     link_ends: BTreeMap<LinkId, String>,
@@ -237,6 +236,24 @@ fn control_room<E: HostEdges>(
     bound.saturating_sub(unsent).min(edges.link_room(link))
 }
 
+/// The next cursor ordinal of the data directory (steward ruling R-101 Q6): one above the registry's counter, or 1 when no
+/// `Start` reserved one yet. A counter that is not a number is a corrupt registry.
+fn next_ordinal<E: HostEdges>(edges: &mut E) -> Result<u64, CoreError> {
+    let rows = edges
+        .read_rows(crate::session::ORDINAL_KEY)
+        .map_err(registry_failed)?;
+    let counter = rows
+        .iter()
+        .find(|(key, _)| key == crate::session::ORDINAL_KEY)
+        .map(|(_, bytes)| bytes.as_slice());
+    crate::session::next_ordinal(counter).ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::RegistryFailed { uncertain: false },
+            "the cursor ordinal row is not a number",
+        )
+    })
+}
+
 impl<E: HostEdges> HostDriver<E> {
     /// Builds the driver over `edges`. The ids of the rows that the registry holds are read here, so that `Create` refuses an
     /// id that a durable row holds before `AdoptAll` runs (ID-1, LC-3, AD-2). The driver reads no clock: the first time it
@@ -250,7 +267,8 @@ impl<E: HostEdges> HostDriver<E> {
             .into_iter()
             .filter_map(|(key, _)| key.strip_prefix(ROW_PREFIX).map(|id| SessionId(id.into())))
             .collect();
-        let engine = HostEngine::new(cfg, registry_ids);
+        let mut engine = HostEngine::new(cfg, registry_ids);
+        engine.next_ordinal = next_ordinal(&mut edges)?;
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
         let mut payload = Vec::new();
@@ -304,10 +322,10 @@ impl<E: HostEdges> HostDriver<E> {
         self.runnable() || budget.more_input
     }
 
-    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a `Silent`, and a step whose timing a
-    /// clause fixes (R-20) are never held.
+    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a due step (a `Silent` or a route's
+    /// stall step, R-90), and a step whose timing a clause fixes (R-20) are never held.
     fn held(&mut self, work: &Work) -> bool {
-        !matches!(work, Work::Deadline | Work::Silent)
+        !matches!(work, Work::Deadline | Work::DueStep)
             && !self.engine.never_deferred(work)
             && self.edges.scheduler().held(&self.engine.ops_of(work))
     }
@@ -705,7 +723,7 @@ impl<E: HostEdges> HostDriver<E> {
     /// budget ran out before the edge was asked.
     fn take_exits(&mut self, budget: &mut Budget) {
         loop {
-            let Some((identity, status)) = self
+            let Some(identity) = self
                 .next_exit
                 .take()
                 .or_else(|| self.edges.poll_process_exit())
@@ -713,11 +731,11 @@ impl<E: HostEdges> HostDriver<E> {
                 return;
             };
             if budget.exhausted() {
-                self.next_exit = Some((identity, status));
+                self.next_exit = Some(identity);
                 budget.more_input = true;
                 return;
             }
-            self.feed(Input::ProcessExited { identity, status });
+            self.feed(Input::ProcessExited { identity });
             budget.account(&mut self.engine);
         }
     }
@@ -970,13 +988,14 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         };
         // The one place where time enters Core (TM-1): every later input of this pump is at this time.
         self.engine.handle(now.monotonic, Input::Clock(now.unix));
-        // A due `Silent` is an older step than any input that arrives now: it runs first, with the budget it needs (E3-1 item 3).
-        // The loop runs once for each silence that is due, so this pump ends whatever a step does (9B).
-        for _ in 0..self.engine.due_silences() {
+        // A due atomic step (a `Silent`, a route's stall step) is an older step than any input that arrives now: it runs
+        // first, in due order, with the budget it needs (E3-1 items 3 and 5). The loop runs once for each step that is due,
+        // so this pump ends whatever a step does (9B).
+        for _ in 0..self.engine.due_steps() {
             if budget.exhausted() {
                 break;
             }
-            self.feed(Input::Run(Work::Silent));
+            self.feed(Input::Run(Work::DueStep));
             budget.account(&mut self.engine);
         }
         self.take_exits(&mut budget);
@@ -1007,7 +1026,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 .pick(ChoicePoint::ReadyWork, ready.len());
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
-            if !matches!(work, Work::Deadline | Work::Silent)
+            if !matches!(work, Work::Deadline | Work::DueStep)
                 && !self.engine.never_deferred(&work)
                 && self
                     .edges

@@ -75,10 +75,7 @@ fn a_reaped_exit_still_queued_at_the_stop_grace_is_worker_gone() {
     w.alive.remove(&worker);
     w.advance(GRACE);
     w.pump();
-    w.feed(Input::ProcessExited {
-        identity: worker,
-        status: ExitStatus::Code(0),
-    });
+    w.feed(Input::ProcessExited { identity: worker });
     assert_eq!(
         w.complete(stop),
         OpResult::Ok(OpOutput::End(SessionEnd::Lost(LostReason::WorkerGone)))

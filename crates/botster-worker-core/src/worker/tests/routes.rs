@@ -1055,9 +1055,11 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
     );
 }
 
+mod facts;
 mod handoff;
 mod paste;
 mod report_order;
+mod stall;
 
 /// DP-5, IN-4, AM-2: after `live`, a client's `bytes` and `text` frames go to the PTY in their receive order. Each complete
 /// frame advances `input_rev{client}` on receipt and is reported with its route; a frame split across reads waits for its
@@ -1091,17 +1093,19 @@ fn client_input_after_live_reaches_the_pty_in_order_and_is_tagged() {
         .into_iter()
         .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
         .collect();
-    assert_eq!(
-        tags,
-        [1, 2]
-            .map(|rev| WorkerMsg::Observed {
-                observation: Observation::ClientInput {
-                    route: RouteId(1),
-                    input_rev: InputRev(rev),
-                },
-            })
-            .to_vec()
-    );
+    let mut expected: Vec<WorkerMsg> = [1, 2]
+        .map(|rev| WorkerMsg::Observed {
+            observation: Observation::ClientInput {
+                route: RouteId(1),
+                input_rev: InputRev(rev),
+            },
+        })
+        .to_vec();
+    // ST-7: the end of the first input's transaction raises the activity edge again; the second is still written.
+    expected.push(WorkerMsg::Observed {
+        observation: Observation::ClientInputEnded { route: RouteId(1) },
+    });
+    assert_eq!(tags, expected);
 }
 
 fn refusals(client: &Client) -> Vec<(Option<Op>, RefusalReason)> {
@@ -1394,16 +1398,27 @@ fn a_refused_complete_input_frame_advances_the_client_revision_once() {
         .into_iter()
         .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
         .collect();
+    let received = |rev| WorkerMsg::Observed {
+        observation: Observation::ClientInput {
+            route: RouteId(1),
+            input_rev: InputRev(rev),
+        },
+    };
+    // ST-7 (steward ruling R-101 Q2): a refused input's record ends at receipt, so its activity edge comes again at once.
+    let ended = WorkerMsg::Observed {
+        observation: Observation::ClientInputEnded { route: RouteId(1) },
+    };
     assert_eq!(
         tags,
-        [1, 2, 3, 4]
-            .map(|rev| WorkerMsg::Observed {
-                observation: Observation::ClientInput {
-                    route: RouteId(1),
-                    input_rev: InputRev(rev),
-                },
-            })
-            .to_vec()
+        [
+            received(1),
+            ended.clone(),
+            received(2),
+            ended.clone(),
+            received(3),
+            ended,
+            received(4)
+        ]
     );
 }
 
@@ -2749,6 +2764,44 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
     let all = two.take_all(&mut w, RouteId(2), actions);
     assert!(resizes(&all).is_empty(), "{all:?}");
     assert!(size_reports(&mut w, &all).is_empty());
+}
+
+/// DP-6 `Latest`: a frame that is not input (a paste's begin, steward ruling R-102) is still an input frame of its route,
+/// so it makes its route the most active: the route's last size applies. It advances no `input_rev{client}`.
+#[test]
+fn a_frame_that_is_not_input_still_makes_its_route_the_most_active() {
+    let (mut w, mut one, mut two) = two_routes();
+    read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(1),
+        resize_frame(30, 100),
+    );
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteId(2),
+        resize_frame(40, 120),
+    );
+    assert_eq!(resizes(&all), [cells(40, 120)]);
+    let begin = ToWorker::Input(botster_route_codec::prelude::Input::PasteBegin {
+        op: Op(7),
+        total_bytes: None,
+        require_bracketed: None,
+    });
+    let all = read_on(&mut w, &mut one, &mut two, RouteId(1), client_frame(&begin));
+    assert_eq!(resizes(&all), [cells(30, 100)]);
+    assert!(
+        !w.reports(&all).iter().any(|m| matches!(
+            m,
+            WorkerMsg::Observed {
+                observation: Observation::ClientInput { .. }
+            }
+        )),
+        "a paste's begin is not input: {all:?}"
+    );
 }
 
 /// DP-6, SZ-1: the latest of a host `Resize` and a policy change wins. A host `Resize` stays while the policy's size does

@@ -6,7 +6,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_link::hello::{Hello, TokenProof};
 use botster_core_link::msg::{HostMsg, WorkerMsg};
@@ -34,9 +34,9 @@ pub enum Work {
     /// The earliest due deadline whose effect posts no event: capture expiry, the kill of `stop_grace`, the startup and
     /// remove grace. It runs in its due pump whatever the event budget (TM-3, erratum 3 E3-1 item 1).
     Deadline,
-    /// The earliest due `Silent`: one atomic step with its event. It needs event budget, and otherwise it is carried to the
-    /// next pump (TM-4, E3-1 items 2, 3 and 6).
-    Silent,
+    /// The earliest due step that is atomic with its event: a `Silent`, or a route's stall step (R-90). It needs event
+    /// budget, and otherwise it is carried to the next pump (TM-4, E3-1 items 2, 3 and 6).
+    DueStep,
     /// A route event that waited for queue room.
     Parked,
 }
@@ -203,7 +203,6 @@ pub enum Input {
     /// A process that the engine spawned ended (the exit watch of the `Process` edge).
     ProcessExited {
         identity: ProcessIdentity,
-        status: ExitStatus,
     },
     IdentityState {
         identity: ProcessIdentity,

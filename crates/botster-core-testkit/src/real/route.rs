@@ -82,6 +82,9 @@ pub(super) struct RealRoute {
     fill: Option<Fill>,
     /// `None` for a route of the harness with no tap: it runs no `route_stream_holders`.
     holders: Option<Holders>,
+    /// The tap's record of `route_reports`: `route_accept` sets the base of `progressed` there (R-90 follow-up, Q2). `None`
+    /// for a route of the harness with no tap.
+    accepted: Option<Box<dyn Fn() -> Result<(), String>>>,
     /// The client bytes that wait for room in the stream.
     unsent: Vec<u8>,
     /// While on (`route_gate`), the client reads nothing from the stream beyond a `route_accept` allowance, so the worker's
@@ -249,6 +252,7 @@ impl RealRoute {
             end: Some(end),
             fill: None,
             holders: None,
+            accepted: None,
             unsent: Vec::new(),
             gated: false,
             accept: None,
@@ -265,6 +269,15 @@ impl RealRoute {
     /// The route runs `route_fill` with `fill`.
     pub(super) fn with_fill(mut self, fill: Fill) -> RealRoute {
         self.fill = Some(fill);
+        self
+    }
+
+    /// `route_accept` calls `accepted` before the client takes a byte under the allowance.
+    pub(super) fn with_accepted(
+        mut self,
+        accepted: Box<dyn Fn() -> Result<(), String>>,
+    ) -> RealRoute {
+        self.accepted = Some(accepted);
         self
     }
 
@@ -488,6 +501,10 @@ impl RouteClient for RealRoute {
                     .and_then(Value::as_u64)
                     .and_then(|b| usize::try_from(b).ok())
                     .ok_or("route_accept needs `bytes`")?;
+                // The base of `progressed` comes before the client takes a byte under the allowance.
+                if let Some(accepted) = &self.accepted {
+                    accepted()?;
+                }
                 self.gated = true;
                 self.accept = Some(bytes);
                 self.drain();
