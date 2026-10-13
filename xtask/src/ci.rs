@@ -13,8 +13,8 @@ use crate::{
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
 use botster_gate_kit::mutant_outcomes::{
-    count_difference, mutation_verdict, parse_stage_outcomes, report_lines, stage_outcomes,
-    Outcomes, Stage,
+    count_difference, mutation_verdict, parse_listing, parse_stage_outcomes, report_lines,
+    stage_outcomes, Outcomes, Stage,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -697,32 +697,6 @@ fn diff_mutants(
         return Ok(None);
     }
     parse_listing(&list()?).map(Some)
-}
-
-/// What cargo-mutants 27.1.0 logs, with no output, when the filters (`--in-diff`, `exclude_re`) leave no mutant.
-const NO_MUTANT_LOG: &str = "No mutants to filter";
-
-/// The full names of the mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant, each with
-/// its `name`). When the filters leave no mutant, cargo-mutants prints nothing and logs `NO_MUTANT_LOG`: that is none.
-///
-/// # Errors
-/// The listing failed, its output is not a JSON array, or a mutant has no name.
-fn parse_listing(listing: &std::process::Output) -> Result<Vec<String>> {
-    let json = crate::tools::stdout_of(listing, "cargo mutants --list")?;
-    if json.trim().is_empty() && String::from_utf8_lossy(&listing.stderr).contains(NO_MUTANT_LOG) {
-        return Ok(Vec::new());
-    }
-    let v: serde_json::Value = serde_json::from_str(&json).context("parse the mutant listing")?;
-    v.as_array()
-        .context("the mutant listing is not an array")?
-        .iter()
-        .map(|m| {
-            m["name"]
-                .as_str()
-                .map(str::to_string)
-                .context("a listed mutant has no name")
-        })
-        .collect()
 }
 
 /// What stage 2 tests: exactly the mutants that stage 1 missed (`missed`). cargo-mutants 27.1.0 does not apply `-F` or
@@ -2633,40 +2607,6 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
         assert_eq!(stage2_baseline_args(&["p".into(), "q".into()]), baseline);
-    }
-
-    #[test]
-    fn a_mutant_listing_is_read_by_name_and_anything_else_fails() {
-        use std::os::unix::process::ExitStatusExt;
-        let listing = |code: i32, stdout: &str| std::process::Output {
-            status: std::process::ExitStatus::from_raw(code << 8),
-            stdout: stdout.into(),
-            stderr: b"no manifest".to_vec(),
-        };
-        assert!(parse_listing(&listing(0, "[]")).unwrap().is_empty());
-        assert_eq!(
-            parse_listing(&listing(0, r#"[{"name": "a"}, {"name": "b"}]"#)).unwrap(),
-            ["a", "b"]
-        );
-        assert!(parse_listing(&listing(0, r#"[{"name": "a"}, {}]"#)).is_err());
-        assert!(parse_listing(&listing(0, "{}")).is_err());
-        assert!(parse_listing(&listing(0, "not json")).is_err());
-        // An empty output is 0 only with cargo-mutants' log of an empty filter result.
-        assert!(parse_listing(&listing(0, "")).is_err());
-        let filtered_out = std::process::Output {
-            stderr: b" INFO No mutants to filter\n".to_vec(),
-            ..listing(0, "")
-        };
-        assert!(parse_listing(&filtered_out).unwrap().is_empty());
-        let not_empty = std::process::Output {
-            stderr: filtered_out.stderr.clone(),
-            ..listing(0, "not json")
-        };
-        assert!(parse_listing(&not_empty).is_err());
-        assert_eq!(
-            parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
-            "cargo mutants --list failed: no manifest"
-        );
     }
 
     /// The diff of a change to a list file only (the flip PR at 5d45efc1): no Rust source.

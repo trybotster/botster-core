@@ -1,6 +1,6 @@
 //! The verdict of a mutation stage from its `outcomes.json` and its logs (moved from Core's xtask `ci`, with its tests): the
 //! counts, the missed and the tested mutants by full name, the log report of [`stage_report`] as part of the verdict, and
-//! the step's verdict from the exit code. A gate that runs one stage composes [`count_difference`] (the selection),
+//! the step's verdict from the exit code, and the mutants that a run must test ([`parse_listing`]). A gate that runs one stage composes [`count_difference`] (the selection),
 //! [`stage_outcomes`], [`report_lines`] and [`mutation_verdict`]; Core's two-stage step composes them the same way.
 
 use crate::mutant_logs::stage_report;
@@ -220,6 +220,39 @@ pub fn stage_outcomes(
         bail!("{line}; it had {expected} mutants to test: the run did not report every one");
     }
     Ok((code, outcomes, line))
+}
+
+/// What cargo-mutants 27.1.0 logs, with no output, when the filters (`--in-diff`, `exclude_re`) leave no mutant.
+pub const NO_MUTANT_LOG: &str = "No mutants to filter";
+
+/// The full names of the mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant, each with
+/// its `name`). When the filters leave no mutant, cargo-mutants prints nothing and logs `NO_MUTANT_LOG`: that is none.
+///
+/// # Errors
+/// The listing failed, its output is not a JSON array, or a mutant has no name.
+pub fn parse_listing(listing: &std::process::Output) -> Result<Vec<String>> {
+    if !listing.status.success() {
+        bail!(
+            "cargo mutants --list failed: {}",
+            String::from_utf8_lossy(&listing.stderr)
+        );
+    }
+    let json =
+        String::from_utf8(listing.stdout.clone()).context("the output of cargo mutants --list")?;
+    if json.trim().is_empty() && String::from_utf8_lossy(&listing.stderr).contains(NO_MUTANT_LOG) {
+        return Ok(Vec::new());
+    }
+    let v: serde_json::Value = serde_json::from_str(&json).context("parse the mutant listing")?;
+    v.as_array()
+        .context("the mutant listing is not an array")?
+        .iter()
+        .map(|m| {
+            m["name"]
+                .as_str()
+                .map(str::to_string)
+                .context("a listed mutant has no name")
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -477,5 +510,39 @@ mod tests {
             }
         );
         assert!(parse_outcomes("{}").is_err());
+    }
+
+    #[test]
+    fn a_mutant_listing_is_read_by_name_and_anything_else_fails() {
+        use std::os::unix::process::ExitStatusExt;
+        let listing = |code: i32, stdout: &str| std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.into(),
+            stderr: b"no manifest".to_vec(),
+        };
+        assert!(parse_listing(&listing(0, "[]")).unwrap().is_empty());
+        assert_eq!(
+            parse_listing(&listing(0, r#"[{"name": "a"}, {"name": "b"}]"#)).unwrap(),
+            ["a", "b"]
+        );
+        assert!(parse_listing(&listing(0, r#"[{"name": "a"}, {}]"#)).is_err());
+        assert!(parse_listing(&listing(0, "{}")).is_err());
+        assert!(parse_listing(&listing(0, "not json")).is_err());
+        // An empty output is 0 only with cargo-mutants' log of an empty filter result.
+        assert!(parse_listing(&listing(0, "")).is_err());
+        let filtered_out = std::process::Output {
+            stderr: b" INFO No mutants to filter\n".to_vec(),
+            ..listing(0, "")
+        };
+        assert!(parse_listing(&filtered_out).unwrap().is_empty());
+        let not_empty = std::process::Output {
+            stderr: filtered_out.stderr.clone(),
+            ..listing(0, "not json")
+        };
+        assert!(parse_listing(&not_empty).is_err());
+        assert_eq!(
+            parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
+            "cargo mutants --list failed: no manifest"
+        );
     }
 }
