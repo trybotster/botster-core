@@ -408,7 +408,7 @@ impl HostEngine {
 
     /// Posts `RouteAdopted` of a route that an adoption registered (DP-8, phase 3). False when the queue has no room. A
     /// `Stalled` route arms its close deadline from this pump (add at post), unless a later event of the route waits
-    /// (`route_stall_posted`). An absent tag is the empty string in the event.
+    /// (`route_stall_posted`). An absent tag is `None` in the event, apart from an empty one (Core A22, R-104).
     fn post_route_adopted(&mut self, adopted: &crate::engine::AdoptedRoute) -> bool {
         let route = adopted.route;
         let Some(entry) = self.routes.get(&route) else {
@@ -419,10 +419,8 @@ impl HostEngine {
             session: entry.session.clone(),
             instance: entry.instance.clone(),
             route,
-            // Steward ruling R-104: both tags become `Option<String>`, in `RouteClosed`'s serde form, by a later pin PR.
-            // Until then, an absent tag posts as the empty string.
-            route_tag: entry.route_tag.clone().unwrap_or_default(),
-            owner: adopted.owner.clone().unwrap_or_default(),
+            route_tag: entry.route_tag.clone(),
+            owner: adopted.owner.clone(),
             client: adopted.client.clone(),
         };
         if self.queue.post_mandatory(event).is_err() {

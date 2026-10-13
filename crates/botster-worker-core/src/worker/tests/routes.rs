@@ -1227,10 +1227,10 @@ fn feed_frames(w: &mut World, client: &mut Client, frames: &[Vec<u8>]) -> Vec<Ac
     let mut all = Vec::new();
     for bytes in frames {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: bytes.clone(),
         });
-        all.extend(client.take_all(w, RouteId(1), actions));
+        all.extend(client.take_all(w, RouteKey(1), actions));
     }
     all
 }
@@ -1300,7 +1300,7 @@ fn a_route_mouse_event_with_tracking_on_is_encoded_and_written() {
     use botster_route_codec::prelude::{MouseAction, MouseButton};
     let (mut w, mut client, _) = attached(limits());
     let actions = w.feed(Input::PtyOutput(b"\x1b[?1000h".to_vec()));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let want = encoded(
         &w,
         &InputPayload::Mouse(MouseInput {
@@ -1332,7 +1332,7 @@ fn a_route_mouse_event_with_tracking_on_is_encoded_and_written() {
 fn a_route_event_with_no_encoding_is_refused_with_the_encoders_what_and_its_op() {
     let (mut w, mut client, _) = attached(limits());
     let actions = w.feed(Input::PtyOutput(b"\x1b[?1000h".to_vec()));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let all = feed_frames(
         &mut w,
         &mut client,
@@ -1350,7 +1350,7 @@ fn a_route_event_with_no_encoding_is_refused_with_the_encoders_what_and_its_op()
             }
         )]
     );
-    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!all.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
 /// IN-4, DP-5 (PR3 F87, integration R1-4): a complete input frame that is refused is still client input. Invalid UTF-8
@@ -2534,7 +2534,7 @@ fn a_waiting_route_key_holds_its_frames_bytes_of_the_input_bound() {
     let mut l = limits();
     l.route_input_queue_bytes = bound as u64;
     let (mut w, _, all) = attached(l);
-    assert_eq!(allowance(&all, RouteId(1)), Some(bound));
+    assert_eq!(allowance(&all, RouteKey(1)), Some(bound));
     let keys: Vec<char> = ('a'..='z').take(n + 1).collect();
     let encodings: Vec<Vec<u8>> = keys
         .iter()
@@ -2542,11 +2542,11 @@ fn a_waiting_route_key_holds_its_frames_bytes_of_the_input_bound() {
         .collect();
     // A one-byte write is out and not answered: the PTY is blocked, and the keys wait behind it.
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(0, b"q")),
     });
     assert_eq!(pty_writes(&actions), b"q");
-    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 1));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(bound - 1));
     // The driver's allowance: it spends the bytes that it reads, and a new allowance replaces it. A worker that charged a
     // decoded key nothing would send the whole rest again (`bound - 1`).
     let mut left = bound - 1;
@@ -2554,11 +2554,11 @@ fn a_waiting_route_key_holds_its_frames_bytes_of_the_input_bound() {
         let bytes = key_frame(0, c, 50);
         left -= bytes.len();
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes,
         });
         assert!(pty_writes(&actions).is_empty(), "key {c} waits");
-        left = allowance(&actions, RouteId(1)).unwrap_or(left);
+        left = allowance(&actions, RouteKey(1)).unwrap_or(left);
         assert_eq!(
             left,
             bound - 1 - (k + 1) * frame,
@@ -2571,16 +2571,16 @@ fn a_waiting_route_key_holds_its_frames_bytes_of_the_input_bound() {
     // bytes until its write ends.
     let actions = w.feed(Input::PtyWritten(Ok(1)));
     assert_eq!(pty_writes(&actions), encodings[0]);
-    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - n * frame));
+    assert_eq!(allowance(&actions, RouteKey(1)), Some(bound - n * frame));
     // The first key's write ends: the room of its frame returns, and one more key frame fits again.
     let actions = w.feed(Input::PtyWritten(Ok(encodings[0].len())));
     assert_eq!(pty_writes(&actions), encodings[1]);
-    let room = allowance(&actions, RouteId(1)).expect("a new allowance");
+    let room = allowance(&actions, RouteKey(1)).expect("a new allowance");
     assert_eq!(room, bound - (n - 1) * frame);
     assert!(room >= frame);
     let mut written = [encodings[0].clone(), encodings[1].clone()].concat();
     let more = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: key_frame(0, keys[n], 50),
     });
     assert!(pty_writes(&more).is_empty());
@@ -2596,7 +2596,7 @@ fn a_route_key_text_over_max_key_text_bytes_is_refused_too_large() {
     let mut w = with_limits(|l| l.max_key_text_bytes = 8);
     let mut client = Client::with(&limits());
     let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let at_bound = encoded(&w, &key_payload('a', 8));
     let all = feed_frames(
         &mut w,
@@ -2663,7 +2663,7 @@ fn two_routes() -> (World, Client, Client) {
     let (mut w, one, _) = attached(limits());
     let mut two = Client::default();
     let b = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
-    two.take_all(&mut w, RouteId(2), b);
+    two.take_all(&mut w, RouteKey(2), b);
     (w, one, two)
 }
 
@@ -2672,12 +2672,12 @@ fn read_on(
     w: &mut World,
     one: &mut Client,
     two: &mut Client,
-    route: RouteId,
+    route: RouteKey,
     bytes: Vec<u8>,
 ) -> Vec<Action> {
     let actions = w.feed(Input::RouteRead { route, bytes });
-    let actions = one.take_all(w, RouteId(1), actions);
-    two.take_all(w, RouteId(2), actions)
+    let actions = one.take_all(w, RouteKey(1), actions);
+    two.take_all(w, RouteKey(2), actions)
 }
 
 /// DP-5, DP-6: a route's `resize` has no answer. The worker resizes the model and the PTY once, reports the size to the host
@@ -2686,10 +2686,10 @@ fn read_on(
 fn a_route_resize_resizes_the_pty_once_and_the_size_arrives_in_modes() {
     let (mut w, mut client, _) = attached(limits());
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(resizes(&all), [cells(30, 100)]);
     assert_eq!(size_reports(&mut w, &all), [cells(30, 100)]);
     assert_eq!(modes_sizes(&client), [(30, 100)]);
@@ -2703,10 +2703,10 @@ fn a_route_resize_resizes_the_pty_once_and_the_size_arrives_in_modes() {
     );
     assert!(pty_writes(&all).is_empty());
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert!(resizes(&all).is_empty(), "{all:?}");
     assert_eq!(modes_sizes(&client), [(30, 100)]);
 }
@@ -2720,7 +2720,7 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         &mut w,
         &mut one,
         &mut two,
-        RouteId(1),
+        RouteKey(1),
         resize_frame(30, 100),
     );
     assert_eq!(resizes(&all), [cells(30, 100)]);
@@ -2729,7 +2729,7 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         &mut w,
         &mut one,
         &mut two,
-        RouteId(2),
+        RouteKey(2),
         client_frame(&bytes_frame(0, b"x")),
     );
     assert!(resizes(&all).is_empty(), "{all:?}");
@@ -2737,7 +2737,7 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         &mut w,
         &mut one,
         &mut two,
-        RouteId(2),
+        RouteKey(2),
         resize_frame(40, 120),
     );
     assert_eq!(resizes(&all), [cells(40, 120)]);
@@ -2746,7 +2746,7 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         &mut w,
         &mut one,
         &mut two,
-        RouteId(1),
+        RouteKey(1),
         client_frame(&bytes_frame(0, b"y")),
     );
     assert_eq!(resizes(&all), [cells(30, 100)]);
@@ -2759,8 +2759,8 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         route: RouteId(1),
         reason: DetachReason::Detached,
     });
-    let actions = one.take_all(&mut w, RouteId(1), actions);
-    let all = two.take_all(&mut w, RouteId(2), actions);
+    let actions = one.take_all(&mut w, RouteKey(1), actions);
+    let all = two.take_all(&mut w, RouteKey(2), actions);
     assert_eq!(resizes(&all), [cells(40, 120)]);
     assert_eq!(modes_sizes(&two).last(), Some(&(40, 120)));
     assert_eq!(
@@ -2773,7 +2773,7 @@ fn the_most_recently_active_route_gives_the_size_and_a_close_falls_back() {
         route: RouteId(2),
         reason: DetachReason::Detached,
     });
-    let all = two.take_all(&mut w, RouteId(2), actions);
+    let all = two.take_all(&mut w, RouteKey(2), actions);
     assert!(resizes(&all).is_empty(), "{all:?}");
     assert!(size_reports(&mut w, &all).is_empty());
 }
@@ -2787,14 +2787,14 @@ fn a_frame_that_is_not_input_still_makes_its_route_the_most_active() {
         &mut w,
         &mut one,
         &mut two,
-        RouteId(1),
+        RouteKey(1),
         resize_frame(30, 100),
     );
     let all = read_on(
         &mut w,
         &mut one,
         &mut two,
-        RouteId(2),
+        RouteKey(2),
         resize_frame(40, 120),
     );
     assert_eq!(resizes(&all), [cells(40, 120)]);
@@ -2803,7 +2803,13 @@ fn a_frame_that_is_not_input_still_makes_its_route_the_most_active() {
         total_bytes: None,
         require_bracketed: None,
     });
-    let all = read_on(&mut w, &mut one, &mut two, RouteId(1), client_frame(&begin));
+    let all = read_on(
+        &mut w,
+        &mut one,
+        &mut two,
+        RouteKey(1),
+        client_frame(&begin),
+    );
     assert_eq!(resizes(&all), [cells(30, 100)]);
     assert!(
         !w.reports(&all).iter().any(|m| matches!(
@@ -2822,30 +2828,30 @@ fn a_frame_that_is_not_input_still_makes_its_route_the_most_active() {
 fn a_host_resize_stays_until_the_policy_changes() {
     let (mut w, mut client, _) = attached(limits());
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let actions = w.send(&HostMsg::Op {
         req: 3,
         op: resize_op(20, 70),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(resizes(&all), [cells(20, 70)]);
     assert_eq!(modes_sizes(&client), [(30, 100), (20, 70)]);
     // More input of the most active route is no change of the policy's size.
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(0, b"x")),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert!(resizes(&all).is_empty(), "{all:?}");
     // A new report of the same size is newer than the host's `Resize`.
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(resizes(&all), [cells(30, 100)]);
 }
 
@@ -2856,19 +2862,19 @@ fn a_route_size_that_the_pty_does_not_take_changes_nothing() {
     let (mut w, mut client, _) = attached(limits());
     w.pty_resized = Some(Err(5));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(resizes(&all), [cells(30, 100)]);
     assert!(size_reports(&mut w, &all).is_empty(), "{all:?}");
     assert!(modes_sizes(&client).is_empty(), "{:?}", client.frames);
     w.pty_resized = Some(Ok(()));
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(resizes(&all), [cells(30, 100)]);
     assert_eq!(size_reports(&mut w, &all), [cells(30, 100)]);
     assert_eq!(modes_sizes(&client), [(30, 100)]);
@@ -2889,7 +2895,7 @@ fn the_latest_of_a_host_resize_and_a_route_size_wins_while_one_is_out() {
         };
         let route = |w: &mut World| {
             w.feed(Input::RouteRead {
-                route: RouteId(1),
+                route: RouteKey(1),
                 bytes: resize_frame(30, 100),
             })
         };
@@ -2898,14 +2904,14 @@ fn the_latest_of_a_host_resize_and_a_route_size_wins_while_one_is_out() {
         } else {
             (route(&mut w), host(&mut w), cells(20, 70))
         };
-        let mut all = client.take_all(&mut w, RouteId(1), first);
-        all.extend(client.take_all(&mut w, RouteId(1), second));
+        let mut all = client.take_all(&mut w, RouteKey(1), first);
+        all.extend(client.take_all(&mut w, RouteKey(1), second));
         assert_eq!(resizes(&all).len(), 1, "one is out: {all:?}");
         let actions = w.feed(Input::PtyResized(Ok(())));
-        let all = client.take_all(&mut w, RouteId(1), actions);
+        let all = client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(resizes(&all), [last], "the other one follows");
         let actions = w.feed(Input::PtyResized(Ok(())));
-        let all = client.take_all(&mut w, RouteId(1), actions);
+        let all = client.take_all(&mut w, RouteKey(1), actions);
         assert_eq!(size_reports(&mut w, &all), [last]);
         assert_eq!(modes_sizes(&client).last(), Some(&(last.rows, last.cols)));
         assert_eq!(modes_sizes(&client).len(), 2, "{:?}", client.frames);
@@ -2924,21 +2930,21 @@ fn a_policy_change_keeps_the_host_resize_that_waits() {
             req,
             op: resize_op(rows, cols),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
     }
     for _ in 0..2 {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: resize_frame(30, 100),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
     }
     assert_eq!(resizes(&all), [cells(20, 70)], "{all:?}");
     let mut sizes = Vec::new();
     let mut done = Vec::new();
     for _ in 0..4 {
         let actions = w.feed(Input::PtyResized(Ok(())));
-        let actions = client.take_all(&mut w, RouteId(1), actions);
+        let actions = client.take_all(&mut w, RouteKey(1), actions);
         sizes.extend(resizes(&actions));
         done.extend(w.reports(&actions).into_iter().filter_map(|m| match m {
             WorkerMsg::Done { req, .. } => Some(req),
@@ -2965,26 +2971,26 @@ fn input_that_changes_no_policy_size_keeps_the_policy_change_in_its_place() {
             req: 3,
             op: resize_op(20, 70),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: resize_frame(30, 100),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
         let actions = w.send(&HostMsg::Op {
             req: 4,
             op: resize_op(40, 120),
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: last,
         });
-        all.extend(client.take_all(&mut w, RouteId(1), actions));
+        all.extend(client.take_all(&mut w, RouteKey(1), actions));
         let mut sizes = resizes(&all);
         for _ in 0..4 {
             let actions = w.feed(Input::PtyResized(Ok(())));
-            sizes.extend(resizes(&client.take_all(&mut w, RouteId(1), actions)));
+            sizes.extend(resizes(&client.take_all(&mut w, RouteKey(1), actions)));
         }
         assert_eq!(sizes, [cells(20, 70), cells(30, 100), cells(40, 120)]);
         assert_eq!(modes_sizes(&client).last(), Some(&(40, 120)));
@@ -3002,14 +3008,14 @@ fn modes_coalesce_to_one_latest_unstarted_frame_per_route() {
     let mut held = bound;
     for (rows, cols) in [(30, 100), (40, 120), (25, 90)] {
         let actions = w.feed(Input::RouteRead {
-            route: RouteId(1),
+            route: RouteKey(1),
             bytes: resize_frame(rows, cols),
         });
-        let actions = one.take_all(&mut w, RouteId(1), actions);
+        let actions = one.take_all(&mut w, RouteKey(1), actions);
         held.extend(actions);
     }
     assert_eq!(modes_sizes(&one), [(30, 100), (40, 120), (25, 90)]);
-    two.take_all(&mut w, RouteId(2), held);
+    two.take_all(&mut w, RouteKey(2), held);
     assert_eq!(modes_sizes(&two), [(25, 90)]);
 }
 
@@ -3019,7 +3025,7 @@ fn route_write(actions: &[Action]) -> Vec<u8> {
         .iter()
         .filter_map(|a| match a {
             Action::RouteWrite {
-                route: RouteId(1),
+                route: RouteKey(1),
                 bytes,
             } => Some(bytes),
             _ => None,
@@ -3045,7 +3051,7 @@ fn a_modes_frame_whose_write_is_out_completes_and_the_new_size_follows() {
         req: 4,
         op: resize_op(40, 120),
     }));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(modes_sizes(&client), [(30, 100), (40, 120)]);
 }
 
@@ -3061,26 +3067,26 @@ fn a_partly_written_modes_frame_completes_and_the_new_size_follows() {
     let frame = route_write(&actions);
     client.reader.push(&frame[..3]);
     let rest = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(3),
     });
     assert_eq!(route_write(&rest), frame[3..]);
     // The transport takes nothing more now: no write is out, and 3 bytes of the frame are written.
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     let mut actions = w.send(&HostMsg::Op {
         req: 4,
         op: resize_op(40, 120),
     });
-    actions.extend(w.feed(Input::RouteWritable { route: RouteId(1) }));
+    actions.extend(w.feed(Input::RouteWritable { route: RouteKey(1) }));
     assert_eq!(
         route_write(&actions),
         frame[3..],
         "the rest of the started frame"
     );
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(modes_sizes(&client), [(30, 100), (40, 120)]);
 }
 
@@ -3096,14 +3102,14 @@ fn a_modes_frame_that_the_transport_did_not_take_is_replaced() {
     });
     route_write(&actions);
     w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(0),
     });
     let actions = w.send(&HostMsg::Op {
         req: 4,
         op: resize_op(40, 120),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(modes_sizes(&client), [(40, 120)]);
     assert!(empty.is_some());
     assert_eq!(budgets(&all).last().copied().flatten(), empty);

@@ -83,6 +83,8 @@ pub(super) enum RouteReport {
     Resumed { mark: u64 },
     /// `Observation::ClientInput`.
     ClientInput { input_rev: InputRev },
+    /// `Observation::ClientInputEnded` (ST-7).
+    ClientInputEnded,
 }
 
 /// What a reported route holds back while the control link has no id for it (DP-8, STDP8-D2): at most one item of each kind.
@@ -94,6 +96,9 @@ struct Awaiting {
     /// The route received a complete client input frame (IN-4). Its `RouteId` sends one `ClientInput` with the current
     /// revision (STDP8-D5).
     input: bool,
+    /// The transaction of a client input of the route ended (ST-7). Its `RouteId` sends one `ClientInputEnded`, so the host
+    /// raises the route's `Activity` edge (EV-6); the record's status is in the worker's facts already.
+    input_ended: bool,
     /// The route closed: its `RouteClosed` waits for the id.
     closed: Option<(RouteCloseReason, Option<String>)>,
 }
@@ -904,6 +909,7 @@ impl Worker {
                 Awaiting {
                     stalled: live.stalled,
                     input: false,
+                    input_ended: false,
                     closed: None,
                 },
             );
@@ -911,7 +917,7 @@ impl Worker {
     }
 
     /// `HostMsg::RouteId` (DP-8): the new link's id of a reported route. The route sends what it held: one `ClientInput`
-    /// with the current revision (STDP8-D5), then its close; or, while it lives, one stall or resume report when its state
+    /// with the current revision (STDP8-D5), then one `ClientInputEnded`, then its close; or, while it lives, one stall or resume report when its state
     /// differs from its `RouteLive`, then its progress. A key that this link did not report, or that has its id already,
     /// changes nothing.
     pub(super) fn on_route_id(&mut self, key: u64, route: RouteId) {
@@ -924,6 +930,9 @@ impl Worker {
         if awaiting.input {
             let input_rev = self.input.input_revs().client;
             self.report_route(key, RouteReport::ClientInput { input_rev });
+        }
+        if awaiting.input_ended {
+            self.report_route(key, RouteReport::ClientInputEnded);
         }
         if let Some((reason, route_tag)) = awaiting.closed {
             self.report_route(key, RouteReport::Closed { reason, route_tag });
@@ -960,6 +969,7 @@ impl Worker {
                         awaiting.closed = Some((reason, route_tag));
                     }
                     RouteReport::ClientInput { .. } => awaiting.input = true,
+                    RouteReport::ClientInputEnded => awaiting.input_ended = true,
                     // The route's `RouteId` reports its stall state then; an adopted route is bound already.
                     RouteReport::Stalled { .. }
                     | RouteReport::Resumed { .. }
@@ -983,6 +993,9 @@ impl Worker {
             RouteReport::Resumed { mark } => WorkerMsg::RouteResumed { route, mark },
             RouteReport::ClientInput { input_rev } => WorkerMsg::Observed {
                 observation: Observation::ClientInput { route, input_rev },
+            },
+            RouteReport::ClientInputEnded => WorkerMsg::Observed {
+                observation: Observation::ClientInputEnded { route },
             },
         };
         self.report(&msg);
@@ -1013,8 +1026,11 @@ impl Worker {
         // 23ad).
         let discarded = std::mem::take(&mut route.received);
         self.discard_received(id, discarded, &reason);
-        // DP-6: the closing route is no longer a candidate; the next most recently active route's size applies.
-        self.size_policy();
+        if !drain {
+            // DP-6: the closing route is no longer a candidate; the next most recently active route's size applies. A
+            // route that drains for its session's end is `Open` (R-99) and stays a candidate until `end_route` removes it.
+            self.size_policy();
+        }
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -1162,7 +1178,7 @@ impl Worker {
     fn client_input(
         &mut self,
         now: Instant,
-        id: RouteId,
+        id: RouteKey,
         kept: &Kept,
         received: Received,
     ) -> Option<Received> {
@@ -1207,7 +1223,7 @@ impl Worker {
     /// them is written.
     fn discard_received(
         &mut self,
-        id: RouteId,
+        id: RouteKey,
         received: VecDeque<Received>,
         close: &RouteCloseReason,
     ) {
@@ -1371,7 +1387,7 @@ impl Worker {
             cols: size.cols,
         })
         .encode();
-        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        let ids: Vec<RouteKey> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let route = self.routes.routes.get_mut(&id).expect("listed");
             if route.closing.is_some() || !route.fits(&frame) {

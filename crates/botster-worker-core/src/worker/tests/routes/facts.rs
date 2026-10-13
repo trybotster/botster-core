@@ -15,10 +15,10 @@ fn a_client_input_while_stopping_is_session_ended_on_the_wire_and_stopping_in_it
     let (mut w, mut client, _) = attached(limits());
     w.send(&HostMsg::Stop);
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(1, b"x")),
     });
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals(&client),
         vec![(Some(Op(1)), RefusalReason::SessionEnded)]
@@ -40,9 +40,9 @@ fn a_view_only_input_is_recorded_refused_at_receipt() {
     opts.input = false;
     let mut client = Client::default();
     let bound = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
-    client.take_all(&mut w, RouteId(1), bound);
+    client.take_all(&mut w, RouteKey(1), bound);
     w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(0, b"x")),
     });
     let facts = read_facts(&mut w, None);
@@ -64,10 +64,10 @@ fn sequence_exhaustion_refuses_a_client_frame_with_no_rev_step() {
     let max = crate::worker::facts::Facts::max_seq();
     w.worker.facts.as_mut().unwrap().use_up_to(max - 1);
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: client_frame(&bytes_frame(1, b"x")),
     });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let all = client.take_all(&mut w, RouteKey(1), actions);
     assert_eq!(
         refusals(&client),
         vec![(Some(Op(1)), RefusalReason::Refused)]
@@ -89,12 +89,12 @@ fn a_route_with_inputs_that_wait() -> (World, Client, Vec<Action>) {
     });
     let mut client = Client::default();
     let bind = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
-    client.take_all(&mut w, RouteId(1), bind);
+    client.take_all(&mut w, RouteKey(1), bind);
     let batch: Vec<u8> = (1..=50)
         .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
         .collect();
     let read = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: batch,
     });
     (w, client, read)
@@ -109,11 +109,11 @@ fn the_inputs_that_a_detach_discards_end_not_written_refused() {
         route: RouteId(1),
         reason: DetachReason::Revoked,
     });
-    client.take_all(&mut w, RouteId(1), [read, detach].concat());
+    client.take_all(&mut w, RouteKey(1), [read, detach].concat());
     let facts = read_facts(&mut w, None);
     let ends = status_updates(&facts);
     // Every record has ended, but the inputs at the admission point: they end at their turn.
-    let held = w.worker.input.route_inputs(RouteId(1));
+    let held = w.worker.input.route_inputs(RouteKey(1));
     assert!(held > 0);
     assert_eq!(records(&facts).len(), 50);
     assert_eq!(
@@ -129,7 +129,7 @@ fn the_inputs_that_the_session_end_discards_end_not_written_session_ended() {
     let (mut w, mut client, mut actions) = a_route_with_inputs_that_wait();
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyDrained));
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let facts = read_facts(&mut w, None);
     let ends = status_updates(&facts);
     assert_eq!(records(&facts).len(), 50);
@@ -147,10 +147,10 @@ fn the_inputs_that_the_session_end_discards_end_not_written_session_ended() {
 /// One raw client frame (its type byte first), as the stream carries it, read on route 1.
 fn read_raw(w: &mut World, client: &mut Client, frame: &[u8]) -> Vec<Action> {
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: botster_route_codec::prelude::stream_wrap(frame),
     });
-    client.take_all(w, RouteId(1), actions)
+    client.take_all(w, RouteKey(1), actions)
 }
 
 fn input_frame(body: &[u8]) -> Vec<u8> {

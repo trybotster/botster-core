@@ -270,13 +270,15 @@ impl HostEngine {
         }
     }
 
-    /// The frame check of `attach` (R-100): the route's `AttachRoute`.
+    /// The frame check of `attach` (R-100): the route's `AttachRoute`, with the caller's `client` (DP-8).
     pub(crate) fn check_attach_fit(
         &self,
         options: &AttachOptions,
         limits: &AppliedRouteLimits,
+        client: &ClientId,
     ) -> Result<(), CoreError> {
         let mut fields = vec![
+            Field::Str("client", &client.0),
             Field::Str("file_directory", &options.file_directory),
             Field::Strs("route_features", &options.route_features),
             Field::Strs("terminal_formats", &options.terminal_formats),
@@ -290,6 +292,7 @@ impl HostEngine {
             route: RouteId(u64::MAX),
             options: options.clone(),
             limits: *limits,
+            client: client.clone(),
         })
     }
 }

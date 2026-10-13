@@ -819,7 +819,7 @@ fn a_pending_progress_report_goes_before_a_pending_output_report() {
 fn a_stall_drops_an_unstarted_modes_frame_and_the_baseline_carries_the_size() {
     let (mut w, mut client, write, mark) = waiting_route(FRAME as usize);
     let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: resize_frame(30, 100),
     });
     assert!(
@@ -837,10 +837,10 @@ fn a_stall_drops_an_unstarted_modes_frame_and_the_baseline_carries_the_size() {
     }));
     client.reader.push(&write);
     let actions = w.feed(Input::RouteWritten {
-        route: RouteId(1),
+        route: RouteKey(1),
         result: Ok(write.len()),
     });
-    client.take_all(&mut w, RouteId(1), actions);
+    client.take_all(&mut w, RouteKey(1), actions);
     let frames = &client.frames[before..];
     let mut expected = vec!["output"];
     expected.extend(RESUMED);

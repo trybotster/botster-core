@@ -212,6 +212,7 @@ fn an_attach_route_over_the_frame_bound_is_refused() {
                 stall_close_after: Duration::MAX,
                 route_input_queue_bytes: u64::MAX,
             },
+            client: ClientId(String::new()),
         }
     });
 }

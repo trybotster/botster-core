@@ -74,7 +74,7 @@ fn poll_then_pump(w: &mut World) -> Vec<Event> {
 }
 
 /// DP-8, AD-1, LC-11: the row's state posts first, then one `RouteAdopted` per reported route with its attach tags and a
-/// new id of this handle (an absent tag is the empty string), then the completion of `AdoptAll`. The host sends each
+/// new id of this handle (an absent tag is `None`, Core A22), then the completion of `AdoptAll`. The host sends each
 /// route's `RouteId` to the worker.
 #[test]
 fn adopt_all_posts_a_route_adopted_per_live_route_after_the_state_and_before_the_completion() {
@@ -113,16 +113,16 @@ fn adopt_all_posts_a_route_adopted_per_live_route_after_the_state_and_before_the
                 session: sid("s"),
                 instance: instance.clone(),
                 route: a,
-                route_tag: "t10".into(),
-                owner: "o10".into(),
+                route_tag: Some("t10".into()),
+                owner: Some("o10".into()),
                 client: ClientId("c10".into()),
             },
             &Event::RouteAdopted {
                 session: sid("s"),
                 instance,
                 route: b,
-                route_tag: String::new(),
-                owner: String::new(),
+                route_tag: None,
+                owner: None,
                 client: ClientId("c20".into()),
             },
             events.last().unwrap(),

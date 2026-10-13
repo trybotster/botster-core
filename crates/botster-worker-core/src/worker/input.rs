@@ -15,6 +15,7 @@
 //! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
 
 use super::facts::{Content, Exhausted, RecordId};
+use super::route::RouteReport;
 use super::{PayloadState, RouteKey, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::{Observation, WorkerMsg};
@@ -755,7 +756,7 @@ impl Worker {
     /// EV-6).
     pub(super) fn end_client_record(
         &mut self,
-        route: RouteId,
+        route: RouteKey,
         record: Option<RecordId>,
         outcome: WriteOutcome,
         pty_bytes: u64,
@@ -764,9 +765,7 @@ impl Worker {
             return;
         }
         self.end_record(record, outcome, pty_bytes);
-        self.report(&WorkerMsg::Observed {
-            observation: Observation::ClientInputEnded { route },
-        });
+        self.report_route(route, RouteReport::ClientInputEnded);
     }
 }
 

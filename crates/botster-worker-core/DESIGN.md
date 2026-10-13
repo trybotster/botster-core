@@ -292,7 +292,9 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
   kind (`Awaiting`): `RouteProgress`, `RouteStalled` and `RouteResumed` are not held (the `RouteId` reports the current
   state: a stall or resume report when the state differs from the `RouteLive`, then progress); a client input sets a flag,
   and the `RouteId` sends one `ClientInput` with the worker's current client revision (STDP8-D5: the revisions on the link
-  never decrease); a close is held and sent with the new id, then the key is forgotten. `RouteReceived` never comes for an
+  never decrease); the end of a client input's transaction (ST-7) sets a second flag, and the `RouteId` then sends one
+  `ClientInputEnded`, so the host raises the route's `Activity` edge (the record's status is in the facts already); a close
+  is held and sent with the new id, then the key is forgotten. `RouteReceived` never comes for an
   adopted route. A route that was not live at the adoption never gets an id on the link. A second adoption before a
   `RouteId` clears the held items with the table and reports the routes that are live then.
 - **Protocol 1 (steward ruling R-98).** The DP-8 fields (`AttachRoute.client`, `AdoptReport.routes`, `RouteLive`,

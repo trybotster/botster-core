@@ -216,6 +216,43 @@ fn client_input_before_the_route_id_is_reported_once_with_the_current_revision()
     assert_eq!(client_inputs(&reports), vec![(RouteId(9), snapshot + 2)]);
 }
 
+/// STDP8-D2, ST-7: the end of a client input's transaction in the window sends no `ClientInputEnded` (no old id); the
+/// `RouteId` sends one, after the route's `ClientInput`, so the new host raises the route's `Activity` edge.
+#[test]
+fn a_client_input_that_ends_before_the_route_id_is_reported_ended_once_at_the_route_id() {
+    let (mut w, _, _) = attached(limits());
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted_routes(&mut w, &actions);
+    let mut window = input(&mut w, 1, 1);
+    window.extend(w.feed(Input::PtyWritten(Ok(1))));
+    window.extend(input(&mut w, 1, 2));
+    window.extend(w.feed(Input::PtyWritten(Ok(1))));
+    assert_eq!(pty_writes(&window), b"ii", "both inputs are written");
+    let ended = |reports: &[WorkerMsg]| -> Vec<&'static str> {
+        reports
+            .iter()
+            .filter_map(|m| match m {
+                WorkerMsg::Observed {
+                    observation: Observation::ClientInput { route, .. },
+                } if *route == RouteId(9) => Some("input"),
+                WorkerMsg::Observed {
+                    observation: Observation::ClientInputEnded { route },
+                } if *route == RouteId(9) => Some("ended"),
+                WorkerMsg::Observed {
+                    observation:
+                        Observation::ClientInput { .. } | Observation::ClientInputEnded { .. },
+                } => Some("other route"),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(ended(&w.reports(&window)), Vec::<&str>::new());
+    let (_, reports) = route_id(&mut w, 1, 9);
+    assert_eq!(ended(&reports), ["input", "ended"]);
+    let (_, again) = route_id(&mut w, 1, 9);
+    assert_eq!(ended(&again), Vec::<&str>::new(), "the id is sent once");
+}
+
 /// STDP8-D5: the client revisions that the new host reads never decrease, whatever the order of the `RouteId` frames. Input
 /// on B, then on A, in the window; `RouteId` for A; fresh input on A; `RouteId` for B.
 #[test]

@@ -895,7 +895,7 @@ impl HostEngine {
         options: AttachOptions,
     ) -> Result<AttachResult, AttachRefused> {
         // Every refusal is synchronous and hands the caller's transport back, untouched (DP-2, steward ruling R-19).
-        let limits = match self.check_attach(&session, &transport, &options) {
+        let limits = match self.check_attach(&session, &transport, &options, &client) {
             Ok(limits) => limits,
             Err(error) => return Err(AttachRefused::new(error, transport)),
         };
@@ -937,6 +937,7 @@ impl HostEngine {
         session: &SessionId,
         transport: &RouteTransport,
         options: &AttachOptions,
+        client: &ClientId,
     ) -> Result<AppliedRouteLimits, CoreError> {
         self.require(
             "attach",
@@ -947,7 +948,7 @@ impl HostEngine {
             return Err(invalid("attach takes a connected stream (DP-2, A17-1)"));
         }
         let limits = self.applied_route_limits(options)?;
-        self.check_attach_fit(options, &limits)?;
+        self.check_attach_fit(options, &limits, client)?;
         let s = self.sessions.get(session).expect("checked");
         if s.routes.len() >= self.cfg.limits.routes_per_session as usize {
             return Err(err(

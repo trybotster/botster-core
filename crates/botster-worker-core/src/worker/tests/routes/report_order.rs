@@ -12,7 +12,7 @@ fn a_client_frames_report_is_on_the_link_before_its_bytes_reach_the_pty() {
     let mut stream = client_frame(&bytes_frame(1, b"ab"));
     stream.extend(client_frame(&bytes_frame(2, b"cd")));
     let mut all = w.feed(Input::RouteRead {
-        route: RouteId(1),
+        route: RouteKey(1),
         bytes: stream,
     });
     all.extend(w.feed(Input::PtyWritten(Ok(2))));

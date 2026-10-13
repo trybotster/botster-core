@@ -212,6 +212,48 @@ fn an_attach_whose_handoff_cannot_fit_is_refused_at_the_call() {
         .expect("a fitting attach is admitted");
 }
 
+/// R-100, DP-8: the `AttachRoute` carries the caller's `client`, so a client id that cannot fit in it is refused at the call
+/// `InvalidInput{client}`, with no handoff and no event.
+#[test]
+fn an_attach_whose_client_id_cannot_fit_is_refused_at_the_call() {
+    let mut w = small();
+    w.running("s1");
+    w.engine.poll_events(usize::MAX);
+    let sent = w.sent.len();
+    let options = AttachOptions {
+        file_directory: "/d".into(),
+        file_permissions: None,
+        route_features: vec![],
+        terminal_formats: vec![],
+        owner: None,
+        query_deadline: Some(Duration::from_secs(1)),
+        route_tag: None,
+        route_limits: None,
+        history: None,
+        stall_deadline: None,
+        answers_queries: true,
+        input: true,
+    };
+    let refusal = w
+        .engine
+        .attach(
+            ClientId("c".repeat(bound(&w))),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            options,
+        )
+        .expect_err("refused");
+    assert_eq!(refusal.error.code, invalid("client"));
+    w.pump();
+    assert!(
+        !w.sent[sent..]
+            .iter()
+            .any(|(_, m)| matches!(m, HostMsg::AttachRoute { .. })),
+        "no handoff"
+    );
+    assert!(w.engine.poll_events(usize::MAX).is_empty(), "no event");
+}
+
 /// R-100: each field is named when it is the largest one of a message that cannot fit.
 #[test]
 fn each_field_is_named_when_it_is_the_largest() {
@@ -483,6 +525,7 @@ fn the_fast_path_never_admits_a_message_that_cannot_fit() {
             stall_close_after: Duration::MAX,
             route_input_queue_bytes: u64::MAX,
         },
+        client: ClientId(String::new()),
     };
     let mouse = HostMsg::Op {
         req: u64::MAX,
