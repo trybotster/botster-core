@@ -271,7 +271,6 @@ conf::er_registry_failed
 conf::er_service_limit
 conf::er_unsupported_feature
 conf::ev_5_service_released_retires_service_keyed_events
-conf::ev_6_keyed_event_carries_latest
 conf::ev_7_each_terminal_feature_reaches_the_host
 conf::ev_7_every_mode_change_posts_modes_changed
 conf::ev_7_hyperlink_in_output_and_snapshot
