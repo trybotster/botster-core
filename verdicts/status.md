@@ -63,3 +63,17 @@ I retain that as the lead's merge verification report. I performed no merge or r
 #331 is CLEAN at 57cb242f, tree 9b1b569b, base 644f632f. Complete package Round 208 at a01e5ccd is checked.
 All four findings close. The exact member gate passes all ten steps; all 118 catches match. The focused renamed-file proof and filter limits are recorded.
 Applicable current-base/train deltas, train-12 merging gate, ONE final receipt, and lead merge verification remain due.
+
+Train 12 source is CLEAN at `7b37e787209e839feb2220b7216d1e417b3838b8`, tree `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Base: `131024f3936898a3106af299e6751553c55bbc82`. Frozen order: #330 `99209ea5`, then #331 `57cb242f`.
+Sol-C records #331 member Round 2 and combined Round 1 at `5fdb0d8d5533e38af855f159d6b94a0b4245bc49`.
+Complete #330 package delta f5d5cf82 and Sol-B integration Round 4 at 2dacf474 are checked.
+Complete #331 package Round 209 at abd06749 is checked. Both member deltas and the combined source are CLEAN.
+All 22 #331 own edit sequences survive. The lockfile and mutation configuration retain both members' accepted changes.
+Both base decoder registrations remain present. All ten conformance blobs equal base; all eighteen full-row formulas pass.
+No source finding remains, including LOW. The focused records retain their limits on FLAKY and retry absence claims.
+Package message `msg_plugin-w_1791851880_a1649e` confirms a complete read and matching same-head source conclusions.
+It reports origin/stage1/integration-review-3 equal to 5fdb0d8d. I retain that as its remote-ref report.
+The prior member and train status entries retain their historical scope.
+The exact train-12 gate, ONE final train receipt, and lead equal-tree/remote merge verification remain due.
+No new package round, redundant final receipt, execution job, or future composition is accepted here.
