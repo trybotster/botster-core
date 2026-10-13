@@ -41,3 +41,49 @@ VERDICT: CLEAN (combined source only; 0 open, including LOW).
 The exact merging gate, ONE final train receipt, and lead fast-forward/equal-tree/remote verification remain due.
 A later head, member, base, or composition requires applicable review.
 I ran no build, test, gate, mutation, reversal, reproduction, measurement, pool job, or executable merge-check job.
+
+## Round 2: ONE FINAL train receipt
+
+Lead request: `msg_plugin-w_1791853273_f9fcad`.
+Exact head remains `956695ae88abe7c3ab1f3d2759f1dacaa5833f41`.
+Tree remains `65047f43fb4b3a857424394912bb232a601aa68d`.
+Base remains `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Sole frozen member remains #332 `6875eeb063f8d9cc7ca568f499bb6a0906e7288c`.
+The complete package, member integration, and combined source records remain those read in Round 1.
+F165 LOW stays closed. No head, base, member, or composition changed after source CLEAN.
+
+Gate log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-956695ae-956695ae-pool-20261012-175718-18913.log`.
+Verified SHA256: `66bf84216e7f5048fbd5bfbeae7e333c42e9019265c231c5173e0d8ebe545178`.
+The header and job name the exact train head and base, Linux msa1, and four CPUs.
+Both cargo and nextest caps are four. The unchanged snapshot/target-lock producer retains the reviewed train-12 behavior.
+The job records warm target botster-core-target-v1-5a6df720. I claim no independent clean or writer-history proof.
+
+All ten steps PASS. Default passes 2250 tests, with 388 skipped, in 20.998 seconds.
+Ordinary slow passes 711 tests, with 2055 skipped, in 43.550 seconds.
+Every ordinary tier ordinal appears exactly once and covers its full denominator.
+Strict reports 305 passes, zero failures, and 274 of 291 pending IDs checked; seventeen are real-only and seven are held.
+The minimum report is now testkit-passing 71/71, including one budget-held ID.
+The real report is 69/70 passing and 70/71 accepted. It does not establish completed minimum Core.
+All seven named real-process proof rows have ordinary PASS records.
+EV-1 passes normally at 0.167 s testkit and 0.123 s real; LC-9 passes at 0.092 s testkit and 0.110 s real.
+These are now exact-train positive results, not carried base execution.
+
+All 192 held-full trials pass: six IDs, each with seeds zero through 31 exactly once.
+No held or pending row changes. The 32 passing pending-real trials retain all 45 pending-real rows.
+No actual FLAKY, retry, INCONCLUSIVE, failure, or timeout record appears in this full gate.
+Public-api, taint, lists, and prebuild-worker pass on this exact head.
+The mutation step reports zero mutants because the exact diff changes no Rust source.
+The fuzz step reports no changed crate with a registered decoder harness.
+Both are completed PASS decisions for this list-only diff, not skipped or missing steps.
+No mutation catch, decoder run, or new check family is claimed for this train.
+
+CI totals 211.0 seconds. The job exits zero after 224 seconds: three queued and 221 running.
+The wrapper exits zero after 225 seconds. The lead's local strict report is not needed as acceptance evidence.
+Historical member/base gates and local Mac limits remain unchanged.
+
+VERDICT: FINAL CLEAN (ONE whole-train receipt; 0 open, including LOW).
+The lead may perform the authorized fast-forward and verify equal tree and the remote tip.
+This receipt claims no completed merge or remote verification and accepts no later head or composition.
+The .46 pin and all pending, held, platform, amendment, F28, Mac IN-6, B-7, and A24 debts retain their scope.
+I ran no build, test, gate, mutation, reversal, reproduction, measurement, pool job, or executable merge-check job.

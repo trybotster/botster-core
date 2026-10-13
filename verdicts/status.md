@@ -103,3 +103,10 @@ The path intersection with the base move is empty; the lead requires no member d
 All nine full-row list formulas pass. Deferred TOML and every other base path remain unchanged.
 Package acknowledgment `msg_plugin-w_1791853058_43341c` matches the complete #332 integration Round 1 and status.
 The exact train-13 gate, ONE final receipt, and lead merge verification remain due.
+
+Train 13 ONE FINAL CLEAN is recorded at exact head `956695ae`, tree `65047f43`, base `7b37e787`.
+Sole member remains #332 `6875eeb0`. All ten gate steps pass; default 2250, slow 711, held-full 192.
+The two added minimum IDs pass normally on both tiers. Minimum is testkit 71/71 and real accepted 70/71.
+No changed Rust source selects mutants; no changed decoder crate selects fuzz. Both completed gate decisions pass.
+Gate SHA256: `66bf84216e7f5048fbd5bfbeae7e333c42e9019265c231c5173e0d8ebe545178`.
+The lead's fast-forward, equal-tree check, and remote verification remain due.
