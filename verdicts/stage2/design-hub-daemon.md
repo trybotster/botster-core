@@ -429,3 +429,50 @@ Sol-B owns the PC protocol delta. This record does not substitute for that revie
 The reviewer ran no build, test, gate, or reproduction.
 
 VERDICT: CLEAN (0 open)
+
+## Round 5: start-evidence recovery delta — ruling needed
+
+Request: `msg_plugin-w_1791849780_f850dc`, P5 reports the lead's request to review step 6b only.
+Exact document SHA-256: `85fee173efc1f458d43296628d14c963f3eab26a33dd0a2aa88b31ae2cd4def7`.
+Comparison: accepted Round 4 document `0d39345fa29f9a449f0d20131716d40e00ab017f5a4135c2877f5609a8270c6d`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+No text outside step 6b changes. Findings 1 through 8 remain closed.
+
+Contracts source: `f2b82de9d9df8e2616f9406de365cbfae9441598`.
+The reviewer reads complete updated R-121 and complete A26 candidate 5 sections A26-6, A26-10, and A26-12.
+Updated R-121 section SHA-256: `d091c236f8c7a7ab6422e73a7cbbfc472e86be102f7d6939922b71b01886acf9`.
+A26 candidate 5 file SHA-256: `8db577a2156d715f6760119545913fc2cec7a56daff7b9157db2c01181747d13`.
+The reviewer does not claim a full amendment review or amendment acceptance.
+
+### Supported changes
+
+The design explicitly requires the Core pin with durable `ready_reached` and `start_failure`.
+It retains the prohibition on an interim Core v1 guess.
+No row ends `failed { interrupted }` without a create retry. Created starts; Starting waits for live completion.
+StartInterrupted ends `failed { interrupted }`.
+The mapping includes both StartupTimeout and WorkerFailed as `worker_failed`.
+Installed requires ready-point evidence; a false ready flag without a failure remains `starting`.
+The design reapplies its rules after an Adopt retry. The retry policy remains outside the skeleton.
+These changes follow the updated evidence rules within the named recovery scope.
+
+### S2-HD-9 — MEDIUM — OPEN: obtain precedence for overlapping Lost rules
+
+The design converts R-121's table to first-match rules.
+Rule 5 maps retained `start_failure` to `failed` before rule 6 treats Lost(Other) as indeterminate.
+Thus a `Lost(Other)` row with `start_failure: WorkerFailed` ends the spawn operation as `failed`.
+
+R-121 has a generic Lost-with-start_failure row and a separate Lost(Other) indeterminate row.
+It does not state precedence when both apply.
+A26-6 preserves durable start failure across adoption. It also states that unreachable/version adoption adds no new evidence.
+Those statements do not explicitly order the overlapping Lost(Other) case in the Hub's table.
+The reviewer will not infer a new contract rule from the design's chosen order.
+
+Required decision: the lead asks the steward whether retained failure evidence takes precedence for Lost(Other).
+The ruling must state whether that operation becomes `failed` or stays `starting`.
+The final design must cite the decision, or change its ordered rules to the stated decision.
+This is one contract-meaning question. It reopens none of the eight prior findings.
+
+The reviewer ran no build, test, gate, or reproduction.
+This delta has no CLEAN until the precedence decision is supplied.
+
+VERDICT: NOT CLEAN (1 open)
