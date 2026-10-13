@@ -8,11 +8,11 @@
 //! group), Core TM-6 (the reaper's notifier).
 #![cfg(feature = "slow")]
 
-use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnSpec,
-};
-use botster_core_sys::process::{identity_state, start_time, Children};
+use botster_core_edges::edges::{GroupSignal, IdentityState, ProcessIdentity, SpawnSpec};
+use botster_core_sys::process::{identity_state, start_time, Children, Exit};
 use rustix::process::{test_kill_process, Pid};
+use std::os::unix::process::ExitStatusExt;
+use std::process::ExitStatus;
 
 #[path = "common/process_guard.rs"]
 mod process_guard;
@@ -39,7 +39,7 @@ fn children() -> (Children, Receiver<()>) {
 }
 
 /// The next exit, after the notifier said that one was queued.
-fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity, ExitStatus) {
+fn next_exit(children: &mut Children, woken: &Receiver<()>) -> Exit {
     loop {
         if let Some(exit) = children.poll_exit() {
             return exit;
@@ -49,6 +49,16 @@ fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity,
             .recv_timeout(Duration::from_secs(10))
             .expect("a child ended");
     }
+}
+
+/// The wait status of a child that ended with exit code `code`.
+fn code(code: i32) -> Option<ExitStatus> {
+    Some(ExitStatus::from_raw(code << 8))
+}
+
+/// The wait status of a child that a signal ended.
+fn killed(signal: i32) -> Option<ExitStatus> {
+    Some(ExitStatus::from_raw(signal))
 }
 
 /// A child that waits without using the CPU and ends by itself when the test process is gone (plan R12): a killed test runs
@@ -139,10 +149,7 @@ fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
     assert_eq!(identity_state(identity), IdentityState::Matches);
     assert_eq!(start_time(identity.pid), Some(identity.start_time));
     children.signal_group(identity, GroupSignal::Kill);
-    assert_eq!(
-        next_exit(&mut children, &woken),
-        (identity, ExitStatus::Signal(9))
-    );
+    assert_eq!(next_exit(&mut children, &woken), (identity, killed(9)));
 }
 
 /// Core AD-6: a process that does not match its identity is never signalled.
@@ -173,10 +180,7 @@ fn a_missing_program_is_a_spawn_error_and_an_exit_code_is_reported() {
         .expect_err("refused");
     assert_eq!(error.errno, 2, "ENOENT");
     let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 3"]));
-    assert_eq!(
-        next_exit(&mut children, &woken),
-        (identity, ExitStatus::Code(3))
-    );
+    assert_eq!(next_exit(&mut children, &woken), (identity, code(3)));
 }
 
 /// Core A2-1: the child has exactly the environment that it was given.
@@ -188,7 +192,7 @@ fn the_child_environment_is_exact() {
         spec("/bin/sh", &["-c", "test \"$A\" = 1 && test -z \"$HOME\""]),
     );
     let exit = next_exit(&mut children, &woken);
-    assert_eq!(exit.1, ExitStatus::Code(0), "nothing is inherited");
+    assert_eq!(exit.1, code(0), "nothing is inherited");
 }
 
 /// Core LC-5, AD-6: `EndPayload` is `SIGUSR1` to the worker process. A worker with a handler runs it, and the signal is
@@ -212,7 +216,7 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
     children.signal_group(identity, GroupSignal::EndPayload);
     children.signal_group(identity, GroupSignal::EndPayload);
     let exit = next_exit(&mut children, &woken);
-    assert_eq!(exit, (identity, ExitStatus::Code(7)), "the handler ran");
+    assert_eq!(exit, (identity, code(7)), "the handler ran");
 }
 
 /// Core TM-6, LC-7: the host wakes at the moment a child ends. The reaper thread calls the notifier after it queued the
@@ -227,7 +231,7 @@ fn a_child_exit_calls_the_notifier_and_is_polled() {
         .expect("the notifier ran");
     let (id, status) = children.poll_exit().expect("the exit is queued");
     assert_eq!(id, identity);
-    assert_eq!(status, ExitStatus::Code(3));
+    assert_eq!(status, code(3));
     assert!(children.poll_exit().is_none());
     assert!(
         children.wait_exit(identity.pid).is_none(),
@@ -249,14 +253,8 @@ fn wait_exit_takes_the_exit_of_its_own_child() {
             .recv_timeout(Duration::from_secs(10))
             .expect("a child ended");
     }
-    assert_eq!(
-        children.wait_exit(second.pid),
-        Some((second, ExitStatus::Code(4)))
-    );
-    assert_eq!(
-        children.wait_exit(first.pid),
-        Some((first, ExitStatus::Code(3)))
-    );
+    assert_eq!(children.wait_exit(second.pid), Some((second, code(4))));
+    assert_eq!(children.wait_exit(first.pid), Some((first, code(3))));
     assert_eq!(children.wait_exit(first.pid), None, "taken once");
     assert_eq!(children.wait_exit(u32::MAX - 1), None, "not a child");
 }

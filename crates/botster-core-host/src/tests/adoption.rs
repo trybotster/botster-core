@@ -815,10 +815,7 @@ fn a_worker_that_ends_during_its_adoption_is_worker_gone() {
     let adopt = again.engine.begin(Op::AdoptAll).unwrap();
     again.pump();
     let identity = again.identity_of("s");
-    again.feed(Input::ProcessExited {
-        identity,
-        status: ExitStatus::Code(0),
-    });
+    again.feed(Input::ProcessExited { identity });
     let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
     assert_eq!(
         states_of(&events, "s"),

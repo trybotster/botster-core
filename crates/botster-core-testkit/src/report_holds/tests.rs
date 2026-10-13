@@ -408,21 +408,12 @@ fn a_held_sessions_worker_exit_waits_for_the_release() {
     inner.write(&hello());
     drain(&mut holds, &mut inner, 64);
     holds.hold_worker_report(instance()).unwrap();
-    let mut reaped = VecDeque::from([
-        (WORKER, ExitStatus::Code(0)),
-        (stranger, ExitStatus::Code(1)),
-    ]);
-    assert_eq!(
-        holds.poll_exit(|| reaped.pop_front()),
-        Some((stranger, ExitStatus::Code(1)))
-    );
+    let mut reaped = VecDeque::from([WORKER, stranger]);
+    assert_eq!(holds.poll_exit(|| reaped.pop_front()), Some(stranger));
     assert_eq!(holds.poll_exit(|| reaped.pop_front()), None);
     holds.release_worker_report(&instance()).unwrap();
     assert!(holds.gives());
-    assert_eq!(
-        holds.poll_exit(|| None),
-        Some((WORKER, ExitStatus::Code(0)))
-    );
+    assert_eq!(holds.poll_exit(|| None), Some(WORKER));
 }
 
 /// `break_control` on a held session (Core A12-1a): the report stays unread; every byte the edge took and every later byte
@@ -441,17 +432,14 @@ fn a_break_drops_the_held_report_and_every_later_byte() {
     holds.hold_worker_report(instance()).unwrap();
     inner.write(&[other(1), other(2)].concat());
     drain(&mut holds, &mut inner, 64);
-    let mut reaped = VecDeque::from([(WORKER, ExitStatus::Code(0))]);
+    let mut reaped = VecDeque::from([WORKER]);
     assert_eq!(holds.poll_exit(|| reaped.pop_front()), None);
     assert!(holds.broken(&instance()));
     assert_eq!(holds.held_reports(&instance()), 0);
     inner.write(&other(3));
     inner.closed = true;
     assert_eq!(drain(&mut holds, &mut inner, 64), (Vec::new(), None));
-    assert_eq!(
-        holds.poll_exit(|| None),
-        Some((WORKER, ExitStatus::Code(0)))
-    );
+    assert_eq!(holds.poll_exit(|| None), Some(WORKER));
 }
 
 /// The driver closed the link: its record goes, and a held session's exit is given.
@@ -463,13 +451,10 @@ fn a_closed_link_frees_the_exit() {
     inner.write(&hello());
     drain(&mut holds, &mut inner, 64);
     holds.hold_worker_report(instance()).unwrap();
-    let mut reaped = VecDeque::from([(WORKER, ExitStatus::Signal(9))]);
+    let mut reaped = VecDeque::from([WORKER]);
     assert_eq!(holds.poll_exit(|| reaped.pop_front()), None);
     holds.closed(LINK);
-    assert_eq!(
-        holds.poll_exit(|| None),
-        Some((WORKER, ExitStatus::Signal(9)))
-    );
+    assert_eq!(holds.poll_exit(|| None), Some(WORKER));
 }
 
 /// With an arm for the link, one read of the driver takes every byte that the inner edge has, in chunks: the edge holds them
@@ -540,9 +525,6 @@ fn an_exit_waits_only_for_its_own_sessions_open_link() {
     let mut inner = Inner::new(usize::MAX);
     inner.write(&hello());
     drain(&mut holds, &mut inner, 64);
-    let mut reaped = VecDeque::from([(WORKER, ExitStatus::Code(0))]);
-    assert_eq!(
-        holds.poll_exit(|| reaped.pop_front()),
-        Some((WORKER, ExitStatus::Code(0)))
-    );
+    let mut reaped = VecDeque::from([WORKER]);
+    assert_eq!(holds.poll_exit(|| reaped.pop_front()), Some(WORKER));
 }
