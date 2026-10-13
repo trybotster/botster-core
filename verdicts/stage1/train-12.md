@@ -88,3 +88,63 @@ VERDICT: CLEAN (combined source only; 0 open, including LOW).
 The exact-head train gate, ONE final train receipt, and lead equal-tree/remote verification remain due.
 A later head, member, base, or composition requires applicable review.
 I ran no build, test, gate, mutation, reversal, reproduction, measurement, pool job, or executable merge-check job.
+
+## Round 2: ONE FINAL train receipt
+
+Lead gate request: `msg_plugin-w_1791852447_7a1f38`.
+Exact head remains `7b37e787209e839feb2220b7216d1e417b3838b8`.
+Tree remains `6adc74c7fcc7573548997fcc83a9280a3260dc3c`.
+Base remains `131024f3936898a3106af299e6751553c55bbc82`.
+Frozen order remains #330 99209ea598aec0c182f35a1645b2a938d2f7d8cc, then #331 57cb242f5d3dda40e524090239222e4824021798.
+Both package deltas and member integration deltas remain the complete source records named in Round 1.
+Package acknowledgment `msg_plugin-w_1791851880_a1649e` confirms a complete read of my combined and #331 source records.
+No source head, member, base, pin, or composition changes after source CLEAN.
+#332 is assigned to train 13. It is outside this frozen train and this final receipt.
+
+Gate log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-7b37e787-7b37e787-pool-20261012-173211-19656.log`.
+Verified SHA256: `46bf46299cb395f854b9f462cdc9146e903408de4d76742bf54f4fc037f3d16f`.
+The header names this exact head and base. The job names Linux msa1, allocation eda175e1, and four CPUs.
+Both cargo and nextest parallelism are four. The snapshot producer checks out POOL_SHA and supplies the exact base.
+The job header records target botster-core-target-v1-5a6df720. I read its snapshot and target-lock source.
+This is a warm target under the lead's assigned gate. I claim no independent target-clean or writer-history proof.
+
+All ten gate steps PASS. Default has 2250 passes and 388 skips in 14.609 seconds.
+Ordinary slow has 711 passes and 2055 skips in 42.271 seconds.
+The 724-test unmutated Stage 2 baseline passes, with 3028 skips, in 47.150 seconds.
+Every ordinary tier and baseline ordinal appears exactly once and covers its full denominator.
+The 32 gate-kit tests pass in the ordinary default tier.
+The affected sys slow_process target passes all 24 tests and its generated root test.
+Both reaper slow tests and the testkit failed-exit-watch proof pass normally.
+Public-api matches the identity-only process edge; taint and the existing gate decisions pass.
+
+Strict conformance reports 305 passes, zero failures, and 274 of 291 pending IDs checked.
+Seventeen real-only IDs are not run by strict; seven held IDs retain their status.
+Minimum reports 69/69, including one budget-held ID. All seven named real-process proof rows have ordinary PASS records.
+All 192 held-full trials pass: six IDs, each with seeds zero through 31 exactly once.
+Their maximum times are 0.315, 1.274, 1.271, 0.103, 0.110, and 0.103 seconds in listed order.
+The three budget-held IDs remain below two seconds. No pending or held row is removed by this receipt.
+The real report retains 67/68 passing and 68/69 accepted. Its 32 passing pending-real trials remain among 45 pending rows.
+Those report suggestions grant no list removal, fence closure, or minimum completion.
+
+Stage 1 records 140 mutants: 136 caught, one missed, three unviable, and zero timeouts.
+Stage 2 catches the remaining reap-empty-body mutant with
+botster-core::slow_conformance conf::a10_1_wrong_instance_is_never_signalled.
+That catcher also passes in the ordinary slow tier. Final outcomes are 137 caught and three unviable, with no miss or timeout.
+I independently match all 140 raw final identities and all 137 catch citations.
+Every cited catcher has an ordinary PASS record. No actual FLAKY, retry, INCONCLUSIVE, failure, or timeout record appears.
+The three unviable outcomes are the report-hold identity default and the two LineColumn default replacements.
+The separate focused #331 renamed-file proof retains its earlier positive proof and filtered-record limits.
+This full train gate does not widen those focused records into global absence evidence.
+
+Fuzz runs all three registered harnesses selected by the changed crates for the configured 60 seconds each.
+ordinal_decoder completes 31569317 runs, frame_ends_decoder 2739566, and sock_diag_decoder 4780989.
+Each raw run finishes after 61 seconds. The unchanged worker crate selects no receipt_decoder run in this train.
+CI totals 892.8 seconds. The job exits zero after 906 seconds: two queued and 904 running.
+The wrapper exits zero after 907 seconds. No missing, skipped, or incomplete gate step remains.
+
+VERDICT: FINAL CLEAN (ONE whole-train receipt; 0 open, including LOW).
+The lead may perform the authorized fast-forward and verify equal tree and the remote tip.
+This receipt claims no completed merge or remote verification and accepts no later head or composition.
+The .46 pin and all pending, held, platform, amendment, F28, Mac IN-6, B-7, and A24 debts retain their prior scope.
+I ran no build, test, gate, mutation, reversal, reproduction, measurement, pool job, or executable merge-check job.

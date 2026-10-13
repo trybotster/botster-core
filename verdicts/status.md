@@ -83,3 +83,10 @@ Package reviewer: 0165. Delivery: train 13. #332 is outside frozen train 12.
 The lead requires review of the head P3 sends after the stale minimum-list documentation citation is fixed.
 The earlier READY head 987d8f76 is not accepted as the final review head.
 The #332 review awaits that corrected head and its complete applicable package verdict.
+
+Train 12 ONE FINAL CLEAN is recorded at exact head `7b37e787`, tree `6adc74c7`, base `131024f3`.
+The frozen members remain #330 `99209ea5`, then #331 `57cb242f`. #332 is outside this receipt.
+All ten gate steps pass. All 137 mutation catches match citations and ordinary PASS records.
+All 192 held-full trials and three selected decoder fuzz runs pass. No source finding remains, including LOW.
+Gate SHA256: `46bf46299cb395f854b9f462cdc9146e903408de4d76742bf54f4fc037f3d16f`.
+The lead's fast-forward, equal-tree check, and remote verification remain due.
