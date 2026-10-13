@@ -412,3 +412,36 @@ This receipt approves no code, completed story, gate, or contract freeze.
 
 VERDICT: CLEAN (failure-reason design delta only; 0 open).
 Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+## Round 9: session-directory interface and R-124 welcome hint
+
+Reviewed PC artifact SHA256: `749d9c0355aec34cbf125af7024dfef6381379ba255d0c44818a2a66001ec3f9`, revision 11.
+Earlier intermediate artifact: revision 10, `e70c4b0d9475971c10b3fedc939ab68b3bc77ace413f32c6de457d2cc8603337`.
+Accepted P5 artifact SHA256: `03b1d3336ef21ebea98eccf05826c9e1609ad825914b2a4d247c6b945633ce1a`.
+Sol's P5 receipt: `5d13c3da4ec20c75743baaaa1f73da721ddbf39b`, Round 11.
+Final PC request: msg_plugin-w_1791853440_0b4c77.
+Sol-B verifies both final document hashes and reads the complete PC artifact, the applicable P5 directory rules, Sol's complete Round 11 closure, HC RT-2, Core A6-3, and complete R-124 at contracts `ffd79a3`.
+
+The attach interface passes <data root>/sessions/<session_id>/uploads as file_directory.
+This is RT-2's upload directory. P5's store thread creates it with mode 0700 before the starting record becomes durable.
+The accepted P5 correction syncs the parent of each new directory entry, including the data root for sessions/.
+The protocol therefore depends on directory creation before accepted, and performs no directory file system work on the owner thread.
+Core owns upload-file cleanup under A6-3. P5 owns the session directory and its deletion and recovery paths.
+Sol's receipt closes store-index loading before the orphan sweep, bounds deferred release deletion, and drains sent store jobs before join and lock release.
+The final PC reference now names that accepted P5 artifact. Revision 10 was held for this dependency, without a new PC finding.
+
+The welcome hint matches R-124.
+It selects the first client format supported by every session whose worker has announced a non-empty snapshot_formats list.
+A starting session with no announced formats is left out. With no announced worker, the field is absent.
+The owner recomputes the common set after SessionState events and shares it with io; io calls no Core method.
+The hint does not replace the per-route choice at attach. An empty or stale hint cannot disable a supported route.
+The implementation review must verify initial publication after adoption and updates when worker formats become known.
+No new Core method, conformance identifier, product limit, or check family is added.
+
+All six prior PC findings remain closed. No finding remains open on this exact design artifact.
+The required A26 pin, code review, and execution evidence remain due.
+PC's local commit and reported tests are not read or accepted as implementation evidence in this round.
+This receipt approves no code, gate, completed story, or contract freeze.
+
+VERDICT: CLEAN (directory interface and welcome-hint design delta only; 0 open).
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
