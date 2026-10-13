@@ -15172,3 +15172,150 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 207.
 
 VERDICT: CLEAN
+
+
+## Round 207 — #331 botster-gate-kit source and evidence review, 2026-10-12
+
+Exact head: `28a29d32d191604221eb4cbeeb02e47371fa3daf`.
+Tree: `c4542104426cfdc0b4f042da9d22a409308097cf`.
+Exact base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+PR: https://github.com/trybotster/botster-core/pull/331.
+Tier: HIGH. BUILD.md rules 1 and 3 apply to gate code and the new shared crate.
+Lead assignment: `msg_plugin-w_1791846711_bb2b1f`. GS READY: `msg_plugin-w_1791849312_0138b0`.
+Implementer: GS `sess-1791701398-017b-5108b9bd7fcd4d0c8f03d3df2317b92c`.
+Integration reviewer: Sol-C `sess-1791781343-0185-0b0f5f6ddc65cfcfbf7326db792a6d82`.
+The reviewer reads exact source, BUILD.md, pair-common, the complete body, and the supplied records.
+The GitHub MCP body was truncated. The reviewer used `gh api` to read the complete body.
+
+### Source scope and behavior
+
+The lead's later rulings permit function moves, a Policy parameter, synthetic policy tests, and moved generic tests.
+The lead also permits the taint scan repair, its equivalence test, and the existing high_tier exclusion path change.
+The shared lead handoff records these decisions at lines 1767, 1768, 1771, and 1783.
+This is a move plus the approved `hits_in_line` change. It is not the initial pure-move proposal.
+Commits: `808e90e60f6aa610a5b726e5f9c801163dde889f`, `7851a63b51b9d3b81e1e9c395d08b5b858d3e794`, and the exact final head above.
+
+The reviewer reads all six gate-kit modules and the Core shells.
+`mutant_logs.rs` is byte-identical to the base module.
+The `tracked_files` and `walk_files` bodies are exact. The library makes the latter available outside cfg(test).
+`parse_junit` and `unescape` keep their exact bodies; the library makes the parser public.
+The high_tier changes replace the helper import and adjust the repository-root test for the deeper crate path.
+Its decisions, list path, errors, CLI shell, and eight tests retain their behavior.
+The Core CLI imports the moved modules. Its command selection and CI calls retain their existing names.
+
+Core retains the denylist additions, two unsafe exceptions, one FFI manifest, and I/O shells.
+The policy contains the same exception items and the same singleton FFI manifest as the base constants.
+The rule receives that policy at each former constant lookup. The lint, token, source, and outcome rules remain equivalent.
+Core retains the real-file assertions. Gate-kit tests the moved rule with synthetic policy data.
+The new crate has no Core crate dependency. Its dev dependencies are botster-test-process and tempfile.
+The tooling clippy configuration preserves the copied signal restrictions.
+
+The new taint scan visits each UTF-8 character boundary. It preserves overlapping occurrences and token order.
+For every nonempty token, a successful prefix gives a valid end boundary within the line.
+The before/after checks retain the base's ASCII word rule. Parsed denylist tokens are nonempty.
+The finite iterator removes the cursor progress failure. No new skip, exemption, hook, timer, or polling loop appears.
+The test-only cursor is the base implementation. The equivalence test now includes all 19531 lines through six characters.
+The named overlap test also checks the behavior directly.
+
+`caps.rs`, `ci.rs`, `lists.rs`, `public_api.rs`, the HIGH-path list, and the facade API snapshot are byte-identical to base.
+No conformance path, product source, pin, or public Core signature changes.
+The existing high_tier shell exclusion changes only its path and comment. No new exclusion appears.
+The source adds no check family. The source review finds no open logic or policy finding.
+
+### F161 — LOW — CLOSED: body test counts
+
+The initial body called 408 -> 382 counts of test functions. Those totals included fixture text in Rust strings.
+This aliases integration finding R331-I1. The reviewer sent the finding directly to GS.
+GS corrected the counts and then named the complete source scope.
+Final body SHA256: `39ec9dff28fe845ef5f619055972643c648b2332d64ae17106235579acfaadeb`.
+The reviewer reads both complete body deltas and verifies the unchanged head.
+
+All tracked Rust files under xtask, including its separate fixture workspaces, have 357 -> 331 source test attributes.
+The binary's source under xtask/src has 343 -> 317. The fixture files have 14 unchanged attributes.
+Gate-kit has 31 named source tests and one generated build-root test.
+The reviewer checks the source counts through a read-only lexical scan, with comments and Rust strings removed.
+These source totals do not claim that the fixture workspaces are direct tests of the xtask binary.
+
+The reviewer also compares the retained base and submitted gate inventories.
+All 27 removed default-tier test names move into gate-kit. The JUnit module changes from test_budget to junit.
+Core adds one real-file test. Gate-kit adds four named tests and its build-root test.
+All 27 slow-tier xtask names are identical. No old test name or covered assertion disappears.
+Runtime xtask counts: default 330 -> 304; slow 27 -> 27. Gate-kit runs 32 default tests.
+The base gate is used only for this inventory comparison, not as a new train-10 final receipt.
+Base inventory log SHA256: `51103e8aaa038b3df8800bc105e24bebd4548ef51db7aa0bda1babeb58208aa2`.
+Path: gates/botster-core-detached-644f632f-644f632f-pool-20261012-150918-92092.log.
+
+### Supplied gate and focused records
+
+Full gate: gates/botster-core-stage1-gs-gate-kit-28a29d32-pool-20261012-164406-15079.log.
+SHA256: `27fb00fb67d3db49aa9fc18356511c450b01f60fd3534d7f5a6086f9d5cf806d`.
+Its header names the exact head, base, Linux msa1, and capped command. All ten steps PASS.
+Default: 2109 passed/412 skipped, 18.222 seconds. Slow: 695 passed/2065 skipped, 48.529 seconds.
+Held-full: 96 passed/zero skipped, 23.957 seconds. Public-api matches the unchanged facade snapshot.
+The strict run reports 281 passed, zero failed, and the retained pending/held scopes.
+CI total: 536.4 seconds. Job exit zero after 621 seconds; wrapper exit zero after 622 seconds.
+Pool-control curl errors remain in the log. They do not become a failed or skipped CI step.
+The reviewer finds no actual failed-test, retry, FLAKY, or skipped-step line in this gate.
+
+The rename-aware gate selects 120 mutants: files 13, JUnit nine, taint 27, and unsafe_exception 71.
+Raw outcomes: 118 caught, zero missed, zero timeout, two unviable. Stage 2 does not run because stage 1 misses none.
+All 118 raw catches equal the 118 reported catches. Each catching test has a normal PASS in the same gate.
+The two reported unviable names replace allow_attribute and the_exception with Some(Default::default()).
+This round does not read their compile errors. F162 requests those errors in the focused records.
+The renamed high_tier and mutant_logs modules have no selected mutant in this gate.
+
+Original focused record: gates/botster-core-stage1-gs-gate-kit-28a29d32-focused-mutants.log.
+SHA256: `147a90637dc406caf8160bf408cad32c65dc1b08090c683978bf56fdb2e14766`.
+The source-path filter makes both renamed files new additions. The script uses --no-config and the stage-1 test scope.
+It names the exact head/base and reports 163 mutants: 155 caught, one missed, zero timeout, seven unviable.
+The one miss is the previously approved high_tier command shell replacement. Its raw exit is two, not zero.
+The raw file counts reconcile to the gate's 120 plus the 43 renamed-file mutants.
+The renamed-file outcomes report 13 high_tier catches, 24 mutant_logs catches, five mutant_logs unviable cases, and the shell miss.
+
+Historical focused record at 808e90e6 SHA256: `887d6bf198ad52e583d20dc7174297aff5ef5442993027db94bbc2efa2b96956`.
+Its three taint cursor mutants time out; its exit is three. The reviewer reads those raw failures and preserves them.
+Reversal record: gates/botster-core-gs-gate-kit-taint-reversal-7851a63b.log.
+SHA256: `e556cfec21153ddf1d688ec70d60e389d9f5a286fb3092b2a843217f26ec647e`.
+The reviewer reads the complete record. It names one incremental target owned by that worktree.
+The first non-overlap reversal fails the direct overlap test but passes the five-character equivalence test.
+The changed six-character test fails the second reversal on aa-a-a. The exact submitted gate passes both new tests.
+No rehearsal failure, historical gate, or local timing result replaces the submitted full gate.
+
+### F162 — MEDIUM — OPEN: focused catch records are missing
+
+The original focused record has empty values in every catching-test entry.
+GS confirms that the outcomes.json and scenario logs were lost when the Linux snapshot was removed.
+The raw totals alone do not identify the tests that caught the renamed-file mutants.
+The reviewer cannot check the renamed-file retry/FLAKY states or the seven unviable compile errors.
+The full gate's complete catch proof covers its 120 selected mutants; it does not supply these renamed-file records.
+
+Required closure: retained exact-head outcomes and scenario records, with each catch matched to a normal PASS test.
+The records must preserve retry/FLAKY lines and the unviable compile errors.
+The shell miss keeps its approved exclusion and reason. No product change is requested by this finding.
+GS reports that the first retained-output attempt also lost the scenario records.
+GS then reports a third focused run that prints outcomes and scenario status/error lines into its log.
+Those are producer reports only. This round reads neither follow-up run while it is incomplete or unsupplied.
+The reviewer requests no new run and performs no execution job.
+
+### F163 — LOW — OPEN: changed design prose exceeds its bound
+
+The changed crates/botster-test-process/DESIGN.md line 89 has 185 columns.
+This aliases integration finding R331-I2.
+Pair-common's design-document rule requires prose wrapped at 120 columns.
+Required change: wrap the changed paragraph without changing its words.
+The reviewer requests no new test or execution job for this documentation finding.
+A source commit still requires review of its delta and the applicable exact-head gate.
+
+### Verdict and limits
+
+F161 is CLOSED. F162 and F163 remain OPEN. Every finding must close for this HIGH PR.
+The package verdict is NOT CLEAN because the focused catch proof and the documentation correction remain due.
+The source review and exact full-gate result above retain their stated scopes.
+This verdict does not grant integration CLEAN, train fit, a future-base gate, or merge acceptance.
+The reviewer uses read-only Git, Python source/evidence comparisons, and body reads.
+The reviewer runs no tests, builds, gates, mutants, reversals, measurements, or executable merge-check jobs.
+The reviewer changes no product code and spawns no agent.
+F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
+Next package round: 208. All earlier history remains preserved.
+
+VERDICT: NOT CLEAN
