@@ -54,4 +54,6 @@ Train 11 composition inspection is recorded at head `131024f3`, tree `39347010`,
 Frozen order: #298 `7a8592fb`, then #320 `48ff7a03`. Sol-C owns both integration deltas and the combined review.
 Both member integration deltas and combined Round 1 are CLEAN in source. Complete package deltas fb322cf8 and c0d31d32 are checked.
 All member edit sequences remain exact; all eighteen text-set formulas pass.
-The detached exact-head gate and ONE final train receipt remain due. No execution or merge is accepted by the pending inspection.
+The ONE FINAL train-11 receipt is recorded at exact head `131024f3`. All ten gate steps pass.
+All 428 catches match; all 192 held-full trials and six decoder fuzz runs pass.
+Lead equal-tree/remote merge verification remains due. The earlier pending inspection retains its historical scope.

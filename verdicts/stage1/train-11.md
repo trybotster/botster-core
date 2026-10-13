@@ -145,3 +145,77 @@ I read that complete acknowledgment in verdicts/p5-read-facts.md.
 The package reviewer read complete #320 and combined verdicts at `db371fd0efa05dfec92684fedaa2a11c81dd07b4` and reports remote publication verified.
 The acknowledgment matches the exact train head, tree, base, frozen order, both member records, all closures, and source-only limits.
 No source change, new review round, or execution evidence follows. The exact gate, ONE final receipt, and lead merge checks remain due.
+
+
+## Round 2: FINAL whole-train receipt
+
+- Exact head: `131024f3936898a3106af299e6751553c55bbc82`.
+- Tree: `3934701063c7651b5ac2c62194721ad4b36801c0`.
+- Gate base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+- Complete combined source: `db371fd0efa05dfec92684fedaa2a11c81dd07b4`, Round 1 above.
+- Lead gate request: `msg_plugin-w_1791850372_14f289`.
+- Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-131024f3-131024f3-pool-20261012-164112-3401.log`.
+- Verified SHA256: `fd60a82b322478830a6f87d098ea096d04fb019c8b44925443dd6117a8497e94`.
+
+The frozen order remains #298 7a8592fb, then #320 48ff7a03, with full identities and insertions recorded above.
+The detached gate header names the reviewed exact head and base. The tree remains the reviewed combined tree.
+The job uses target volume botster-core-target-v1-5a6df720 under the lead's warm trial.
+The log records the exact-head snapshot command, base reference, clean pinned submodules, and dependency fetch.
+It supplies no independent target-writer history. I accept the completed exact-head gate within the lead's stated trial scope.
+Both parallelism caps are four. The job runs on msa1. Its stated Mac-only compilation limits remain applicable.
+
+All ten steps pass. Default records 2245 passes and 388 skips. Slow records 711 passes and 2082 skips.
+Every ordinal in both tiers appears exactly once. Stage 2's unmutated baseline records all 723 normal passes before mutation trials.
+Conformance reports 305 passes and zero failures. The strict run executes 274 of 291 pending transcript IDs, with 17 real-only and seven held.
+The minimum report counts 69 of 69, including one budget-held ID. Every named real-process minimum proof has normal PASS evidence.
+The real report states real-passing 67/68 and real-accepted 68/69. These reported counts supply no new pending removal or fence closure.
+The ignored real report retains 45 pending IDs and reports 32 passes. The R-109 debt and unsupported ST-7 real cost control remain explicit.
+
+All 192 unique held-full trials pass: six budget IDs at every seed from zero through 31.
+The recorded maximum durations are:
+
+| Budget ID | Maximum seconds |
+| --- | ---: |
+| dp_5_full_input_queue_stops_reading_the_route_and_never_drops | 0.358 |
+| dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves | 1.274 |
+| ev_8_every_query_stays_in_output | 1.280 |
+| ou_2_route_state_machine | 0.112 |
+| ou_2b_failed_reasons_are_reported_to_the_host_and_route_ended | 0.112 |
+| ou_3_stalled_reader_resyncs | 0.114 |
+
+Every trial remains within two seconds. The three ST budget holds stay pending; this gate does not remove their accepted temporary status.
+All six #298 default removals and all eighteen #320 default removals have normal PASS records.
+All seventeen required ST-7 real forms pass normally. The remaining byte-cost ID retains its unsupported real-control disposition.
+The clock-post, modes-drop, overflow-gap, protected-pair, exact-room, closed-route Activity, and large-tail reply closure tests pass normally.
+No source finding or earlier closure reopens through this execution evidence.
+
+I match all 483 unique raw mutation outcomes. Final outcomes are 428 caught and 55 unviable, with no miss or timeout.
+All 428 unique catches match citations and normal PASS records. Stage 1 catches 425 and leaves five misses for Stage 2.
+After its unmutated baseline passes, Stage 2 catches three and reports two unviable.
+The three Stage 2 catchers have normal PASS records, including the real route control and route_reports paths.
+Unviable outcomes supply no catch credit. No FLAKY or RETRY trial appears in the gate's runtime record.
+The only INCONCLUSIVE text describes the existing R-111 exclusion, which retains its accepted scope and supplies no catch credit.
+No known-flaky entry, retry authority, or new exclusion enters this train.
+
+The fuzz step actually completes all six selected harnesses. Each is configured for 60 seconds and reports 61 seconds:
+
+| Harness | Runs |
+| --- | ---: |
+| ordinal_decoder | 37316226 |
+| link_decoder | 5613636 |
+| msg_decoder | 3341661 |
+| frame_ends_decoder | 2623102 |
+| sock_diag_decoder | 4212048 |
+| receipt_decoder | 4907505 |
+
+The existing CI uses the pinned nightly and fails on command failure. No selected decoder is skipped.
+CI takes 1773.6 seconds. The job and wrapper exit zero after 1874 seconds, with 77 seconds queued and 1797 seconds running.
+The earlier member gates and local producer reports retain their original heads and limits.
+
+This is the ONE final whole-train receipt under BUILD Green. All applicable source and package findings remain closed, including LOW.
+The unchanged frozen members need no redundant final package receipts. No #331 code or future P6 pin enters this composition.
+The lead must verify the equal-tree fast-forward and remote push. This receipt does not claim a completed merge.
+The R-109 fence debt, DP-8 adoption limit, B-7 ceilings hold, Mac evidence limits, F28 duty, and A24 gap remain outside this acceptance.
+I ran no build, test, gate, pool job, mutation, reproduction, measurement, or executable merge-check job.
+
+VERDICT: FINAL CLEAN (0 open, including LOW; complete combined source and exact-head train gate)
