@@ -202,6 +202,13 @@ exclude_re = [
     # argument, and the refusal of 0, 1 and our own in botster_core_sys::signal
     # (a_target_of_0_1_out_of_range_or_our_own_is_refused, our_own_group_and_process_are_never_signalled).
     'crates/botster-gate-kit/src/bounded\.rs:\d+:\d+: replace kill with \(\)$',
+    # xtask taint.rs command -> Ok(()): process glue. The body reads the pinned denylist (cargo metadata), Core's additions
+    # and every tracked file, and prints the report; a test cannot run cargo metadata on a scratch repository without the
+    # pinned contracts checkout. Only this whole-body replacement is excluded. Its decision is report
+    # (each_hit_is_reported_and_any_hit_fails); the scan is botster_gate_kit::taint (its tests), the strict read
+    # botster_gate_kit::files::read_tracked (every_selected_tracked_file_is_read_and_an_unreadable_one_fails), and every
+    # gate log shows the step's "taint: N files scanned" line.
+    'xtask/src/taint\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask test_budget.rs run_nextest -> a value: process glue. The body builds the nextest command of a tier and runs it
     # with botster_gate_kit::bounded::run_bounded; a default-tier test cannot start a nextest tier inside the test run. Only
     # this whole-body replacement is excluded. Its decision is tier_env

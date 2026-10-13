@@ -25,22 +25,67 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     tokens.extend(parse_denylist(&additions));
     let files = lossy(read_tracked(root, |_| true)?);
     let (scanned, hits) = scan_files(&files, &tokens);
-    for (file, line, token) in &hits {
-        eprintln!("{file}:{line}: banned name '{token}'");
-    }
-    println!(
-        "taint: {scanned} files scanned, {from_contracts} names from botster-contracts, {} from Core",
-        tokens.len() - from_contracts
+    let (hit_lines, summary, verdict) = report(
+        scanned,
+        from_contracts,
+        tokens.len() - from_contracts,
+        &hits,
     );
-    if !hits.is_empty() {
-        bail!("{} hit(s)", hits.len());
+    for line in hit_lines {
+        eprintln!("{line}");
     }
-    Ok(())
+    println!("{summary}");
+    verdict.map_err(anyhow::Error::msg)
+}
+
+/// The report of a scan of `scanned` files with `from_contracts` names of botster-contracts and `from_core` of Core: a
+/// line for each hit, the summary line, and the verdict, which fails on any hit.
+fn report(
+    scanned: usize,
+    from_contracts: usize,
+    from_core: usize,
+    hits: &[(String, usize, String)],
+) -> (Vec<String>, String, std::result::Result<(), String>) {
+    let lines = hits
+        .iter()
+        .map(|(file, line, token)| format!("{file}:{line}: banned name '{token}'"))
+        .collect();
+    let summary = format!(
+        "taint: {scanned} files scanned, {from_contracts} names from botster-contracts, {from_core} from Core"
+    );
+    let verdict = if hits.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("{} hit(s)", hits.len()))
+    };
+    (lines, summary, verdict)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_hit_is_reported_and_any_hit_fails() {
+        assert_eq!(
+            report(3, 2, 1, &[]),
+            (
+                Vec::new(),
+                "taint: 3 files scanned, 2 names from botster-contracts, 1 from Core".to_string(),
+                Ok(())
+            )
+        );
+        let hits = [
+            ("a.rs".to_string(), 4, "old".to_string()),
+            ("b.md".to_string(), 1, "older".to_string()),
+        ];
+        let (lines, _, verdict) = report(3, 2, 1, &hits);
+        assert_eq!(
+            lines,
+            ["a.rs:4: banned name 'old'", "b.md:1: banned name 'older'"]
+        );
+        assert_eq!(verdict, Err("2 hit(s)".to_string()));
+    }
 
     #[test]
     fn the_core_additions_name_the_old_mechanisms_of_plan_section_8() {
