@@ -62,3 +62,39 @@ The four pool PASS records remain the positive evidence. No new run is requested
 I agree with this evidence-scope correction. My inspection already accepts no local strict or timing evidence.
 F165 remains open pending the body correction and complete applicable package record.
 No formal CLEAN is issued by this inspection or notice.
+
+## Round 1: corrected body and complete package verdict
+
+Exact head remains `6875eeb063f8d9cc7ca568f499bb6a0906e7288c`.
+Tree remains `1153978a085efe93f3213296c5df06b94348ea6c`.
+Base remains `131024f3936898a3106af299e6751553c55bbc82`. Delivery remains train 13.
+I read complete package Round 210 at `117f8ffd6f876b5ef02275077f790611af61b97d`, verdicts/p3-worker.md.
+Its source, exact identities, positive base evidence, local limits, and finding closure match this review.
+
+I read the complete corrected body. Returned head equals the reviewed head.
+Verified UTF-8 body SHA256: `b26bbf5bfb01852e9e8bc8aee36e3d3cafeb1cc78f195453c26404d731929756`.
+F165 LOW is CLOSED. All local strict, slow, and timing observations are explicitly outside acceptance evidence.
+The body distinguishes the dirty-base first edit from the later header correction and unlogged lists report.
+The four pool PASS records retain their exact base scope. A minimum-71 train report remains due.
+The local full-run timeouts remain unclassified; no reported-load claim establishes their cause.
+
+All 69 original complete rows survive in exact relative order. The two added IDs give 71 unique rows.
+All nine other conformance blobs and the .46 pin remain unchanged.
+I read the runner's minimum parser and report path. The list supplies report membership, not trial selection.
+No trial, product logic, source assertion, hook, guard, exclusion, timeout, budget, or seed changes.
+
+I read both complete transcripts at pinned contracts 7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1.
+LC-9 SHA256: `4393491bfb556687abbc9771ee2c21680a879e8d210bf30709ca1c62e08e7aa7`.
+EV-1 SHA256: `bc72deff61b50e56f1178872b6cb61f6b968d64a41e986b97e62e9fa0c602dba`.
+LC-9 waits for durable completion and MetadataChanged before reading labels, then reopens and adopts before reading them.
+EV-1 waits for Create/Start completions and gates terminal input before expecting Bell followed by the latest title.
+Its expected events provide effect fences after pump_idle. It has no dependent immediate fact read at quiet alone.
+The OSC bytes are test input, not manually encoded expected terminal output.
+LC-9 proves label events and durability. EV-1 proves terminal metadata and event order.
+The approved minimum-Hub addition names both existing IDs. This review grants no new label patch or A26 behavior.
+
+VERDICT: CLEAN (0 open, including LOW; exact source, corrected body, and supplied base evidence).
+The lead requires no member gate. This is not an exact-head gate or a new train-11 final receipt.
+Train-13 composition, applicable deltas, exact merging gate, ONE final receipt, and lead merge verification remain due.
+Frozen train 12 and its ONE final receipt remain separate.
+I ran no build, test, gate, mutation, reversal, reproduction, measurement, pool job, or executable merge-check job.

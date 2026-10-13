@@ -90,3 +90,9 @@ All ten gate steps pass. All 137 mutation catches match citations and ordinary P
 All 192 held-full trials and three selected decoder fuzz runs pass. No source finding remains, including LOW.
 Gate SHA256: `46bf46299cb395f854b9f462cdc9146e903408de4d76742bf54f4fc037f3d16f`.
 The lead's fast-forward, equal-tree check, and remote verification remain due.
+
+#332 integration Round 1 is CLEAN at `6875eeb0`, tree `1153978a`, base `131024f3`, for train 13.
+Complete package Round 210 at `117f8ffd` is read. F165 LOW closes through the complete corrected body.
+All 69 original rows remain; the two approved additions give 71. Nine other conformance blobs and the .46 pin stay exact.
+Both IDs retain their ordinary testkit and real PASS records at the base. Local Mac results supply no acceptance evidence.
+No finding remains, including LOW. Train-13 composition and exact merging gate remain due.
