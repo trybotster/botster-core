@@ -196,25 +196,30 @@ exclude_re = [
     # (the_packages_come_from_cargo_metadata), tracked_with_submodules (the_tracked_files_come_from_git) and verdict
     # (a_check_passes_only_with_no_violation).
     'xtask/src/mutants_cited\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
-    # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
-    # target (a_cleanup_argument_names_a_process_or_a_group), the parse of each argument, and the refusal of 0, 1 and our
-    # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
-    # our_own_group_and_process_are_never_signalled).
-    'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
-    # xtask test_budget.rs run_nextest and run_bounded -> a value: process glue. run_bounded starts a command in its own
-    # process group, tracks its processes, kills the group at the deadline and copies its stdout; run_nextest builds the
-    # nextest command for it. A default-tier test cannot start a real process group (BUILD.md testing rule 2). Only these
-    # whole-body replacements are excluded. Their decisions are tested: exit_failures (the_way_nextest_ended_is_judged) and
-    # run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output); the slow tests
-    # a_run_past_its_deadline_is_killed_and_fails and a_process_left_behind_fails_the_run_and_is_killed run the glue itself.
+    # gate-kit bounded.rs kill -> (): process glue (moved from xtask test_budget.rs). The body sends SIGKILL to the
+    # leftovers of a run; a default-tier test cannot give it a real leftover to end. Only this whole-body replacement is
+    # excluded. Its decisions are tested: target (a_cleanup_argument_names_a_process_or_a_group), the parse of each
+    # argument, and the refusal of 0, 1 and our own in botster_core_sys::signal
+    # (a_target_of_0_1_out_of_range_or_our_own_is_refused, our_own_group_and_process_are_never_signalled).
+    'crates/botster-gate-kit/src/bounded\.rs:\d+:\d+: replace kill with \(\)$',
+    # xtask test_budget.rs run_nextest -> a value: process glue. The body builds the nextest command of a tier and runs it
+    # with botster_gate_kit::bounded::run_bounded; a default-tier test cannot start a nextest tier inside the test run. Only
+    # this whole-body replacement is excluded. Its decision is tier_env
+    # (the_tier_environment_sets_seeds_and_the_bolero_pin_for_the_default_tier_only), the environment of each tier.
     'xtask/src/test_budget\.rs:\d+:\d+: replace run_nextest -> ',
-    'xtask/src/test_budget\.rs:\d+:\d+: replace run_bounded -> ',
-    # xtask test_budget.rs bounded_report -> a value: process glue (#220 R1-1). The body runs a command with run_bounded,
-    # kills its leftovers and reads its captured output until the deadline. Only this whole-body replacement is excluded. Its
-    # decision is the tested run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output);
-    # the slow test a_bounded_run_returns_its_status_and_what_it_printed runs the glue.
-    'xtask/src/test_budget\.rs:\d+:\d+: replace bounded_report -> ', # 4 mutants
+    # gate-kit bounded.rs run_bounded -> a value: process glue (moved from xtask test_budget.rs). The body starts a command
+    # in its own process group, tracks its processes, kills the group at the deadline and copies its stdout. A default-tier
+    # test cannot start a real process group (BUILD.md testing rule 2). Only this whole-body replacement is excluded. Its
+    # decisions are tested: exit_failures (the_way_nextest_ended_is_judged) and run_failures
+    # (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output); the slow tests
+    # a_run_past_its_deadline_is_killed_and_fails and a_process_left_behind_fails_the_run_and_is_killed run the glue itself.
+    'crates/botster-gate-kit/src/bounded\.rs:\d+:\d+: replace run_bounded -> ',
+    # gate-kit bounded.rs bounded_report -> a value: process glue (#220 R1-1; moved from xtask test_budget.rs). The body
+    # runs a command with run_bounded, kills its leftovers and reads its captured output until the deadline. Only this
+    # whole-body replacement is excluded. Its decision is the tested run_failures
+    # (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output); the slow test
+    # a_bounded_run_returns_its_status_and_what_it_printed runs the glue.
+    'crates/botster-gate-kit/src/bounded\.rs:\d+:\d+: replace bounded_report -> ', # 4 mutants
     # xtask test_budget.rs pending_real -> a value: process glue. The body builds the command of the real tier's pending-real
     # run (`cargo test ... -- --ignored`) and runs it with bounded_report; a test cannot run the real tier inside the test
     # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran

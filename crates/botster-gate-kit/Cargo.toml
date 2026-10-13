@@ -7,13 +7,21 @@ license.workspace = true
 publish.workspace = true
 
 # The gate code that Core's xtask and the gates of the Stage 2 repositories share (repo plan section 5, lead 2026-10-12):
-# moved from Core's xtask, never copied. It depends on no Core crate.
+# moved from Core's xtask, never copied. Its one Core dependency is botster-core-sys, the one owner of the signal rule (the
+# bounded run kills through it; lead 2026-10-12, option (i)).
 
 [lints]
 workspace = true
 
+[features]
+# The real-process tests of the bounded run (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
 [dependencies]
 anyhow.workspace = true
+botster-core-sys.workspace = true
+# The process census of the bounded run's tracker (`census`).
+botster-test-support.workspace = true
 regex.workspace = true
 proc-macro2.workspace = true
 serde_json.workspace = true

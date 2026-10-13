@@ -4,12 +4,16 @@ use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 
-/// The tracked files of the repo, from `git ls-files`.
-pub fn tracked_files(root: &Path) -> Result<Vec<String>> {
+/// The output of `git ls-files -z <args>` in `root`.
+///
+/// # Errors
+/// git fails, or its output is not UTF-8.
+fn ls_files(root: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
         .args(["ls-files", "-z"])
+        .args(args)
         .output()
         .context("run git ls-files")?;
     if !output.status.success() {
@@ -18,11 +22,82 @@ pub fn tracked_files(root: &Path) -> Result<Vec<String>> {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    Ok(String::from_utf8(output.stdout)?
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// The tracked files of the repo, from `git ls-files`.
+pub fn tracked_files(root: &Path) -> Result<Vec<String>> {
+    Ok(ls_files(root, &[])?
         .split('\0')
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect())
+}
+
+/// The mode of a submodule entry in the index (a gitlink): a commit of another repository, not a file.
+const GITLINK: &str = "160000";
+
+/// The paths of a `git ls-files -z --stage` listing (`<mode> <object> <stage>\t<path>`, NUL-separated), without the
+/// submodule entries ([`GITLINK`]).
+///
+/// # Errors
+/// An entry has no tab or no mode.
+pub fn blob_paths(listing: &str) -> Result<Vec<String>, String> {
+    let mut paths = Vec::new();
+    for entry in listing.split('\0').filter(|entry| !entry.is_empty()) {
+        let (info, path) = entry
+            .split_once('\t')
+            .ok_or_else(|| format!("git ls-files --stage: no tab in {entry:?}"))?;
+        let mode = info
+            .split(' ')
+            .next()
+            .filter(|mode| !mode.is_empty())
+            .ok_or_else(|| format!("git ls-files --stage: no mode in {entry:?}"))?;
+        if mode != GITLINK {
+            paths.push(path.to_string());
+        }
+    }
+    Ok(paths)
+}
+
+/// Each file of `files` under `root`, with its bytes.
+///
+/// # Errors
+/// A file cannot be read: a check never skips a tracked file in silence (Hub #212 HUBB-3; lead 2026-10-12).
+pub fn read_files(root: &Path, files: Vec<String>) -> Result<Vec<(String, Vec<u8>)>> {
+    files
+        .into_iter()
+        .map(|file| {
+            let bytes = std::fs::read(root.join(&file))
+                .with_context(|| format!("read the tracked file {file}"))?;
+            Ok((file, bytes))
+        })
+        .collect()
+}
+
+/// The tracked files of the repo that `keep` selects, with their bytes. A submodule is no file ([`blob_paths`]).
+///
+/// # Errors
+/// git fails, or a selected file cannot be read ([`read_files`]).
+pub fn read_tracked(root: &Path, keep: impl Fn(&str) -> bool) -> Result<Vec<(String, Vec<u8>)>> {
+    let paths = blob_paths(&ls_files(root, &["--stage"])?).map_err(anyhow::Error::msg)?;
+    read_files(root, paths.into_iter().filter(|path| keep(path)).collect())
+}
+
+/// The files that are UTF-8 text, as text. A file that is not UTF-8 is not text, and a text check leaves it out.
+pub fn texts(files: Vec<(String, Vec<u8>)>) -> Vec<(String, String)> {
+    files
+        .into_iter()
+        .filter_map(|(file, bytes)| String::from_utf8(bytes).ok().map(|text| (file, text)))
+        .collect()
+}
+
+/// Every file as text, with each invalid UTF-8 sequence replaced: a check of every byte of every file (the taint scan).
+pub fn lossy(files: Vec<(String, Vec<u8>)>) -> Vec<(String, String)> {
+    files
+        .into_iter()
+        .map(|(file, bytes)| (file, String::from_utf8_lossy(&bytes).into_owned()))
+        .collect()
 }
 
 /// The files under `root`, relative to it, without git: a test may run in a copy of the tree with no `.git` (the
@@ -101,6 +176,89 @@ mod tests {
         assert!(
             error.to_string().starts_with("git ls-files failed: "),
             "{error}"
+        );
+    }
+
+    /// The tracked files are read with their bytes; a submodule is no file; a tracked file that cannot be read fails the
+    /// read (Hub #212 HUBB-3), and `keep` selects the files.
+    #[test]
+    fn every_selected_tracked_file_is_read_and_an_unreadable_one_fails() {
+        let repo = tempfile::tempdir().unwrap();
+        git(repo.path(), &["init", "-q"]);
+        for file in ["a.rs", "b/c.txt", "gone.rs"] {
+            write(repo.path(), file);
+        }
+        git(repo.path(), &["add", "-A"]);
+        // A submodule entry: a gitlink in the index, with no file at its path.
+        git(
+            repo.path(),
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "160000,1111111111111111111111111111111111111111,sub",
+            ],
+        );
+        let keep = |path: &str| path != "gone.rs";
+        assert_eq!(
+            read_tracked(repo.path(), keep).unwrap(),
+            [
+                ("a.rs".to_string(), b"x".to_vec()),
+                ("b/c.txt".to_string(), b"x".to_vec())
+            ]
+        );
+        std::fs::remove_file(repo.path().join("gone.rs")).unwrap();
+        let error = read_tracked(repo.path(), |_| true).unwrap_err();
+        assert!(
+            format!("{error:#}").starts_with("read the tracked file gone.rs: "),
+            "{error:#}"
+        );
+        assert!(read_tracked(repo.path(), keep).is_ok());
+        assert!(read_tracked(&repo.path().join("missing"), keep).is_err());
+    }
+
+    #[test]
+    fn a_stage_listing_gives_the_paths_without_the_submodules() {
+        let listing = [
+            "100644 aaaa 0\ta.rs",
+            "160000 bbbb 0\tsub",
+            "100755 cccc 0\tb/x y.sh",
+            "",
+        ]
+        .join("\0");
+        assert_eq!(
+            blob_paths(&listing),
+            Ok(vec!["a.rs".to_string(), "b/x y.sh".to_string()])
+        );
+        assert_eq!(blob_paths(""), Ok(Vec::new()));
+        assert_eq!(
+            blob_paths("100644 aaaa 0 a.rs\0"),
+            Err("git ls-files --stage: no tab in \"100644 aaaa 0 a.rs\"".to_string())
+        );
+        assert_eq!(
+            blob_paths("\ta.rs\0"),
+            Err("git ls-files --stage: no mode in \"\\ta.rs\"".to_string())
+        );
+    }
+
+    #[test]
+    fn a_text_check_reads_utf8_files_and_the_taint_scan_reads_every_file() {
+        let files = || {
+            vec![
+                ("a.rs".to_string(), b"fn a() {}".to_vec()),
+                ("b.png".to_string(), vec![0x89, b'P', 0xff]),
+            ]
+        };
+        assert_eq!(
+            texts(files()),
+            [("a.rs".to_string(), "fn a() {}".to_string())]
+        );
+        assert_eq!(
+            lossy(files()),
+            [
+                ("a.rs".to_string(), "fn a() {}".to_string()),
+                ("b.png".to_string(), "\u{fffd}P\u{fffd}".to_string())
+            ]
         );
     }
 

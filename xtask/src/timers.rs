@@ -16,9 +16,9 @@
 //! `#[path = ".."] mod name;`, and an inline `mod name { .. }` without `#[path]`. A `#[path]` on an inline module is a
 //! violation with the form and the file.
 
-use crate::fsutil::tracked_files;
 use crate::process_check::{module_tree, whole_test_files};
 use anyhow::{bail, Result};
+use botster_gate_kit::files::{read_tracked, texts};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
 use std::collections::{BTreeMap, BTreeSet};
@@ -347,12 +347,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     if let Some(arg) = args.first() {
         bail!("unknown argument '{arg}'");
     }
-    let mut files = Vec::new();
-    for file in tracked_files(root)? {
-        if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
-            files.push((file, text));
-        }
-    }
+    let files = texts(read_tracked(root, |_| true)?);
     let (scanned, violations) = scan_files(&files);
     println!("timers: {scanned} Rust files scanned");
     crate::tools::verdict(&violations)

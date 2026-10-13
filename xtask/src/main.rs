@@ -26,7 +26,7 @@ mod tools;
 mod unsafe_exception;
 
 use anyhow::Result;
-use botster_gate_kit::{high_tier, mutant_logs};
+use botster_gate_kit::high_tier;
 use std::path::Path;
 
 const USAGE: &str = "usage: cargo xtask <command>

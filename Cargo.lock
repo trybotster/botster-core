@@ -410,7 +410,9 @@ name = "botster-gate-kit"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "botster-core-sys",
  "botster-test-process",
+ "botster-test-support",
  "proc-macro2",
  "regex",
  "serde_json",

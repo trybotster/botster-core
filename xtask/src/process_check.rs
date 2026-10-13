@@ -17,8 +17,8 @@
 //! the check with the form and the file.
 //! A call resolves through the `use` declarations of its file, inline module and block (`resolve`).
 
-use crate::fsutil::tracked_files;
 use anyhow::{bail, Result};
+use botster_gate_kit::files::{read_tracked, texts};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use regex::Regex;
 use std::collections::{BTreeMap, BTreeSet};
@@ -1084,15 +1084,9 @@ pub fn check(root: &Path) -> Result<Report> {
     let allow_text = std::fs::read_to_string(root.join(ALLOW_FILE)).unwrap_or_default();
     let allowed = parse_allowlist(&allow_text).map_err(anyhow::Error::msg)?;
     // Every tracked text file: a test module may have any extension (`#[path = "gen.inc"]`).
-    let mut sources = BTreeMap::new();
-    for file in tracked_files(root)? {
-        if skipped(&file) {
-            continue;
-        }
-        if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
-            sources.insert(file, text);
-        }
-    }
+    let sources: BTreeMap<String, String> = texts(read_tracked(root, |file| !skipped(file))?)
+        .into_iter()
+        .collect();
     let (scanned, findings) = scan_files(&sources).map_err(anyhow::Error::msg)?;
     Ok(Report {
         scanned,

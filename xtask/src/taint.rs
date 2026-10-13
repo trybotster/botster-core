@@ -3,8 +3,9 @@
 //! The denylist is the one of botster-contracts at the pinned tag, plus `docs/core-taint-additions.txt` (plan section 8,
 //! step 3). `docs/` is not scanned: it names the old mechanisms only to forbid them.
 
-use crate::fsutil::{metadata, tracked_files};
+use crate::fsutil::metadata;
 use anyhow::{bail, Context, Result};
+use botster_gate_kit::files::{lossy, read_tracked};
 use botster_gate_kit::taint::{parse_denylist, scan_files};
 use std::path::Path;
 
@@ -22,12 +23,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let mut tokens = parse_denylist(&contracts);
     let from_contracts = tokens.len();
     tokens.extend(parse_denylist(&additions));
-    let mut files = Vec::new();
-    for file in tracked_files(root)? {
-        if let Ok(bytes) = std::fs::read(root.join(&file)) {
-            files.push((file, String::from_utf8_lossy(&bytes).into_owned()));
-        }
-    }
+    let files = lossy(read_tracked(root, |_| true)?);
     let (scanned, hits) = scan_files(&files, &tokens);
     for (file, line, token) in &hits {
         eprintln!("{file}:{line}: banned name '{token}'");

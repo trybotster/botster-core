@@ -5,8 +5,8 @@
 //! not enable, or a `cfg` cannot hide a call from it. A comment is no token, and a string literal is no identifier, so a
 //! mention in either is no call.
 
-use crate::fsutil::tracked_files;
 use anyhow::{bail, Result};
+use botster_gate_kit::files::{read_tracked, texts};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use std::path::Path;
 
@@ -209,13 +209,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     if let Some(arg) = args.first() {
         bail!("unknown argument '{arg}'");
     }
-    let mut files = Vec::new();
-    for file in tracked_files(root)? {
-        if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
-            files.push((file, text));
-        }
-    }
-    verdict(&files)
+    verdict(&texts(read_tracked(root, |_| true)?))
 }
 
 /// The step's result over `files`: each violation is printed, and any violation fails the step.

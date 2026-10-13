@@ -2,6 +2,12 @@
 
 use regex::Regex;
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// The JUnit file of a nextest run in `profile` (`.config/nextest.toml`: every profile writes `junit.xml`).
+pub fn junit_path(target_dir: &Path, profile: &str) -> PathBuf {
+    target_dir.join("nextest").join(profile).join("junit.xml")
+}
 
 /// The per-test times of a nextest JUnit file: `<binary id> <test name>` to seconds.
 pub fn parse_junit(xml: &str) -> BTreeMap<String, f64> {
