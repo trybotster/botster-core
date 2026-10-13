@@ -621,3 +621,34 @@ This is design acceptance only. The required A26 pin, implementation review, and
 The reviewer runs no build, test, gate, or reproduction and accepts no story completion or contract freeze.
 
 VERDICT: CLEAN (0 open)
+
+## Round 9: S2-HD-12 failure-reason mapping — CLEAN
+
+Request: `msg_plugin-w_1791852114_a097cc`.
+Exact document SHA-256: `7675c9660de86aa1936680dbcf55a4e46005f0dd917bd472ffe910f97b45c372`.
+Comparison: accepted Round 8 source `4ec44c7740df60adb5eb5f497b998c6adee6c0953fdd5303f4b52380724ce16f`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+Only the record reason list and step 6b mapping paragraph change.
+
+The reviewer reads complete R-121 at contracts commit `16721c1cb873479e2874e3e4f9554d85f631f5cd`.
+Its section SHA-256 is `89faa5ef3b7690abc6449647739d2ee479fb644e121acc009b1159557fcfd18a`.
+The added S2-HD-12 mapping applies equally to live StartFailed and recorded start_failure.
+The design matches the complete mapping:
+
+- ExecFailed maps to `exec_failed`.
+- CwdMissing maps to `cwd_missing`.
+- StartupTimeout, WorkerFailed, and GuardianFailed map to `worker_failed`.
+- An unknown reason maps to `start_failed`, and the Hub logs the raw Core value.
+
+The design keeps `internal` for a Hub fault. It does not use that reason for an unknown Core start failure.
+The GuardianFailed mapping supports a Core built before A26 without adding an interim readiness or recovery rule.
+The ready_reached prerequisite, R-121 precedence, R-122 row retention, and U3 cleanup obligation do not change.
+No new finding is added. All ten prior review findings remain closed.
+S2-HD-12 is the steward's question label, not a new review finding.
+
+P5 supplies local code head `a8dd4f780d830250274a377a8de9104878996de1` and reports mapping-table tests.
+This round reviews the design only. It does not read or accept that code or its test report as execution evidence.
+The required A26 pin, implementation review, and execution proof remain separate acceptance steps.
+The reviewer runs no build, test, gate, or reproduction.
+
+VERDICT: CLEAN (0 open)
