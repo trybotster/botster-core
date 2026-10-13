@@ -63,7 +63,8 @@ The extracted parser receives that policy; #330 introduces no new unsafe excepti
 
 I read the final host process-exit and driver budget contexts and the worker Exit/ExitFailure adaptation.
 The driver retains a taken identity when its budget is spent and feeds it before a later exit.
-The host matches complete identity, retains Remove teardown results, and drains running/stopping control links before classification.
+The host matches complete identity and retains Remove teardown results.
+It drains running/stopping control links before classification.
 Both simulated exit arms queue identity once and perform the accepted ended(true) cleanup.
 #331 adds no process-edge implementation, status consumer, or change to these contexts.
 The facade snapshot records the identity-only RealEdges result. The public-api command remains the base implementation.
