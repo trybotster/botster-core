@@ -96,3 +96,10 @@ Complete package Round 210 at `117f8ffd` is read. F165 LOW closes through the co
 All 69 original rows remain; the two approved additions give 71. Nine other conformance blobs and the .46 pin stay exact.
 Both IDs retain their ordinary testkit and real PASS records at the base. Local Mac results supply no acceptance evidence.
 No finding remains, including LOW. Train-13 composition and exact merging gate remain due.
+
+Train 13 combined source is CLEAN at `956695ae`, tree `65047f43`, base `7b37e787`.
+Sole frozen member: #332 `6875eeb0`. The exact member diff and minimum-list blob survive unchanged.
+The path intersection with the base move is empty; the lead requires no member delta.
+All nine full-row list formulas pass. Deferred TOML and every other base path remain unchanged.
+Package acknowledgment `msg_plugin-w_1791853058_43341c` matches the complete #332 integration Round 1 and status.
+The exact train-13 gate, ONE final receipt, and lead merge verification remain due.
