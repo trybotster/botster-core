@@ -430,72 +430,6 @@ The reviewer ran no build, test, gate, or reproduction.
 
 VERDICT: CLEAN (0 open)
 
-## Round 7: R-122 spawn-flow delta — cleanup retention remains open
-
-Initial request: `msg_plugin-w_1791850874_b4e037`, document
-`e91d22151ea6b2e84a23bca71a81b91a315e18c70845bb413d6a6e8f99c8b926`.
-Replacement request: `msg_plugin-w_1791850902_5299f4`.
-Exact reviewed replacement SHA-256: `b72df12f2e399bea84c23f8347b3d274dc75fccf04a56761345ad3abc088cfc8`.
-The initial document is superseded and receives no separate verdict.
-
-The reviewer saves both supplied sources and verifies their hashes.
-The reviewer reads the complete replacement delta from accepted Round 6 source
-`1027b5f57b018e7b292b586f35251f1707ff454f0a586b580178ac4cbfbb5514`.
-The delta changes the waiters, record fields, store API, spawn flow, restore removal, and question status.
-The reviewer also reads the lead's recorded live-flow ruling and complete HP CA-15 and CA-17.
-
-The reviewer reads complete R-122 at contracts commit `8b2d75949004a306f57012774ad2971609a4db9d`.
-Its section SHA-256 is `1dfa87062c27eaf269b84b7a7987a3c6c31a51d472b9fd2960fb244b7e4741e7`.
-R-122 corrects R-120 item 2. This round uses the correction rather than the superseded automatic-Remove rule.
-
-### Supported changes
-
-U1 and U2 durably delete the initial record before answering a proved pre-admission refusal with `effect: none`.
-The new `forget_spawn` API explicitly waits for that deletion's completion before the answer.
-U3 records `failed { internal }` with `remove_row: true` and answers the uncertain result with `effect: unknown`.
-U3 is the only case where the Hub initiates Remove without a client's delete.
-
-Synchronous Start refusal and other post-admission failures keep the Core row under CA-15.
-The client can delete the retained ended row. Restore no longer removes every Created row without a live operation record.
-U4 applies the R-121 evidence rules and keeps a Created row after an internal failure.
-U5 keeps a cancelled row and does not begin a Start that has not yet begun.
-A stop after the ready point leaves the spawn installed. Delete does not cancel spawn.
-
-The replacement explicitly uses A26's `ready_reached` for live completion and restore.
-It removes the initial Core v1 Running fallback, as the lead ruled.
-The typed stub is a development prerequisite, not accepted completion of the live spawn feature.
-This review grants no interim Core v1 readiness rule or execution acceptance.
-
-### S2-HD-11 — MEDIUM — OPEN: keep the U3 cleanup obligation past receipt expiry
-
-The new durable `remove_row` field identifies U3 rows that the Hub must remove.
-The unchanged retention rule deletes every terminal operation record after `operation_retention_seconds`.
-It does not exempt a failed U3 record whose row-removal obligation remains unresolved.
-
-That permits this path:
-
-1. Create fails with an uncertain row. The Hub writes a failed U3 record with `remove_row: true`.
-2. Core cannot yet expose the row as Created. The removal obligation remains pending.
-3. The receipt window ends. The retention sweep deletes the terminal record and its cleanup marker.
-4. A later adoption exposes the Created row. Step 6b sees no record and keeps the row.
-
-The Hub has lost its only stated durable evidence that R-122 U3 requires removal.
-A refused or failed Remove can produce the same pending-cleanup condition.
-R-122 requires removal when the uncertainty resolves; receipt expiry does not resolve that obligation.
-
-Required change: retain the cleanup obligation until Core supplies release or authoritative absence evidence.
-Retain and retry the obligation after Remove refusal or failure.
-Delete a U3 record only after both its receipt window and its cleanup obligation are satisfied.
-The existing bounded record can hold the obligation. This finding requests no new id or numerical limit.
-The design must retain the obligation across stop and restart.
-
-The S2-HD-11 label distinguishes this review finding from the steward's S2-HD-10 question answered by R-122.
-Findings 1 through 9 stay closed. No prior finding reopens.
-The reviewer sends the concrete path to P5 in `msg_plugin-w_1791851006_500a6d`.
-The reviewer runs no build, test, gate, or reproduction.
-
-VERDICT: NOT CLEAN (1 open)
-
 ## Round 5: start-evidence recovery delta — ruling needed
 
 Request: `msg_plugin-w_1791849780_f850dc`, P5 reports the lead's request to review step 6b only.
@@ -581,5 +515,109 @@ The required Core A26 pin and applicable freeze prerequisites remain due.
 There is still no interim Core v1 recovery rule.
 GS bootstrap, implementation review, and execution proof remain separate acceptance steps.
 The reviewer runs no build, test, gate, or reproduction and claims no full amendment review.
+
+VERDICT: CLEAN (0 open)
+
+## Round 7: R-122 spawn-flow delta — cleanup retention remains open
+
+Initial request: `msg_plugin-w_1791850874_b4e037`, document
+`e91d22151ea6b2e84a23bca71a81b91a315e18c70845bb413d6a6e8f99c8b926`.
+Replacement request: `msg_plugin-w_1791850902_5299f4`.
+Exact reviewed replacement SHA-256: `b72df12f2e399bea84c23f8347b3d274dc75fccf04a56761345ad3abc088cfc8`.
+The initial document is superseded and receives no separate verdict.
+
+The reviewer saves both supplied sources and verifies their hashes.
+The reviewer reads the complete replacement delta from accepted Round 6 source
+`1027b5f57b018e7b292b586f35251f1707ff454f0a586b580178ac4cbfbb5514`.
+The delta changes the waiters, record fields, store API, spawn flow, restore removal, and question status.
+The reviewer also reads the lead's recorded live-flow ruling and complete HP CA-15 and CA-17.
+
+The reviewer reads complete R-122 at contracts commit `8b2d75949004a306f57012774ad2971609a4db9d`.
+Its section SHA-256 is `1dfa87062c27eaf269b84b7a7987a3c6c31a51d472b9fd2960fb244b7e4741e7`.
+R-122 corrects R-120 item 2. This round uses the correction rather than the superseded automatic-Remove rule.
+
+### Supported changes
+
+U1 and U2 durably delete the initial record before answering a proved pre-admission refusal with `effect: none`.
+The new `forget_spawn` API explicitly waits for that deletion's completion before the answer.
+U3 records `failed { internal }` with `remove_row: true` and answers the uncertain result with `effect: unknown`.
+U3 is the only case where the Hub initiates Remove without a client's delete.
+
+Synchronous Start refusal and other post-admission failures keep the Core row under CA-15.
+The client can delete the retained ended row. Restore no longer removes every Created row without a live operation record.
+U4 applies the R-121 evidence rules and keeps a Created row after an internal failure.
+U5 keeps a cancelled row and does not begin a Start that has not yet begun.
+A stop after the ready point leaves the spawn installed. Delete does not cancel spawn.
+
+The replacement explicitly uses A26's `ready_reached` for live completion and restore.
+It removes the initial Core v1 Running fallback, as the lead ruled.
+The typed stub is a development prerequisite, not accepted completion of the live spawn feature.
+This review grants no interim Core v1 readiness rule or execution acceptance.
+
+### S2-HD-11 — MEDIUM — OPEN: keep the U3 cleanup obligation past receipt expiry
+
+The new durable `remove_row` field identifies U3 rows that the Hub must remove.
+The unchanged retention rule deletes every terminal operation record after `operation_retention_seconds`.
+It does not exempt a failed U3 record whose row-removal obligation remains unresolved.
+
+That permits this path:
+
+1. Create fails with an uncertain row. The Hub writes a failed U3 record with `remove_row: true`.
+2. Core cannot yet expose the row as Created. The removal obligation remains pending.
+3. The receipt window ends. The retention sweep deletes the terminal record and its cleanup marker.
+4. A later adoption exposes the Created row. Step 6b sees no record and keeps the row.
+
+The Hub has lost its only stated durable evidence that R-122 U3 requires removal.
+A refused or failed Remove can produce the same pending-cleanup condition.
+R-122 requires removal when the uncertainty resolves; receipt expiry does not resolve that obligation.
+
+Required change: retain the cleanup obligation until Core supplies release or authoritative absence evidence.
+Retain and retry the obligation after Remove refusal or failure.
+Delete a U3 record only after both its receipt window and its cleanup obligation are satisfied.
+The existing bounded record can hold the obligation. This finding requests no new id or numerical limit.
+The design must retain the obligation across stop and restart.
+
+The S2-HD-11 label distinguishes this review finding from the steward's S2-HD-10 question answered by R-122.
+Findings 1 through 9 stay closed. No prior finding reopens.
+The reviewer sends the concrete path to P5 in `msg_plugin-w_1791851006_500a6d`.
+The reviewer runs no build, test, gate, or reproduction.
+
+VERDICT: NOT CLEAN (1 open)
+
+## Round 8: U3 cleanup-retention correction — CLEAN
+
+Request: `msg_plugin-w_1791851047_6065d9`.
+Exact document SHA-256: `4ec44c7740df60adb5eb5f497b998c6adee6c0953fdd5303f4b52380724ce16f`.
+Comparison: Round 7 document `b72df12f2e399bea84c23f8347b3d274dc75fccf04a56761345ad3abc088cfc8`.
+The reviewer saves the source, verifies its hash, and reads the complete delta.
+Only the U3 cleanup obligation and terminal-record retention rule change, both in section 4a.
+This commit also orders the prior review sections by round number. It removes no finding or closure evidence.
+
+### S2-HD-11 — MEDIUM — CLOSED
+
+The durable `remove_row` marker now stays true until Core proves the row is gone.
+The accepted proof is a successful Remove completion, the row's Released event, or authoritative absence after adoption.
+The owner then clears the marker through a store job with the retained, non-refused `finish_spawn` rules.
+A refused or failed Remove leaves the marker true.
+The owner retries when a later Created sighting or adoption exposes the row, with at most one Remove per sighting.
+The failed attempt therefore loses no durable cleanup obligation and causes no refusal loop.
+
+Retention now requires both conditions: the receipt window has ended and `remove_row` is false.
+An unresolved U3 row cannot lose its marker through the terminal-record sweep.
+The existing record bound continues to apply. No new id or numerical limit is introduced.
+These changes close the retention, failure, and restart path recorded in Round 7.
+Implementation evidence must cover receipt expiry while row presence is uncertain, followed by adoption and release.
+
+### Final design scope
+
+The R-122 spawn-flow delta and its cleanup correction are CLEAN at the exact document hash above.
+All ten review findings close: S2-HD-1 through S2-HD-9, and S2-HD-11.
+S2-HD-10 remains the steward's question label, not an additional open review finding.
+The corrected R-120 behavior keeps post-admission failed rows until explicit client deletion.
+U3 remains the only automatic Hub removal path.
+Live and restored readiness require A26's `ready_reached`; no Core v1 readiness fallback is accepted.
+
+This is design acceptance only. The required A26 pin, implementation review, and execution proof remain due.
+The reviewer runs no build, test, gate, or reproduction and accepts no story completion or contract freeze.
 
 VERDICT: CLEAN (0 open)
