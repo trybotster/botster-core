@@ -185,7 +185,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     }
     spawner.signal_group(edges.id, GroupSignal::Kill);
     spawner.signal_group(edges.id, GroupSignal::Kill);
-    assert_eq!(spawner.poll_exit(), Some((edges.id, ExitStatus::Signal(9))));
+    assert_eq!(spawner.poll_exit(), Some(edges.id));
     assert_eq!(spawner.poll_exit(), None);
     spawner.signal_group(edges.id, GroupSignal::EndPayload);
     spawner.signal_group(edges.id, GroupSignal::KillPayload);
@@ -658,7 +658,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(!workers.has_ready());
     assert!(table.holds_reports());
     assert!(!workers.edges_quiet(&table));
-    assert_eq!(spawner.poll_exit(), Some((id, ExitStatus::Signal(9))));
+    assert_eq!(spawner.poll_exit(), Some(id));
     assert!(workers.edges_quiet(&table));
 }
 
@@ -709,7 +709,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     let ender = thread::spawn(move || {
         let mut owner = lock(&processes);
         owner_held_tx.send(()).unwrap();
-        owner.end(id, ExitStatus::Signal(9));
+        owner.end(id);
         drop(owner);
         done_tx.send("end").unwrap();
     });
@@ -734,10 +734,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
         Ok(()),
         "the control read the cell before the end"
     );
-    assert_eq!(
-        lock(&edges.processes).exits.pop_front(),
-        Some((id, ExitStatus::Signal(9)))
-    );
+    assert_eq!(lock(&edges.processes).exits.pop_front(), Some(id));
     assert!(workers.program_edge(id).is_err(), "the process has ended");
 }
 

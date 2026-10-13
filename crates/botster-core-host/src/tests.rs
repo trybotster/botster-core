@@ -5,9 +5,7 @@
 use crate::io::{Action, Input, LinkId, Work};
 use crate::{EngineConfig, HostEngine};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{
-    ExitStatus, IdentityState, ProcessIdentity, SpawnError, StorageError,
-};
+use botster_core_edges::edges::{IdentityState, ProcessIdentity, SpawnError, StorageError};
 use botster_core_edges::Machine;
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, Observation, WorkerMsg};
@@ -245,7 +243,7 @@ impl World {
 
     /// A process whose exit the engine is told of is no longer running.
     fn end_exited(&mut self, input: &Input) {
-        if let Input::ProcessExited { identity, .. } = input {
+        if let Input::ProcessExited { identity } = input {
             self.alive.remove(identity);
         }
     }
@@ -390,10 +388,7 @@ impl World {
                     // The worker ends after its teardown (LC-7 step 3).
                     if matches!(msg, HostMsg::Remove) {
                         if let Some(identity) = self.identities.get(&link).copied() {
-                            self.inject.push(Input::ProcessExited {
-                                identity,
-                                status: ExitStatus::Code(0),
-                            });
+                            self.inject.push(Input::ProcessExited { identity });
                         }
                     }
                 }
@@ -678,10 +673,7 @@ impl World {
 
     pub fn exited(&mut self, session: &str) {
         let identity = self.identity_of(session);
-        self.feed(Input::ProcessExited {
-            identity,
-            status: ExitStatus::Code(0),
-        });
+        self.feed(Input::ProcessExited { identity });
     }
 
     /// The worker of `session` ends, with no word on its link: the exit watch reports it, and the driver's drain of an open

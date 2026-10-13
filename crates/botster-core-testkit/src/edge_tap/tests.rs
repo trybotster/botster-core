@@ -63,7 +63,7 @@ struct Fake {
     reads: BTreeMap<LinkId, VecDeque<Read>>,
     accepts: VecDeque<LinkId>,
     connects: BTreeMap<InstanceId, LinkId>,
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
     rows: BTreeMap<String, Vec<u8>>,
     fail_writes: bool,
     closed: BTreeSet<LinkId>,
@@ -124,7 +124,7 @@ impl HostEdges for Fake {
             .unwrap_or(IdentityState::Absent)
     }
 
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
         self.exits.pop_front()
     }
 
@@ -232,10 +232,6 @@ fn identity(pid: u32) -> ProcessIdentity {
     }
 }
 
-fn exit_status() -> ExitStatus {
-    ExitStatus::Code(0)
-}
-
 fn hello_of(instance: &str) -> Hello {
     let instance = InstanceId(instance.into());
     Hello {
@@ -323,7 +319,7 @@ fn fake_with_link(reads: Vec<Read>) -> Fake {
 #[test]
 fn every_call_passes_to_the_inner_edges_unchanged() {
     let mut fake = fake_with_link(vec![Read::Data(b"xyz".to_vec())]);
-    fake.exits.push_back((identity(5), exit_status()));
+    fake.exits.push_back(identity(5));
     let mut rig = rig(fake);
     let mut random = [0u8; 4];
     rig.edges.fill_random(&mut random);
@@ -339,10 +335,7 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
         Ok(identity(41))
     );
     assert_eq!(rig.edges.identity_state(identity(5)), IdentityState::Absent);
-    assert_eq!(
-        rig.edges.poll_process_exit(),
-        Some((identity(5), exit_status()))
-    );
+    assert_eq!(rig.edges.poll_process_exit(), Some(identity(5)));
     assert_eq!(rig.edges.poll_process_exit(), None);
     assert_eq!(rig.edges.accept_link(), Some(A));
     assert_eq!(rig.recv(A, 16).unwrap(), b"xyz");
@@ -505,8 +498,8 @@ fn an_end_taken_ahead_reaches_the_driver_once() {
 fn new_links_and_exits_taken_ahead_are_handed_out_first() {
     let mut fake = Fake::default();
     fake.accepts.extend([A, B]);
-    fake.exits.push_back((identity(9), exit_status()));
-    fake.exits.push_back((identity(8), exit_status()));
+    fake.exits.push_back(identity(9));
+    fake.exits.push_back(identity(8));
     let mut rig = rig(fake);
     // One take of each inbound edge: one link and one exit.
     assert!(!rig.with(Tap::quiet));
@@ -517,15 +510,9 @@ fn new_links_and_exits_taken_ahead_are_handed_out_first() {
     assert_eq!(rig.edges.accept_link(), Some(A));
     assert_eq!(rig.edges.accept_link(), Some(B));
     assert_eq!(rig.edges.accept_link(), None);
-    assert_eq!(
-        rig.edges.poll_process_exit(),
-        Some((identity(9), exit_status()))
-    );
+    assert_eq!(rig.edges.poll_process_exit(), Some(identity(9)));
     assert!(!rig.with(Tap::quiet), "the second exit is new");
-    assert_eq!(
-        rig.edges.poll_process_exit(),
-        Some((identity(8), exit_status()))
-    );
+    assert_eq!(rig.edges.poll_process_exit(), Some(identity(8)));
     assert!(rig.with(Tap::quiet));
 }
 
@@ -582,14 +569,11 @@ fn a_link_or_an_exit_held_alone_keeps_the_edges_busy() {
     assert!(links.with(Tap::quiet));
     // Only an exit is held.
     let mut fake = Fake::default();
-    fake.exits.push_back((identity(4), exit_status()));
+    fake.exits.push_back(identity(4));
     let mut exits = rig(fake);
     assert!(!exits.with(Tap::quiet));
     assert!(!exits.with(Tap::quiet), "the tap still holds the exit");
-    assert_eq!(
-        exits.edges.poll_process_exit(),
-        Some((identity(4), exit_status()))
-    );
+    assert_eq!(exits.edges.poll_process_exit(), Some(identity(4)));
     assert!(exits.with(Tap::quiet));
 }
 

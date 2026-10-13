@@ -13,8 +13,7 @@ use crate::run::registry_failed;
 use crate::session::ROW_PREFIX;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
-    Wake as WakeEdge,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError, Wake as WakeEdge,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
@@ -72,7 +71,7 @@ pub trait HostEdges: Send {
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
     /// What `identity` matches now (AD-6).
     fn identity_state(&self, identity: ProcessIdentity) -> IdentityState;
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity>;
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
     fn accept_link(&mut self) -> Option<LinkId>;
@@ -191,7 +190,7 @@ pub struct HostDriver<E: HostEdges> {
     failed_handoffs: std::collections::VecDeque<Input>,
     /// An exit that the process edge reaped when the pump had no budget left: the next pump feeds it first (9B). It is how
     /// the driver knows that an exit waits, so that `PumpReport.more` is true only then (TM-6).
-    next_exit: Option<(ProcessIdentity, ExitStatus)>,
+    next_exit: Option<ProcessIdentity>,
     /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
     /// closes the link for it, after the frames that came before it (9B, TM-6).
     link_ends: BTreeMap<LinkId, String>,
@@ -724,7 +723,7 @@ impl<E: HostEdges> HostDriver<E> {
     /// budget ran out before the edge was asked.
     fn take_exits(&mut self, budget: &mut Budget) {
         loop {
-            let Some((identity, status)) = self
+            let Some(identity) = self
                 .next_exit
                 .take()
                 .or_else(|| self.edges.poll_process_exit())
@@ -732,11 +731,11 @@ impl<E: HostEdges> HostDriver<E> {
                 return;
             };
             if budget.exhausted() {
-                self.next_exit = Some((identity, status));
+                self.next_exit = Some(identity);
                 budget.more_input = true;
                 return;
             }
-            self.feed(Input::ProcessExited { identity, status });
+            self.feed(Input::ProcessExited { identity });
             budget.account(&mut self.engine);
         }
     }

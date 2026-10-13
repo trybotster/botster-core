@@ -570,11 +570,7 @@ fn the_driver_takes_the_exits_of_the_process_edge() {
         pid: 500,
         start_time: 1,
     };
-    rig.mock
-        .lock()
-        .unwrap()
-        .exits
-        .push((worker, ExitStatus::Code(0)));
+    rig.mock.lock().unwrap().exits.push(worker);
     // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
     rig.mock
         .lock()
@@ -742,13 +738,10 @@ fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
     );
     run_session(&mut rig, "s1", LinkId(1));
     on.store(true, Ordering::SeqCst);
-    rig.mock.lock().unwrap().exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(0),
-    ));
+    rig.mock.lock().unwrap().exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
     rig.mock
         .lock()
@@ -815,13 +808,10 @@ fn a_pump_that_leaves_work_keeps_the_wake_and_looks_again_after_settling() {
 fn an_exit_reaped_while_the_pump_settles_is_taken_in_that_pump() {
     let mut rig = Rig::new(CoreLimits::default());
     run_session(&mut rig, "s1", LinkId(1));
-    rig.mock.lock().unwrap().late_exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(0),
-    ));
+    rig.mock.lock().unwrap().late_exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     // The worker is dead: its link gives the end of file too, which classifies the session (R-78 item 4).
     rig.mock
         .lock()
@@ -884,13 +874,10 @@ fn one_due_silence_that_spends_the_budget_leaves_no_more_work() {
 #[test]
 fn an_exit_with_no_budget_left_is_kept_and_taken_by_the_next_pump() {
     let mut rig = budget_spent_by_a_silence(|_| {});
-    rig.mock.lock().unwrap().exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(0),
-    ));
+    rig.mock.lock().unwrap().exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     let report = rig.pump();
     assert_eq!(report.events_posted, 1, "the Silent");
     assert!(report.more && rig.wake_set(), "an exit waits (TM-6)");
