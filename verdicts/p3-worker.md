@@ -15319,3 +15319,119 @@ F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
 Next package round: 208. All earlier history remains preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 208 — #331 documentation delta and focused catch proof, 2026-10-12
+
+Exact head: `57cb242f5d3dda40e524090239222e4824021798`.
+Tree: `9b1b569b8f78ab9e70298c28c322fddc3ec9cc66`.
+Exact base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Exact parent: `28a29d32d191604221eb4cbeeb02e47371fa3daf`.
+Previous complete package Round 207: `c1240a8c79a43e46dc2d9f54cc18526211d820c0`, NOT CLEAN.
+GS receipts: `msg_plugin-w_1791850013_2a53fd`, `msg_plugin-w_1791850021_0be330`, and `msg_plugin-w_1791850257_c87d2a`.
+Lead ruling: `msg_plugin-w_1791850081_b70364`. Review this head for source CLEAN; the train-12 gate is the merging gate.
+Tier HIGH remains correct. Both package and integration CLEAN are required.
+
+### Exact delta and F163 — LOW — CLOSED
+
+The reviewer reads the complete parent-to-head delta and the final affected paragraph.
+The only changed path is crates/botster-test-process/DESIGN.md: two added lines and one deleted line.
+The reviewer compares the complete document's word sequence. It is identical to the parent.
+The changed line is split into lines of 85 and 99 columns. Both satisfy the 120-column prose bound.
+This closes F163, which aliases R331-I2.
+All Rust, manifests, lockfile, CI configuration, tests, and lists retain their parent blobs.
+The complete source review in Round 207 therefore applies to this head without a logic change.
+The reviewer verifies the parent and the published origin/stage1/gs-gate-kit ref.
+
+### F162 — MEDIUM — CLOSED: named focused catches
+
+Completed record: gates/botster-core-stage1-gs-gate-kit-28a29d32-focused-mutants-records.log.
+SHA256: `1ec805762bf6aba6dc256df1baf027b6cb0c48ee92b399760d939cf8a51182c8`.
+The reviewer verifies the complete file hash and reads its producer script, header, outcomes, and scenario records.
+The record names exact head 28a29d32, base 644f632f, Linux msa1, and capped command.
+It tests all gate-kit additions with --no-config and the mutation profile in the mutant's own package.
+This record is focused evidence from the unchanged parent source. It is not a full gate of 57cb242f.
+
+The complete outcomes.json has 164 scenarios: one successful baseline and 163 mutants.
+Every outcome has exactly one corresponding scenario record. No record path is missing or extra.
+All 163 full identities and outcomes match the earlier focused record, including repeated names by their count.
+Totals: 155 caught, one missed, zero timeout, and seven unviable. cargo-mutants version: 27.1.0.
+Each caught outcome has a failed test phase with exit 100.
+Each of the 155 catches names a test with TRY 1 FAIL and a final TRY 2 FAIL for that same test.
+Every named catcher passes the 32-test baseline and the earlier full gate's normal run.
+No catcher is on Core's known-flaky list. The reviewer credits the first recorded final failure, not a later cancellation.
+The two recorded SIGTERM lines are not independent catches.
+
+The renamed modules have 13 high_tier catches and 24 mutant_logs catches.
+The high_tier catchers prove path boundaries, required reasons, invalid globs, and the failing outcome.
+The mutant_logs catchers prove status parsing, retry classification, strict errors, first-failure order, and report outcomes.
+The reviewer reads these tests in Round 207 and matches their names to the retained failures and baseline PASS records.
+These records complete the catch proof that the rename-aware full gate did not select.
+
+All seven unviable scenarios fail their build phase with exit 101 and actual E0277 compiler errors.
+The missing Default implementations are State once, regex::Regex twice, StageReport twice, and LineColumn twice.
+These are mutation-induced type errors. No unviable case hides a failed unmutated baseline.
+The only miss replaces high_tier command with Ok(()). Its build and test phases succeed.
+It has no matching status line in the filtered record. The existing approved shell exclusion covers exactly that name.
+Its decisions remain tested. No new exclusion or surviving decision mutant appears.
+The focused job exits two, as expected for the reported shell miss. This verdict does not relabel that exit as zero.
+
+### F164 — LOW — CLOSED: extraction limits
+
+The producer calls the retained scenario records complete retry/FLAKY records in its earlier notice.
+Its filter does not match the normal FLAKY 2/2 form and omits other status forms.
+The reviewer sends F164 directly to GS and explains why a global absence claim is unsupported.
+GS corrects the body without a source change or another execution job.
+
+The reviewer reads the complete current body at the exact current head and base.
+Body SHA256: `531729073fa2382994558ea08a7d8f7892a09683f1b8f71df19e65cf2e0843a5`.
+The body now calls the scenario records FILTERED and states the filter's limits explicitly.
+It does not claim that no test was FLAKY or retried from that filtered record.
+The catch proof rests on every catcher's recorded double failure, not on global absence of a filtered status.
+This closes F164. F162 closes on the positive named catch proof and the actual compile errors above.
+The original lost-record logs retain their earlier limits. No historical failure is erased or changed into a catch.
+F161's corrected source counts and explicit fixture scope remain exact in the complete current body.
+
+### Additional exact-head member gate
+
+GS supplies this completed gate before the reviewer publishes Round 208: `msg_plugin-w_1791850303_488b36`.
+Path: gates/botster-core-stage1-gs-gate-kit-57cb242f-pool-20261012-170702-93546.log.
+SHA256: `979d346cc5def815ec09fc6702b740f4a06e349c795e7d9bb8bf728716cae1e9`.
+The reviewer verifies the hash, exact current head/base, Linux msa1, capped command, step results, and catch records.
+All ten steps PASS. Default: 2109 passed/412 skipped, 15.958 seconds.
+Slow: 695 passed/2065 skipped, 45.796 seconds. Held-full: 96 passed/zero skipped, 24.183 seconds.
+The seven named real proofs pass. Strict: 281 passed/zero failed; 298 of 315 pending IDs run, with 17 real-only IDs not run.
+The four held IDs and unchanged list/pin scopes remain exact. The facade API matches its unchanged snapshot.
+CI total: 252.0 seconds. Job exit zero after 262 seconds; wrapper exit zero after 263 seconds.
+
+The gate selects the same 120 mutant identities and outcomes as the parent gate.
+It reports 118 caught, zero missed, zero timeout, and two unviable. Stage 2 has no missed mutant to test.
+All 118 raw catches equal the 118 citations. Every catching test has a normal PASS in this gate.
+The reviewer checks the full status forms and report lines. No FLAKY, retry, failed-test, or skipped-step result appears.
+The focused records above prove the unviable types and the renamed-file catches that this gate does not select.
+The reviewer reads the complete body update that adds this gate and changes no other claim.
+Updated body SHA256: `064555b4b15c1702d775ee8fd6e93db046e7ef0a13353cd993428be10fdab498`.
+The earlier complete body and this exact update supply the current body review.
+The supplied member gate is valid at 57cb242f. It does not become a gate of a later train head.
+
+### Source verdict and gate limits
+
+F161, F162, F163, and F164 are CLOSED. No package finding remains, including LOW.
+The source move, approved taint scan repair, moved tests, policy separation, and gate behavior are CLEAN at this head.
+The unchanged Core API, paths, lists, pins, and the earlier full-gate result keep their Round 207 scopes.
+The earlier full gate and all focused executions retain their exact 28a29d32 head.
+The new full member gate names 57cb242f and passes within the scope recorded above.
+
+The lead explicitly requires no new member gate for this train member.
+The train-12 gate must name the exact merged train head. The earlier member gate cannot replace that merging gate.
+Sol-C's matching source CLEAN, the applicable train delta and combined review, and the exact train gate remain due.
+Sol-C owns ONE final receipt for the whole train. The equal-tree and push checks remain due before merge acceptance.
+This verdict reports source CLEAN and accepts the supplied member records within their exact-head scopes.
+It supplies no future-base, train-gate, or merge acceptance.
+
+The reviewer runs no tests, builds, gates, mutants, reversals, measurements, or executable merge-check jobs.
+The reviewer changes no product code and spawns no agent. Read-only source and evidence comparisons supply this review.
+F28/F33/F39, F61/F62, Mac IN-6, #163, and later A24 remain separate.
+Next package round: 209. All earlier history remains preserved.
+
+VERDICT: CLEAN
