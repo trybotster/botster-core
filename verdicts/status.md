@@ -77,3 +77,9 @@ It reports origin/stage1/integration-review-3 equal to 5fdb0d8d. I retain that a
 The prior member and train status entries retain their historical scope.
 The exact train-12 gate, ONE final train receipt, and lead equal-tree/remote merge verification remain due.
 No new package round, redundant final receipt, execution job, or future composition is accepted here.
+
+Lead message `msg_plugin-w_1791851961_abf755` assigns Sol-C as integration reviewer of HIGH #332.
+Package reviewer: 0165. Delivery: train 13. #332 is outside frozen train 12.
+The lead requires review of the head P3 sends after the stale minimum-list documentation citation is fixed.
+The earlier READY head 987d8f76 is not accepted as the final review head.
+The #332 review awaits that corrected head and its complete applicable package verdict.
