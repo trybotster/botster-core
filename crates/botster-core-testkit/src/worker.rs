@@ -125,7 +125,7 @@ impl Machine for SharedWorker {
 struct Processes {
     /// The workers that this host spawned: it reaps them (their exits come to it only).
     cells: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
     /// The workers whose control link this host holds: the ones that it spawned and did not lose to an adoption, and the
     /// ones that it adopted (`edges_quiet` reads their links).
     links: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
@@ -175,12 +175,12 @@ impl ProcessTable {
 impl Processes {
     /// Ends the process `id` once and queues its exit for the host. The exit wakes that host, as a real exit does (TM-6): a
     /// worker can end by its own deadline while the host waits (R-97).
-    fn end(&mut self, id: ProcessIdentity, status: ExitStatus) {
+    fn end(&mut self, id: ProcessIdentity) {
         if let Some(cell) = self.cells.get(&id) {
             let mut cell = lock(cell);
             if !cell.ended {
                 cell.ended = true;
-                self.exits.push_back((id, status));
+                self.exits.push_back(id);
                 if let Some(wake) = &self.wake {
                     wake.signal();
                 }
@@ -692,7 +692,7 @@ impl Workers {
         let control = control_wake(&cell);
         let spawner = {
             let mut owner = lock(&owner);
-            owner.end(identity, ExitStatus::Signal(9));
+            owner.end(identity);
             owner.wake.clone()
         };
         for wake in [spawner, control].into_iter().flatten() {
@@ -1049,7 +1049,7 @@ impl Spawner for WorkerSpawner {
                     cell.terminate = true;
                 }
             }
-            GroupSignal::Kill => lock(&owner).end(identity, ExitStatus::Signal(9)),
+            GroupSignal::Kill => lock(&owner).end(identity),
         }
     }
 
@@ -1061,7 +1061,7 @@ impl Spawner for WorkerSpawner {
         }
     }
 
-    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_exit(&mut self) -> Option<ProcessIdentity> {
         lock(&self.processes).exits.pop_front()
     }
 
@@ -1744,13 +1744,13 @@ impl Binding<SharedWorker> for WorkerEdges {
                 cell.program = None;
             }
             Action::Exit => {
-                lock(&self.processes).end(self.id, ExitStatus::Code(0));
+                lock(&self.processes).end(self.id);
                 self.ended(true);
             }
-            // As the real driver's failed run: exit status 1 (`ExitCode::FAILURE`), and the end drops the payload, as the real
-            // payload's drop kills its group and reaps it.
+            // As the real driver's failed run: the worker process ends (the host reads no exit status, finding PB-W1), and the
+            // end drops the payload, as the real payload's drop kills its group and reaps it.
             Action::ExitFailure { .. } => {
-                lock(&self.processes).end(self.id, ExitStatus::Code(1));
+                lock(&self.processes).end(self.id);
                 self.ended(true);
             }
             Action::CandidateClose(id) => {

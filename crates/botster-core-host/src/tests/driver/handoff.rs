@@ -362,14 +362,9 @@ fn a_held_handoff_of_a_failed_start_closes_session_lost_after_lost() {
             2,
             "{first:?}: the driver's mark holds the stream"
         );
-        let exit = || {
-            (
-                ProcessIdentity {
-                    pid: 500,
-                    start_time: 1,
-                },
-                ExitStatus::Code(0),
-            )
+        let exit = || ProcessIdentity {
+            pid: 500,
+            start_time: 1,
         };
         match first {
             EndFirst::Process => rig.mock.lock().unwrap().exits.push(exit()),
@@ -662,13 +657,10 @@ fn a_held_handoff_of_a_stopping_session_closes_with_its_end_after_the_state() {
     with_link(&rig, |l| l.peer_closed = true);
     rig.pump();
     events.extend(rig.drain_events());
-    rig.mock.lock().unwrap().exits.push((
-        ProcessIdentity {
-            pid: 500,
-            start_time: 1,
-        },
-        ExitStatus::Code(0),
-    ));
+    rig.mock.lock().unwrap().exits.push(ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    });
     for _ in 0..8 {
         rig.pump();
         events.extend(rig.drain_events());

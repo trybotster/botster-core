@@ -30,7 +30,7 @@ use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{InstanceId, SessionId};
-use botster_core_edges::edges::{ExitStatus, ProcessIdentity};
+use botster_core_edges::edges::ProcessIdentity;
 use botster_core_host::LinkId;
 use botster_core_link::frame::{FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
@@ -254,7 +254,7 @@ pub struct ReportHolds {
     /// The worker process of each instance that the host spawned.
     workers: BTreeMap<ProcessIdentity, InstanceId>,
     /// The reaped exits of workers whose instance has an arm or a hold, in the order of their reap.
-    exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    exits: VecDeque<ProcessIdentity>,
 }
 
 impl ReportHolds {
@@ -399,13 +399,13 @@ impl ReportHolds {
     /// waits; it is given, in the order of the reaps, once the hold ends.
     pub fn poll_exit(
         &mut self,
-        mut poll: impl FnMut() -> Option<(ProcessIdentity, ExitStatus)>,
-    ) -> Option<(ProcessIdentity, ExitStatus)> {
-        if let Some(at) = self.exits.iter().position(|(id, _)| !self.exit_waits(*id)) {
+        mut poll: impl FnMut() -> Option<ProcessIdentity>,
+    ) -> Option<ProcessIdentity> {
+        if let Some(at) = self.exits.iter().position(|id| !self.exit_waits(*id)) {
             return self.exits.remove(at);
         }
         while let Some(exit) = poll() {
-            if !self.exit_waits(exit.0) {
+            if !self.exit_waits(exit) {
                 return Some(exit);
             }
             self.exits.push_back(exit);
@@ -419,7 +419,7 @@ impl ReportHolds {
         self.links
             .values()
             .any(|link| link.free() > 0 || (link.holding.is_none() && link.end.is_some()))
-            || self.exits.iter().any(|(id, _)| !self.exit_waits(*id))
+            || self.exits.iter().any(|id| !self.exit_waits(*id))
     }
 
     /// Whether a hold holds a frame of `link`: its later bytes and its end wait behind the frame, so they are no report, and
