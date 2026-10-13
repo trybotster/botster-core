@@ -1,7 +1,7 @@
 # The minimum Core: 71 ids (plan revision 23, approved by the orchestrator and the user on 2026-10-09; one id moved out in
 # revision 23v; on 2026-10-12 the orchestrator added lc_9_update_metadata_is_durable and ev_1_metadata_reaches_host, which
 # the approved minimum Hub needs).
-# Columns: id, clause, owning package. The reasons, by session step, are in docs/stage1-minimum-core.md.
+# Columns: id, clause, owning package. The reasons, by session step, are in docs/stage1-minimum-core.md on branch stage1/plan (596082d4).
 conf::a10_1_wrong_instance_is_never_signalled	A10-1	p5-adoption
 conf::a10_1_wrong_token_is_never_signalled	A10-1	p5-adoption
 conf::a10_2_corrupted_row_is_lost_registry_corrupt	A10-2	p5-adoption
