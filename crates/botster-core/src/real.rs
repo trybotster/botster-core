@@ -958,8 +958,11 @@ mod tests {
             "a link is not the directory itself"
         );
 
-        // The superuser creates in a read-only directory, so the create cannot fail there.
-        if !rustix::process::geteuid().is_root() {
+        // The superuser creates in a read-only directory, so the create cannot fail there: for root this check is skipped,
+        // with the reason printed.
+        if rustix::process::geteuid().is_root() {
+            eprintln!("skipped: root creates in a read-only directory, so the create's own error cannot occur");
+        } else {
             let closed = tempfile::tempdir().unwrap();
             std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o500))
                 .unwrap();
